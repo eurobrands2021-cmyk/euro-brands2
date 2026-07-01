@@ -9,11 +9,16 @@ const num = (x: number) =>
   (x ?? 0).toLocaleString("ar-EG", { maximumFractionDigits: 2 });
 const money = (x: number) => `${num(x)} ج.م`;
 
-function row(cells: string[], opts: { head?: boolean; strong?: number } = {}) {
+function row(
+  cells: string[],
+  opts: { head?: boolean; strong?: number; zebra?: boolean } = {}
+) {
   const tag = opts.head ? "th" : "td";
   const base = opts.head
-    ? "padding:8px 10px;background:#6c63ff;color:#fff;font-weight:700;text-align:right;"
-    : "padding:7px 10px;border-bottom:1px solid #e2e4ec;text-align:right;";
+    ? "padding:9px 10px;background:#1a1d2e;color:#fff;font-weight:700;text-align:right;font-size:11.5px;letter-spacing:0.2px;"
+    : `padding:7px 10px;border-bottom:1px solid #e2e4ec;text-align:right;${
+        opts.zebra ? "background:#f6f6fb;" : ""
+      }`;
   return `<tr>${cells
     .map(
       (c, i) =>
@@ -25,21 +30,49 @@ function row(cells: string[], opts: { head?: boolean; strong?: number } = {}) {
 }
 
 function table(headers: string[], rows: string[][]): string {
-  return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;">
+  return `<table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:8px;border:1px solid #e2e4ec;border-radius:8px;overflow:hidden;">
     <thead>${row(headers, { head: true })}</thead>
-    <tbody>${rows.map((r) => row(r)).join("")}</tbody>
+    <tbody>${rows
+      .map((r, i) => row(r, { zebra: i % 2 === 1 }))
+      .join("")}</tbody>
   </table>`;
 }
 
 function summaryCard(label: string, value: string, color: string): string {
-  return `<div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid ${color};border-radius:10px;padding:12px 14px;">
+  return `<div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid ${color};border-radius:10px;padding:12px 14px;background:#fbfbfe;">
     <div style="font-size:11px;color:#9295a8;">${label}</div>
     <div style="font-size:18px;font-weight:800;color:#1a1d2e;margin-top:4px;">${value}</div>
   </div>`;
 }
 
 function sectionTitle(t: string): string {
-  return `<h2 style="font-size:15px;font-weight:800;color:#1a1d2e;margin:22px 0 4px;border-right:4px solid #6c63ff;padding-right:8px;">${t}</h2>`;
+  return `<h2 style="font-size:15px;font-weight:800;color:#1a1d2e;margin:24px 0 4px;border-right:4px solid #6c63ff;padding-right:8px;">${t}</h2>`;
+}
+
+function sectionDivider(): string {
+  return `<div style="margin:22px 0 0;border-top:1px dashed #d8dae4;"></div>`;
+}
+
+// تذييل كل صفحة: رقم الصفحة وتاريخ الإصدار. يُستخدَم نصّ jsPDF الفعلي (لا صورة)
+// لذا يُكتب بحروف/أرقام لاتينية فقط — الخط الافتراضي في jsPDF لا يدعم العربية.
+export function addPageFooters(pdf: jsPDF) {
+  const pageW = pdf.internal.pageSize.getWidth();
+  const pageH = pdf.internal.pageSize.getHeight();
+  const totalPages = pdf.getNumberOfPages();
+  const stamp = format(new Date(), "yyyy-MM-dd HH:mm");
+
+  for (let i = 1; i <= totalPages; i++) {
+    pdf.setPage(i);
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(8);
+    pdf.setTextColor(150, 152, 168);
+    pdf.setDrawColor(226, 228, 236);
+    pdf.line(28, pageH - 26, pageW - 28, pageH - 26);
+    pdf.text(`Euro Brands  |  Generated ${stamp}`, 28, pageH - 14);
+    pdf.text(`Page ${i} / ${totalPages}`, pageW - 28, pageH - 14, {
+      align: "right",
+    });
+  }
 }
 
 function buildReportHtml(
@@ -57,19 +90,21 @@ function buildReportHtml(
   const discountPct = data.grossSales
     ? (data.discountTotal / data.grossSales) * 100
     : 0;
+  const topProduct = data.topProducts[0] ?? null;
 
   el.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #6c63ff;padding-bottom:14px;">
-      <div style="display:flex;align-items:center;gap:10px;">
-        <div style="width:42px;height:42px;border-radius:10px;background:#6c63ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;">EB</div>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #6c63ff;padding-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:48px;height:48px;border-radius:12px;background:#6c63ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px;">EB</div>
         <div>
-          <div style="font-size:20px;font-weight:800;color:#6c63ff;">Euro Brands</div>
-          <div style="font-size:12px;color:#9295a8;">تقرير المبيعات والمخزون</div>
+          <div style="font-size:23px;font-weight:800;color:#1a1d2e;">Euro Brands</div>
+          <div style="font-size:12.5px;color:#6c63ff;font-weight:700;margin-top:1px;">تقرير المبيعات والمخزون</div>
         </div>
       </div>
-      <div style="text-align:left;font-size:12px;color:#9295a8;">
-        <div>الفترة: ${fromD} — ${toD}</div>
-        <div>تاريخ التقرير: ${format(new Date(), "yyyy/MM/dd HH:mm")}</div>
+      <div style="text-align:left;font-size:12px;color:#5b5e6e;line-height:1.6;">
+        <div><strong style="color:#1a1d2e;">الفرع:</strong> كل الفروع</div>
+        <div><strong style="color:#1a1d2e;">الفترة:</strong> ${fromD} — ${toD}</div>
+        <div><strong style="color:#1a1d2e;">تاريخ التقرير:</strong> ${format(new Date(), "yyyy/MM/dd HH:mm")}</div>
       </div>
     </div>
 
@@ -81,6 +116,11 @@ function buildReportHtml(
       ${summaryCard("القطع المباعة", num(data.itemsSold), "#3b9a6e")}
       ${summaryCard("متوسط الفاتورة", money(data.avgInvoice), "#6c63ff")}
       ${summaryCard("الرصيد المتبقي", money(data.remainingTotal), "#c9851a")}
+      ${
+        topProduct
+          ? summaryCard("المنتج الأكثر مبيعاً", `${topProduct.name} (${num(topProduct.qty)})`, "#3b9a6e")
+          : ""
+      }
     </div>
 
     ${sectionTitle("ملخّص الخصومات")}
@@ -90,6 +130,7 @@ function buildReportHtml(
       ${summaryCard("نسبة الخصم من المبيعات", `${num(discountPct)}%`, "#c9851a")}
     </div>
 
+    ${sectionDivider()}
     ${sectionTitle("مقارنة الفروع")}
     ${table(
       ["الفرع", "عدد الفواتير", "الإجمالي"],
@@ -120,6 +161,7 @@ function buildReportHtml(
         : ""
     }
 
+    ${sectionDivider()}
     ${sectionTitle("أفضل 5 منتجات مبيعاً")}
     ${
       data.topProducts.length
@@ -141,6 +183,7 @@ function buildReportHtml(
         : ""
     }
 
+    ${sectionDivider()}
     ${sectionTitle("إحصائيات التوصيل")}
     ${table(
       ["البيان", "القيمة"],
@@ -169,7 +212,7 @@ function buildReportHtml(
         : `<p style="font-size:12px;color:#9295a8;">لا توجد أصناف منخفضة الكمية.</p>`
     }
 
-    <div style="margin-top:26px;border-top:1px solid #e2e4ec;padding-top:10px;font-size:10px;color:#9295a8;text-align:center;">
+    <div style="margin-top:26px;border-top:2px solid #6c63ff;padding-top:10px;font-size:10px;color:#9295a8;text-align:center;">
       Euro Brands — تم إنشاء هذا التقرير آلياً
     </div>
   `;
@@ -207,6 +250,7 @@ export async function generateReportPdf(
       remaining -= pageH;
     }
 
+    addPageFooters(pdf);
     pdf.save(`euro-brands-report-${format(new Date(), "yyyy-MM-dd")}.pdf`);
   } finally {
     document.body.removeChild(el);

@@ -133,6 +133,16 @@ export function sizesForCategory(category: CategoryValue): readonly string[] {
   return CLOTHING_SIZES;
 }
 
+// حالة تحويل المخزون بين الفروع
+export const STOCK_TRANSFER_STATUSES = ["PENDING", "COMPLETED", "CANCELLED"] as const;
+export type StockTransferStatusValue = (typeof STOCK_TRANSFER_STATUSES)[number];
+
+export const STOCK_TRANSFER_STATUS_LABELS: Record<StockTransferStatusValue, string> = {
+  PENDING: "قيد الانتظار",
+  COMPLETED: "مكتمل",
+  CANCELLED: "ملغي",
+};
+
 export const CURRENCY = "ج.م";
 export const LOW_STOCK_THRESHOLD = 3; // عتبة تحذير قلة المخزون
 

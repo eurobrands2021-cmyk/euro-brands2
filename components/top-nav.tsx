@@ -16,6 +16,7 @@ import {
   X,
   LogOut,
   Users,
+  ArrowLeftRight,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/client";
@@ -45,6 +46,12 @@ const NAV_ITEMS: {
     roles: ["ADMIN"],
   },
   { href: "/inventory", label: "المخزون", icon: Package, roles: ["ADMIN"] },
+  {
+    href: "/transfers",
+    label: "التحويلات",
+    icon: ArrowLeftRight,
+    roles: ["ADMIN"],
+  },
   {
     href: "/pos",
     label: "الفاتورة",

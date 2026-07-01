@@ -31,6 +31,10 @@ import {
   mockDashboard,
   mockReports,
   mockUploadUrl,
+  mockListTransfers,
+  mockGetTransfer,
+  mockCreateTransfer,
+  mockUpdateTransferStatus,
 } from "./mock-store";
 import {
   parseActivityInput,
@@ -42,6 +46,8 @@ import {
   parseProductInput,
   parseProductTypeInput,
   parseSaleInput,
+  parseStockTransferInput,
+  parseStockTransferStatusInput,
 } from "./validate";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
@@ -189,6 +195,30 @@ export async function mockApi<T>(
     const dto = mockGetSale(decodeURIComponent(saleMatch[1]));
     if (!dto) throw new Error("الفاتورة غير موجودة");
     return dto as T;
+  }
+
+  // /api/transfers
+  if (path === "/api/transfers") {
+    if (method === "GET") return mockListTransfers(sp) as T;
+    if (method === "POST")
+      return mockCreateTransfer(parseStockTransferInput(body)) as T;
+  }
+
+  // /api/transfers/[id]
+  const transferMatch = path.match(/^\/api\/transfers\/([^/]+)$/);
+  if (transferMatch) {
+    const id = decodeURIComponent(transferMatch[1]);
+    if (method === "GET") {
+      const dto = mockGetTransfer(id);
+      if (!dto) throw new Error("التحويل غير موجود");
+      return dto as T;
+    }
+    if (method === "PUT") {
+      const status = parseStockTransferStatusInput(body);
+      const res = mockUpdateTransferStatus(id, status);
+      if (!res.ok) throw new Error(res.error);
+      return res.transfer as T;
+    }
   }
 
   // /api/low-stock

@@ -7,8 +7,10 @@ import type {
   ProductVariant,
   Sale,
   SaleItem,
+  StockTransfer,
+  StockTransferItem,
 } from "@prisma/client";
-import type { BranchValue, CategoryValue } from "./constants";
+import type { BranchValue, CategoryValue, StockTransferStatusValue } from "./constants";
 import type {
   ActivityLogDTO,
   BrandDTO,
@@ -16,6 +18,7 @@ import type {
   ProductDTO,
   ProductTypeDTO,
   SaleDTO,
+  StockTransferDTO,
   VariantDTO,
 } from "./types";
 
@@ -150,5 +153,39 @@ export function toSaleDTO(s: SaleWithItems): SaleDTO {
       sku: it.variant.sku ?? null,
     })),
     itemsCount: s.items.reduce((sum, it) => sum + it.quantity, 0),
+  };
+}
+
+type StockTransferItemWithRefs = StockTransferItem & {
+  product: { name: string; brand: string };
+  variant: { sku: string | null; quantity: number };
+};
+type StockTransferWithItems = StockTransfer & {
+  items: StockTransferItemWithRefs[];
+};
+
+export function toStockTransferDTO(t: StockTransferWithItems): StockTransferDTO {
+  return {
+    id: t.id,
+    fromBranch: t.fromBranch as BranchValue,
+    toBranch: t.toBranch as BranchValue,
+    status: t.status as StockTransferStatusValue,
+    notes: t.notes ?? null,
+    createdBy: t.createdBy ?? null,
+    createdAt: t.createdAt.toISOString(),
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+    items: t.items.map((it) => ({
+      id: it.id,
+      productId: it.productId,
+      variantId: it.variantId,
+      size: it.size,
+      color: it.color ?? null,
+      quantity: it.quantity,
+      productName: it.product.name,
+      brand: it.product.brand,
+      sku: it.variant.sku ?? null,
+      availableQuantity: it.variant.quantity,
+    })),
+    itemsCount: t.items.reduce((sum, it) => sum + it.quantity, 0),
   };
 }

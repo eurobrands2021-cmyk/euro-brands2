@@ -8,6 +8,7 @@ import type {
   PaymentMethodValue,
   TransferMethodValue,
   SaleStatusValue,
+  StockTransferStatusValue,
 } from "./constants";
 
 // الأنواع المشتركة بين الواجهة والـ API (نسخة قابلة للتسلسل JSON)
@@ -264,6 +265,46 @@ export interface ActivityLogInput {
   userRole: string;
   action: string;
   details?: string | null;
+}
+
+// تحويل المخزون بين الفروع
+export interface StockTransferItemDTO {
+  id: string;
+  productId: string;
+  variantId: string;
+  size: string;
+  color: string | null;
+  quantity: number;
+  productName: string;
+  brand: string;
+  sku: string | null;
+  availableQuantity: number; // الكمية المتاحة حالياً في فرع المصدر
+}
+
+export interface StockTransferDTO {
+  id: string;
+  fromBranch: BranchValue;
+  toBranch: BranchValue;
+  status: StockTransferStatusValue;
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  completedAt: string | null;
+  items: StockTransferItemDTO[];
+  itemsCount: number;
+}
+
+export interface StockTransferItemInput {
+  variantId: string;
+  quantity: number;
+}
+
+export interface StockTransferInput {
+  fromBranch: BranchValue;
+  toBranch: BranchValue;
+  notes?: string | null;
+  createdBy?: string | null;
+  items: StockTransferItemInput[];
 }
 
 // إحصائيات لوحة التحكم — موحّدة (الرئيسية + التقارير)

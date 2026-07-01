@@ -5,6 +5,7 @@ import {
   TRANSFER_METHOD_LABELS,
   SALE_STATUS_LABELS,
 } from "@/lib/constants";
+import { addPageFooters } from "@/lib/pdf/report-pdf";
 import type { SaleDTO } from "@/lib/types";
 
 export interface SalesSummary {
@@ -140,14 +141,16 @@ export async function generateSalesPdf(sales: SaleDTO[], summary: SalesSummary) 
     "font-family:var(--font-tajawal),Tajawal,sans-serif;padding:28px;box-sizing:border-box;";
 
   const rowsHtml = sales
-    .map(
-      (s) => `<tr style="${
+    .map((s, i) => {
+      const tone =
         s.status === "CANCELLED"
           ? "background:#fdeaea;"
           : s.remainingAmount > 0
             ? "background:#fdf5e6;"
-            : ""
-      }">
+            : i % 2 === 1
+              ? "background:#f6f6fb;"
+              : "";
+      return `<tr style="${tone}">
       <td style="padding:6px 8px;border-bottom:1px solid #e2e4ec;">#${s.saleNumber}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e4ec;">${format(new Date(s.createdAt), "yyyy/MM/dd")}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e4ec;">${BRANCH_LABELS[s.branch]}</td>
@@ -156,31 +159,55 @@ export async function generateSalesPdf(sales: SaleDTO[], summary: SalesSummary) 
       <td style="padding:6px 8px;border-bottom:1px solid #e2e4ec;">${SALE_STATUS_LABELS[s.status]}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e4ec;">${money(s.finalAmount)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e4ec;">${s.remainingAmount > 0 ? money(s.remainingAmount) : "—"}</td>
-    </tr>`
-    )
+    </tr>`;
+    })
     .join("");
 
   el.innerHTML = `
-    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #6c63ff;padding-bottom:12px;margin-bottom:14px;">
-      <div style="font-size:20px;font-weight:800;color:#6c63ff;">Euro Brands — سجل الفواتير</div>
-      <div style="font-size:11px;color:#9295a8;">${format(new Date(), "yyyy/MM/dd HH:mm")}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #6c63ff;padding-bottom:14px;margin-bottom:16px;">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="width:44px;height:44px;border-radius:11px;background:#6c63ff;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:17px;">EB</div>
+        <div>
+          <div style="font-size:21px;font-weight:800;color:#1a1d2e;">Euro Brands</div>
+          <div style="font-size:12px;color:#6c63ff;font-weight:700;">سجل الفواتير</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#9295a8;">تاريخ الإصدار: ${format(new Date(), "yyyy/MM/dd HH:mm")}</div>
     </div>
-    <div style="display:flex;flex-wrap:wrap;gap:14px;font-size:12px;margin-bottom:14px;">
-      <span><b>إجمالي المبيعات:</b> ${money(summary.totalSales)}</span>
-      <span><b>عدد الفواتير:</b> ${num(summary.count)}</span>
-      <span><b>الخصومات:</b> ${money(summary.discounts)}</span>
-      <span><b>الرصيد المتبقي:</b> ${money(summary.remaining)}</span>
-      <span style="color:#d9534f;"><b>الملغية:</b> ${num(summary.cancelledCount)} (${money(summary.cancelledValue)})</span>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;">
+      <div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid #6c63ff;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10.5px;color:#9295a8;">إجمالي المبيعات</div>
+        <div style="font-size:15px;font-weight:800;color:#1a1d2e;margin-top:2px;">${money(summary.totalSales)}</div>
+      </div>
+      <div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid #3b9a6e;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10.5px;color:#9295a8;">عدد الفواتير</div>
+        <div style="font-size:15px;font-weight:800;color:#1a1d2e;margin-top:2px;">${num(summary.count)}</div>
+      </div>
+      <div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid #c9851a;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10.5px;color:#9295a8;">إجمالي الخصومات</div>
+        <div style="font-size:15px;font-weight:800;color:#1a1d2e;margin-top:2px;">${money(summary.discounts)}</div>
+      </div>
+      <div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid #c9851a;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10.5px;color:#9295a8;">الرصيد المتبقي</div>
+        <div style="font-size:15px;font-weight:800;color:#1a1d2e;margin-top:2px;">${money(summary.remaining)}</div>
+      </div>
+      <div style="flex:1;min-width:140px;border:1px solid #e2e4ec;border-top:3px solid #d9534f;border-radius:10px;padding:10px 12px;">
+        <div style="font-size:10.5px;color:#9295a8;">فواتير ملغية</div>
+        <div style="font-size:15px;font-weight:800;color:#d9534f;margin-top:2px;">${num(summary.cancelledCount)} (${money(summary.cancelledValue)})</div>
+      </div>
     </div>
-    <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:right;">
-      <thead><tr style="background:#6c63ff;color:#fff;">
-        <th style="padding:7px 8px;">رقم</th><th style="padding:7px 8px;">التاريخ</th>
-        <th style="padding:7px 8px;">الفرع</th><th style="padding:7px 8px;">العميل</th>
-        <th style="padding:7px 8px;">الدفع</th><th style="padding:7px 8px;">الحالة</th>
-        <th style="padding:7px 8px;">الصافي</th><th style="padding:7px 8px;">المتبقي</th>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;text-align:right;border:1px solid #e2e4ec;border-radius:8px;overflow:hidden;">
+      <thead><tr style="background:#1a1d2e;color:#fff;">
+        <th style="padding:8px;">رقم</th><th style="padding:8px;">التاريخ</th>
+        <th style="padding:8px;">الفرع</th><th style="padding:8px;">العميل</th>
+        <th style="padding:8px;">الدفع</th><th style="padding:8px;">الحالة</th>
+        <th style="padding:8px;">الصافي</th><th style="padding:8px;">المتبقي</th>
       </tr></thead>
       <tbody>${rowsHtml}</tbody>
-    </table>`;
+    </table>
+    <div style="margin-top:20px;border-top:2px solid #6c63ff;padding-top:8px;font-size:10px;color:#9295a8;text-align:center;">
+      Euro Brands — تم إنشاء هذا التقرير آلياً
+    </div>`;
 
   document.body.appendChild(el);
   try {
@@ -201,6 +228,7 @@ export async function generateSalesPdf(sales: SaleDTO[], summary: SalesSummary) 
       pdf.addImage(imgData, "PNG", 0, position, imgW, imgH);
       remaining -= pageH;
     }
+    addPageFooters(pdf);
     pdf.save(`euro-brands-sales-${format(new Date(), "yyyy-MM-dd")}.pdf`);
   } finally {
     document.body.removeChild(el);

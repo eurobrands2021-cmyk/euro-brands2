@@ -19,6 +19,7 @@ import {
   type DiscountTypeValue,
   type OrderSourceValue,
   type PaymentMethodValue,
+  type StockTransferStatusValue,
   type TransferMethodValue,
   type SaleStatusValue,
 } from "./constants";
@@ -43,6 +44,8 @@ import type {
   ReportsData,
   SaleDTO,
   SaleInput,
+  StockTransferDTO,
+  StockTransferInput,
   VariantDTO,
 } from "./types";
 import { buildVariantSku, uniquifySku } from "./sku";
@@ -154,6 +157,27 @@ interface MCustomer {
   updatedAt: Date;
 }
 
+interface MTransferItem {
+  id: string;
+  transferId: string;
+  productId: string;
+  variantId: string;
+  size: string;
+  color: string | null;
+  quantity: number;
+}
+interface MTransfer {
+  id: string;
+  fromBranch: BranchValue;
+  toBranch: BranchValue;
+  status: StockTransferStatusValue;
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+  completedAt: Date | null;
+  items: MTransferItem[];
+}
+
 interface Store {
   products: MProduct[];
   sales: MSale[];
@@ -161,6 +185,7 @@ interface Store {
   productTypes: MProductType[];
   activityLogs: MActivityLog[];
   customers: MCustomer[];
+  transfers: MTransfer[];
   seq: number;
 }
 
@@ -189,6 +214,7 @@ function buildStore(): Store {
     productTypes: [],
     activityLogs: [],
     customers: [],
+    transfers: [],
     seq: 0,
   };
   const id = (p: string) => `${p}_${++store.seq}`;
@@ -1708,6 +1734,182 @@ export function mockCancelSale(
   sale.status = "CANCELLED";
   sale.cancellationReason = reason || "—";
   return { ok: true, sale: shapeSale(sale) };
+}
+
+// ----------------------------------------------------
+//  تحويلات المخزون بين الفروع
+// ----------------------------------------------------
+function shapeTransfer(t: MTransfer): StockTransferDTO {
+  return {
+    id: t.id,
+    fromBranch: t.fromBranch,
+    toBranch: t.toBranch,
+    status: t.status,
+    notes: t.notes,
+    createdBy: t.createdBy,
+    createdAt: t.createdAt.toISOString(),
+    completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+    items: t.items.map((it) => {
+      const ref = findVariant(it.variantId);
+      return {
+        id: it.id,
+        productId: it.productId,
+        variantId: it.variantId,
+        size: it.size,
+        color: it.color,
+        quantity: it.quantity,
+        productName: ref?.product.name ?? "—",
+        brand: ref?.product.brand ?? "",
+        sku: ref?.variant.sku ?? null,
+        availableQuantity: ref?.variant.quantity ?? 0,
+      };
+    }),
+    itemsCount: t.items.reduce((sum, it) => sum + it.quantity, 0),
+  };
+}
+
+export function mockListTransfers(sp: URLSearchParams): StockTransferDTO[] {
+  const branch = sp.get("branch") as BranchValue | null;
+  const status = sp.get("status") as StockTransferStatusValue | null;
+  const from = sp.get("from") ? new Date(sp.get("from")!) : null;
+  const to = sp.get("to") ? new Date(sp.get("to")!) : null;
+
+  let list = [...store.transfers];
+  if (branch)
+    list = list.filter((t) => t.fromBranch === branch || t.toBranch === branch);
+  if (status) list = list.filter((t) => t.status === status);
+  if (from) list = list.filter((t) => t.createdAt >= from);
+  if (to) list = list.filter((t) => t.createdAt <= to);
+
+  return list
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map(shapeTransfer);
+}
+
+export function mockGetTransfer(id: string): StockTransferDTO | null {
+  const t = store.transfers.find((x) => x.id === id);
+  return t ? shapeTransfer(t) : null;
+}
+
+export function mockCreateTransfer(input: StockTransferInput): StockTransferDTO {
+  const items: MTransferItem[] = input.items.map((it) => {
+    const ref = findVariant(it.variantId);
+    if (!ref) throw new ValidationError("أحد الأصناف لم يعد متاحاً في المخزون");
+    if (ref.variant.branch !== input.fromBranch)
+      throw new ValidationError(
+        `الصنف "${ref.product.name}" لا ينتمي لفرع المصدر`
+      );
+    if (ref.variant.quantity < it.quantity)
+      throw new ValidationError(
+        `الكمية غير كافية من "${ref.product.name}" مقاس ${ref.variant.size} (المتاح: ${ref.variant.quantity})`
+      );
+    return {
+      id: nextId("ti"),
+      transferId: "",
+      productId: ref.product.id,
+      variantId: it.variantId,
+      size: ref.variant.size,
+      color: ref.variant.color,
+      quantity: it.quantity,
+    };
+  });
+
+  const transferId = nextId("t");
+  for (const it of items) it.transferId = transferId;
+
+  const transfer: MTransfer = {
+    id: transferId,
+    fromBranch: input.fromBranch,
+    toBranch: input.toBranch,
+    status: "PENDING",
+    notes: input.notes ?? null,
+    createdBy: input.createdBy ?? null,
+    createdAt: new Date(),
+    completedAt: null,
+    items,
+  };
+  store.transfers.unshift(transfer);
+  return shapeTransfer(transfer);
+}
+
+export function mockUpdateTransferStatus(
+  id: string,
+  status: "COMPLETED" | "CANCELLED"
+):
+  | { ok: true; transfer: StockTransferDTO }
+  | { ok: false; status: number; error: string } {
+  const transfer = store.transfers.find((t) => t.id === id);
+  if (!transfer) return { ok: false, status: 404, error: "التحويل غير موجود" };
+  if (transfer.status !== "PENDING")
+    return {
+      ok: false,
+      status: 409,
+      error: "لا يمكن تعديل تحويل تم إتمامه أو إلغاؤه من قبل",
+    };
+
+  if (status === "COMPLETED") {
+    // إعادة فحص الكميات المتاحة لحظة الإتمام
+    for (const item of transfer.items) {
+      const ref = findVariant(item.variantId);
+      if (!ref || ref.variant.quantity < item.quantity) {
+        return {
+          ok: false,
+          status: 422,
+          error: `الكمية غير كافية من "${ref?.product.name ?? "صنف"}" مقاس ${item.size} في فرع المصدر (المتاح: ${ref?.variant.quantity ?? 0})`,
+        };
+      }
+    }
+
+    const takenSku = new Set<string>(
+      store.products.flatMap((p) =>
+        p.variants.map((v) => v.sku ?? "").filter(Boolean)
+      )
+    );
+
+    for (const item of transfer.items) {
+      const ref = findVariant(item.variantId)!;
+      ref.variant.quantity -= item.quantity;
+
+      const product = store.products.find((p) => p.id === item.productId)!;
+      const targetVariant = product.variants.find(
+        (v) =>
+          v.size === item.size &&
+          (v.color ?? null) === item.color &&
+          v.branch === transfer.toBranch
+      );
+      if (targetVariant) {
+        targetVariant.quantity += item.quantity;
+      } else {
+        const type = findProductType(product.productTypeId);
+        const sku = uniquifySku(
+          buildVariantSku({
+            productId: item.productId,
+            typeCode: type?.code ?? null,
+            size: item.size,
+            branch: transfer.toBranch,
+            color: item.color,
+          }),
+          takenSku
+        );
+        product.variants.push({
+          id: nextId("v"),
+          productId: item.productId,
+          size: item.size,
+          color: item.color,
+          quantity: item.quantity,
+          minQuantity: ref.variant.minQuantity,
+          branch: transfer.toBranch,
+          price: ref.variant.price,
+          sku,
+          skuManual: false,
+        });
+      }
+    }
+  }
+
+  transfer.status = status;
+  transfer.completedAt = status === "COMPLETED" ? new Date() : null;
+  return { ok: true, transfer: shapeTransfer(transfer) };
 }
 
 // ----------------------------------------------------

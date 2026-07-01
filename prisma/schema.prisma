@@ -66,6 +66,12 @@ enum DeliveryStatus {
   RETURNED // مرتجع
 }
 
+enum TransferStatus {
+  PENDING // قيد الانتظار
+  COMPLETED // مكتمل
+  CANCELLED // ملغي
+}
+
 // ----------------------------------------------------
 //  Models
 // ----------------------------------------------------
@@ -83,8 +89,9 @@ model Product {
   productTypeId String?
   productType   ProductType? @relation(fields: [productTypeId], references: [id], onDelete: SetNull)
 
-  variants  ProductVariant[]
-  saleItems SaleItem[]
+  variants      ProductVariant[]
+  saleItems     SaleItem[]
+  transferItems StockTransferItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -134,7 +141,8 @@ model ProductVariant {
   sku         String? @unique // كود الصنف (يولَّد تلقائياً أو يُدخَل يدوياً)
   skuManual   Boolean @default(false) // علامة أن المستخدم عدّل الكود يدوياً (لا يُعاد توليده)
 
-  saleItems SaleItem[]
+  saleItems     SaleItem[]
+  transferItems StockTransferItem[]
 
   @@unique([productId, size, branch, color])
   @@index([productId])
@@ -232,4 +240,45 @@ model ActivityLog {
 
   @@index([createdAt])
   @@index([userName])
+}
+
+// تحويل مخزون بين الفروع
+model StockTransfer {
+  id         String         @id @default(cuid())
+  fromBranch Branch
+  toBranch   Branch
+  status     TransferStatus @default(PENDING)
+  notes      String?
+  createdBy  String? // اسم الكاشير/المدير الذي أنشأ التحويل
+
+  items StockTransferItem[]
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  @@index([fromBranch])
+  @@index([toBranch])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model StockTransferItem {
+  id         String        @id @default(cuid())
+  transferId String
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id])
+
+  size     String
+  color    String?
+  quantity Int
+
+  createdAt DateTime @default(now())
+
+  @@index([transferId])
+  @@index([productId])
 }

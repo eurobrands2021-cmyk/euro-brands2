@@ -14,6 +14,9 @@ export const ACTIVITY_ACTIONS = {
   UPDATE_PRODUCT: "تعديل منتج",
   DELETE_PRODUCT: "حذف منتج",
   DELIVERY_STATUS: "تغيير حالة توصيل",
+  CREATE_TRANSFER: "إنشاء تحويل مخزون",
+  COMPLETE_TRANSFER: "إتمام تحويل مخزون",
+  CANCEL_TRANSFER: "إلغاء تحويل مخزون",
 } as const;
 
 export type ActivityAction =

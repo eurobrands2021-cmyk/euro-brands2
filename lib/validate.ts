@@ -6,6 +6,7 @@ import {
   DISCOUNT_TYPES,
   ORDER_SOURCES,
   PAYMENT_METHODS,
+  STOCK_TRANSFER_STATUSES,
   TRANSFER_METHODS,
   type BranchValue,
   type CategoryValue,
@@ -13,6 +14,7 @@ import {
   type DeliveryStatusValue,
   type OrderSourceValue,
   type PaymentMethodValue,
+  type StockTransferStatusValue,
   type TransferMethodValue,
 } from "./constants";
 import { isCompleteEgyPhone, digitsOnly } from "./input-validators";
@@ -26,6 +28,7 @@ import type {
   ProductInput,
   ProductTypeInput,
   SaleInput,
+  StockTransferInput,
   VariantInput,
 } from "./types";
 
@@ -355,4 +358,53 @@ export function parseDeliveryStatus(body: any): DeliveryStatusValue {
   if (!DELIVERY_STATUSES.includes(status as DeliveryStatusValue))
     throw new ValidationError("الحالة غير صحيحة");
   return status as DeliveryStatusValue;
+}
+
+// التحقق من مدخلات تحويل المخزون بين الفروع
+export function parseStockTransferInput(body: any): StockTransferInput {
+  const fromBranch = asString(body?.fromBranch);
+  const toBranch = asString(body?.toBranch);
+  if (!BRANCHES.includes(fromBranch as BranchValue))
+    throw new ValidationError("يجب اختيار فرع المصدر");
+  if (!BRANCHES.includes(toBranch as BranchValue))
+    throw new ValidationError("يجب اختيار فرع الوجهة");
+  if (fromBranch === toBranch)
+    throw new ValidationError("فرع المصدر والوجهة يجب أن يكونا مختلفين");
+
+  const rawItems = Array.isArray(body?.items) ? body.items : [];
+  if (rawItems.length === 0)
+    throw new ValidationError("أضف صنفاً واحداً على الأقل للتحويل");
+
+  const merged = new Map<string, number>();
+  for (const it of rawItems) {
+    const variantId = asString(it?.variantId);
+    const quantity = Number(it?.quantity);
+    if (!variantId) throw new ValidationError("عنصر غير صحيح في التحويل");
+    if (!Number.isFinite(quantity) || quantity <= 0)
+      throw new ValidationError("الكمية غير صحيحة في أحد الأصناف");
+    merged.set(variantId, (merged.get(variantId) ?? 0) + Math.floor(quantity));
+  }
+
+  return {
+    fromBranch: fromBranch as BranchValue,
+    toBranch: toBranch as BranchValue,
+    notes: asString(body?.notes) || null,
+    createdBy: asString(body?.createdBy) || null,
+    items: [...merged.entries()].map(([variantId, quantity]) => ({
+      variantId,
+      quantity,
+    })),
+  };
+}
+
+// التحقق من تحديث حالة التحويل (إتمام أو إلغاء فقط)
+export function parseStockTransferStatusInput(
+  body: any
+): "COMPLETED" | "CANCELLED" {
+  const status = asString(body?.status);
+  if (!STOCK_TRANSFER_STATUSES.includes(status as StockTransferStatusValue))
+    throw new ValidationError("الحالة غير صحيحة");
+  if (status !== "COMPLETED" && status !== "CANCELLED")
+    throw new ValidationError("لا يمكن تعيين هذه الحالة مباشرةً");
+  return status;
 }
