@@ -249,7 +249,9 @@ export function ForgotPasswordModal({
             {CASHIER_PASSWORD}
           </div>
           <button
-            onClick={() => useRevealedPassword(CASHIER_PASSWORD, cashierName.trim())}
+            onClick={() =>
+              applyRecoveredPassword(CASHIER_PASSWORD, cashierName.trim())
+            }
             className="btn btn-primary mt-2 w-full"
           >
             <ArrowRight className="h-4 w-4" />
@@ -347,7 +349,7 @@ export function ForgotPasswordModal({
             {ADMIN_PASSWORD}
           </div>
           <button
-            onClick={() => useRevealedPassword(ADMIN_PASSWORD)}
+            onClick={() => applyRecoveredPassword(ADMIN_PASSWORD)}
             className="btn btn-primary mt-2 w-full"
           >
             <ArrowRight className="h-4 w-4" />
