@@ -3,14 +3,18 @@ import {
   endOfDay,
   subDays,
   eachDayOfInterval,
+  startOfWeek,
   format,
   setHours,
 } from "date-fns";
 import { calcDiscount, round2 } from "./sale-utils";
 import {
   BRANCHES,
+  CATEGORIES,
   DEFAULT_PRODUCT_TYPES,
   LOW_STOCK_THRESHOLD,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
   RENAMED_PRODUCT_TYPES,
   type BranchValue,
   type CategoryValue,
@@ -2160,56 +2164,86 @@ export function mockReports(sp: URLSearchParams): ReportsData {
 
   const branchMap = new Map<BranchValue, { total: number; count: number }>();
   for (const b of BRANCHES) branchMap.set(b, { total: 0, count: 0 });
-
   const categoryMap = new Map<CategoryValue, { total: number; qty: number }>();
+  const brandSalesMap = new Map<string, { qty: number; revenue: number }>();
   const productMap = new Map<
     string,
-    {
-      name: string;
-      brand: string;
-      qty: number;
-      revenue: number;
-      image: string | null;
-    }
+    { name: string; brand: string; qty: number; revenue: number; cost: number; image: string | null }
   >();
-  const customerMap = new Map<
-    string,
-    { name: string; phone: string | null; total: number; count: number }
-  >();
+  const cashierMap = new Map<string, { count: number; total: number; max: number }>();
+  const paymentMap = new Map<PaymentMethodValue, { total: number; count: number }>();
+  for (const m of PAYMENT_METHODS) paymentMap.set(m, { total: 0, count: 0 });
+  const sizeMap = new Map<CategoryValue, Map<string, number>>();
+  for (const c of CATEGORIES) sizeMap.set(c, new Map());
 
-  const dayBuckets = new Map<string, number>();
+  const dayBuckets = new Map<string, { total: number; count: number }>();
   for (const d of eachDayOfInterval({ start: from, end: to }))
-    dayBuckets.set(format(d, "yyyy-MM-dd"), 0);
+    dayBuckets.set(format(d, "yyyy-MM-dd"), { total: 0, count: 0 });
+  const weekBuckets = new Map<string, { total: number; count: number }>();
 
   let totalSales = 0;
   let grossSales = 0;
-  let discountedCount = 0;
+  let discountCount = 0;
   let itemsSold = 0;
+  let deliveryCount = 0;
+  let deliveryTotal = 0;
+  let pickupCount = 0;
+  let pickupTotal = 0;
+  let maxInvoice: ReportsData["maxInvoice"] = null;
 
   for (const sale of inRange) {
     totalSales += sale.finalAmount;
     grossSales += sale.totalAmount;
-    if (sale.totalAmount - sale.finalAmount > 0.001) discountedCount++;
-    const cname = (sale.customerName ?? "").trim();
-    if (cname) {
-      const ck = `${cname}|${sale.customerPhone ?? ""}`;
-      const cust = customerMap.get(ck) ?? {
-        name: cname,
-        phone: sale.customerPhone ?? null,
-        total: 0,
-        count: 0,
+    if (sale.totalAmount - sale.finalAmount > 0.001) discountCount++;
+
+    if (!maxInvoice || sale.finalAmount > maxInvoice.amount) {
+      maxInvoice = {
+        saleNumber: sale.saleNumber,
+        amount: round2(sale.finalAmount),
+        branch: sale.branch,
+        date: sale.createdAt.toISOString(),
+        cashierName: sale.cashierName ?? null,
       };
-      cust.total += sale.finalAmount;
-      cust.count += 1;
-      customerMap.set(ck, cust);
     }
+
     const b = branchMap.get(sale.branch)!;
     b.total += sale.finalAmount;
     b.count += 1;
 
-    const key = format(sale.createdAt, "yyyy-MM-dd");
-    if (dayBuckets.has(key))
-      dayBuckets.set(key, (dayBuckets.get(key) ?? 0) + sale.finalAmount);
+    const cashier = (sale.cashierName ?? "").trim();
+    if (cashier) {
+      const cs = cashierMap.get(cashier) ?? { count: 0, total: 0, max: 0 };
+      cs.count += 1;
+      cs.total += sale.finalAmount;
+      if (sale.finalAmount > cs.max) cs.max = sale.finalAmount;
+      cashierMap.set(cashier, cs);
+    }
+
+    const pm = paymentMap.get(sale.paymentMethod);
+    if (pm) {
+      pm.total += sale.finalAmount;
+      pm.count += 1;
+    }
+
+    if (sale.isDelivery) {
+      deliveryCount += 1;
+      deliveryTotal += sale.finalAmount;
+    } else {
+      pickupCount += 1;
+      pickupTotal += sale.finalAmount;
+    }
+
+    const dayKey = format(sale.createdAt, "yyyy-MM-dd");
+    const day = dayBuckets.get(dayKey);
+    if (day) {
+      day.total += sale.finalAmount;
+      day.count += 1;
+    }
+    const weekKey = format(startOfWeek(sale.createdAt, { weekStartsOn: 6 }), "yyyy-MM-dd");
+    const week = weekBuckets.get(weekKey) ?? { total: 0, count: 0 };
+    week.total += sale.finalAmount;
+    week.count += 1;
+    weekBuckets.set(weekKey, week);
 
     for (const item of sale.items) {
       itemsSold += item.quantity;
@@ -2220,40 +2254,101 @@ export function mockReports(sp: URLSearchParams): ReportsData {
       c.qty += item.quantity;
       categoryMap.set(cat, c);
 
+      const brandName = ref?.product.brand ?? "";
+      if (brandName) {
+        const br = brandSalesMap.get(brandName) ?? { qty: 0, revenue: 0 };
+        br.qty += item.quantity;
+        br.revenue += item.subtotal;
+        brandSalesMap.set(brandName, br);
+      }
+
+      const unitCost = ref ? round2(ref.variant.price * 0.6) : 0;
       const p = productMap.get(item.productId) ?? {
         name: ref?.product.name ?? "—",
         brand: ref?.product.brand ?? "",
         qty: 0,
         revenue: 0,
+        cost: 0,
         image: ref?.product.images?.[0] ?? null,
       };
       p.qty += item.quantity;
       p.revenue += item.subtotal;
+      p.cost += unitCost * item.quantity;
       productMap.set(item.productId, p);
+
+      const size = ref?.variant.size;
+      if (size) {
+        const catSizes = sizeMap.get(cat)!;
+        catSizes.set(size, (catSizes.get(size) ?? 0) + item.quantity);
+      }
     }
   }
 
-  const lowStock = store.products
-    .flatMap((p) =>
-      p.variants
-        .filter((v) => v.quantity <= LOW_STOCK_THRESHOLD)
-        .map((v) => ({
+  const soldProductIds = new Set(productMap.keys());
+  const stockBranchMap = new Map<BranchValue, { units: number; retail: number }>();
+  for (const b of BRANCHES) stockBranchMap.set(b, { units: 0, retail: 0 });
+  const stockCategoryMap = new Map<CategoryValue, { units: number; retail: number }>();
+  const stockBrandMap = new Map<string, { units: number; retail: number }>();
+
+  let invCost = 0;
+  let invRetail = 0;
+  let invUnits = 0;
+  let variantCount = 0;
+  const lowStock: ReportsData["lowStock"] = [];
+  const outOfStock: ReportsData["outOfStock"] = [];
+
+  for (const p of store.products) {
+    for (const v of p.variants) {
+      variantCount += 1;
+      const q = v.quantity;
+      const cost = round2(v.price * 0.6);
+      invUnits += q;
+      invCost += q * cost;
+      invRetail += q * v.price;
+
+      const sb = stockBranchMap.get(v.branch)!;
+      sb.units += q;
+      sb.retail += q * v.price;
+
+      const sc = stockCategoryMap.get(p.category) ?? { units: 0, retail: 0 };
+      sc.units += q;
+      sc.retail += q * v.price;
+      stockCategoryMap.set(p.category, sc);
+
+      if (p.brand) {
+        const sbr = stockBrandMap.get(p.brand) ?? { units: 0, retail: 0 };
+        sbr.units += q;
+        sbr.retail += q * v.price;
+        stockBrandMap.set(p.brand, sbr);
+      }
+
+      if (q === 0) {
+        outOfStock.push({
           id: v.id,
           productName: p.name,
           brand: p.brand,
           size: v.size,
           branch: v.branch,
-          quantity: v.quantity,
-        }))
-    )
-    .sort((a, b) => a.quantity - b.quantity)
-    .slice(0, 100);
+        });
+      } else if (q <= v.minQuantity) {
+        lowStock.push({
+          id: v.id,
+          productName: p.name,
+          brand: p.brand,
+          size: v.size,
+          branch: v.branch,
+          quantity: q,
+          minQuantity: v.minQuantity,
+        });
+      }
+    }
+  }
+  lowStock.sort((a, b) => a.quantity - b.quantity);
 
-  // منتجات راكدة: في المخزون (كمية > 0) وبلا مبيعات في الفترة
   const slowMoving = store.products
     .filter(
       (p) =>
-        !productMap.has(p.id) &&
+        !soldProductIds.has(p.id) &&
         p.variants.reduce((s, v) => s + v.quantity, 0) > 0
     )
     .map((p) => ({
@@ -2262,21 +2357,40 @@ export function mockReports(sp: URLSearchParams): ReportsData {
       brand: p.brand,
       quantity: p.variants.reduce((s, v) => s + v.quantity, 0),
     }))
+    .sort((a, b) => b.quantity - a.quantity)
     .slice(0, 50);
 
-  const topCustomers = [...customerMap.values()]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 5)
-    .map((c) => ({ ...c, total: round2(c.total) }));
+  const mostProfitable = [...productMap.values()]
+    .map((p) => ({
+      name: p.name,
+      brand: p.brand,
+      qty: p.qty,
+      revenue: round2(p.revenue),
+      profit: round2(p.revenue - p.cost),
+    }))
+    .sort((a, b) => b.profit - a.profit)
+    .slice(0, 10);
+
+  const newProducts = store.products
+    .filter((p) => p.createdAt >= from && p.createdAt <= to)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      brand: p.brand,
+      category: p.category,
+      createdAt: p.createdAt.toISOString(),
+      units: p.variants.reduce((s, v) => s + v.quantity, 0),
+    }));
 
   return {
+    range: { from: from.toISOString(), to: to.toISOString() },
     totalSales: round2(totalSales),
     grossSales: round2(grossSales),
-    discountTotal: round2(grossSales - totalSales),
-    discountedCount,
     invoicesCount: inRange.length,
-    itemsSold,
     avgInvoice: inRange.length ? round2(totalSales / inRange.length) : 0,
+    itemsSold,
+    maxInvoice,
     byBranch: [...branchMap.entries()].map(([branch, v]) => ({
       branch,
       total: round2(v.total),
@@ -2287,17 +2401,88 @@ export function mockReports(sp: URLSearchParams): ReportsData {
       total: round2(v.total),
       qty: v.qty,
     })),
-    dailySales: [...dayBuckets.entries()].map(([date, total]) => ({
-      date,
-      total: round2(total),
-    })),
+    byBrand: [...brandSalesMap.entries()]
+      .map(([brand, v]) => ({ brand, qty: v.qty, revenue: round2(v.revenue) }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10),
     topProducts: [...productMap.values()]
       .sort((a, b) => b.qty - a.qty)
       .slice(0, 10)
-      .map((p) => ({ ...p, revenue: round2(p.revenue) })),
-    topCustomers,
+      .map((p) => ({
+        name: p.name,
+        brand: p.brand,
+        qty: p.qty,
+        revenue: round2(p.revenue),
+        image: p.image,
+      })),
+    cashiers: [...cashierMap.entries()]
+      .map(([name, v]) => ({
+        name,
+        count: v.count,
+        total: round2(v.total),
+        avgInvoice: v.count ? round2(v.total / v.count) : 0,
+        maxInvoice: round2(v.max),
+      }))
+      .sort((a, b) => b.total - a.total),
+    byPayment: PAYMENT_METHODS.map((key) => {
+      const v = paymentMap.get(key)!;
+      return {
+        key,
+        label: PAYMENT_METHOD_LABELS[key],
+        total: round2(v.total),
+        count: v.count,
+      };
+    }),
+    discount: {
+      total: round2(grossSales - totalSales),
+      count: discountCount,
+      pct: grossSales ? round2(((grossSales - totalSales) / grossSales) * 100) : 0,
+    },
+    deliveryVsPickup: {
+      deliveryCount,
+      deliveryTotal: round2(deliveryTotal),
+      pickupCount,
+      pickupTotal: round2(pickupTotal),
+    },
+    dailySales: [...dayBuckets.entries()].map(([date, v]) => ({
+      date,
+      total: round2(v.total),
+      count: v.count,
+    })),
+    weeklySales: [...weekBuckets.entries()]
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([label, v]) => ({ label, total: round2(v.total), count: v.count })),
+    inventoryValue: { cost: round2(invCost), retail: round2(invRetail), units: invUnits },
+    productsCount: { products: store.products.length, variants: variantCount },
+    lowStock: lowStock.slice(0, 200),
+    outOfStock: outOfStock.slice(0, 200),
+    stockByBranch: [...stockBranchMap.entries()].map(([branch, v]) => ({
+      branch,
+      units: v.units,
+      retail: round2(v.retail),
+    })),
+    stockByCategory: [...stockCategoryMap.entries()].map(([category, v]) => ({
+      category,
+      units: v.units,
+      retail: round2(v.retail),
+    })),
+    stockByBrand: [...stockBrandMap.entries()]
+      .map(([brand, v]) => ({ brand, units: v.units, retail: round2(v.retail) }))
+      .sort((a, b) => b.retail - a.retail)
+      .slice(0, 10),
     slowMoving,
-    lowStock,
+    mostProfitable,
+    damaged: [],
+    damagedSummary: { count: 0, units: 0 },
+    transfers: [],
+    transfersSummary: { count: 0, units: 0 },
+    newProducts,
+    sizeReport: [...sizeMap.entries()].map(([category, sizes]) => {
+      const arr = [...sizes.entries()]
+        .map(([size, qty]) => ({ size, qty }))
+        .sort((a, b) => b.qty - a.qty);
+      return { category, topSize: arr.length ? arr[0].size : null, sizes: arr };
+    }),
   };
 }
 

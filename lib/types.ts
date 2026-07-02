@@ -430,37 +430,54 @@ export interface InsightsData {
   };
 }
 
-// بيانات صفحة التقارير
+// بيانات صفحة التقارير — تُغطّي كل أقسام مُنشئ التقارير (تبويبَي المبيعات والجرد)
 export interface ReportsData {
+  range: { from: string; to: string };
+
+  // ===== تبويب المبيعات =====
   totalSales: number; // الصافي بعد الخصم
   grossSales: number; // الإجمالي قبل الخصم
-  discountTotal: number; // إجمالي الخصومات
-  discountedCount: number; // عدد الفواتير التي فيها خصم
   invoicesCount: number;
-  itemsSold: number;
   avgInvoice: number;
+  itemsSold: number;
+  maxInvoice: {
+    saleNumber: number;
+    amount: number;
+    branch: BranchValue;
+    date: string;
+    cashierName: string | null;
+  } | null;
   byBranch: { branch: BranchValue; total: number; count: number }[];
   byCategory: { category: CategoryValue; total: number; qty: number }[];
-  dailySales: { date: string; total: number }[];
+  byBrand: { brand: string; qty: number; revenue: number }[]; // أعلى 10
   topProducts: {
     name: string;
     brand: string;
     qty: number;
     revenue: number;
     image: string | null;
-  }[];
-  topCustomers: {
+  }[]; // أعلى 10
+  cashiers: {
     name: string;
-    phone: string | null;
-    total: number;
     count: number;
+    total: number;
+    avgInvoice: number;
+    maxInvoice: number;
   }[];
-  slowMoving: {
-    id: string;
-    name: string;
-    brand: string;
-    quantity: number;
-  }[];
+  byPayment: { key: string; label: string; total: number; count: number }[];
+  discount: { total: number; count: number; pct: number };
+  deliveryVsPickup: {
+    deliveryCount: number;
+    deliveryTotal: number;
+    pickupCount: number;
+    pickupTotal: number;
+  };
+  dailySales: { date: string; total: number; count: number }[];
+  weeklySales: { label: string; total: number; count: number }[];
+
+  // ===== تبويب المنتجات والجرد =====
+  inventoryValue: { cost: number; retail: number; units: number };
+  productsCount: { products: number; variants: number };
   lowStock: {
     id: string;
     productName: string;
@@ -468,5 +485,62 @@ export interface ReportsData {
     size: string;
     branch: BranchValue;
     quantity: number;
+    minQuantity: number;
+  }[];
+  outOfStock: {
+    id: string;
+    productName: string;
+    brand: string;
+    size: string;
+    branch: BranchValue;
+  }[];
+  stockByBranch: { branch: BranchValue; units: number; retail: number }[];
+  stockByCategory: { category: CategoryValue; units: number; retail: number }[];
+  stockByBrand: { brand: string; units: number; retail: number }[]; // أعلى 10
+  slowMoving: {
+    id: string;
+    name: string;
+    brand: string;
+    quantity: number;
+  }[];
+  mostProfitable: {
+    name: string;
+    brand: string;
+    qty: number;
+    revenue: number;
+    profit: number;
+  }[]; // أعلى 10
+  damaged: {
+    productName: string;
+    brand: string;
+    size: string | null;
+    branch: BranchValue;
+    quantity: number;
+    reason: string | null;
+    date: string;
+  }[];
+  damagedSummary: { count: number; units: number };
+  transfers: {
+    productName: string;
+    brand: string;
+    size: string | null;
+    fromBranch: BranchValue;
+    toBranch: BranchValue;
+    quantity: number;
+    date: string;
+  }[];
+  transfersSummary: { count: number; units: number };
+  newProducts: {
+    id: string;
+    name: string;
+    brand: string;
+    category: CategoryValue;
+    createdAt: string;
+    units: number;
+  }[];
+  sizeReport: {
+    category: CategoryValue;
+    topSize: string | null;
+    sizes: { size: string; qty: number }[];
   }[];
 }

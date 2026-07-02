@@ -16,6 +16,7 @@ import {
   X,
   LogOut,
   Users,
+  FileBarChart,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/client";
@@ -43,6 +44,12 @@ const NAV_ITEMS: {
     href: "/dashboard",
     label: "لوحة التحكم",
     icon: LayoutDashboard,
+    roles: ["ADMIN"],
+  },
+  {
+    href: "/reports",
+    label: "التقارير",
+    icon: FileBarChart,
     roles: ["ADMIN"],
   },
   { href: "/inventory", label: "المخزون", icon: Package, roles: ["ADMIN"] },
