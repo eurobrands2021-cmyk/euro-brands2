@@ -29,6 +29,7 @@ import {
 import type { LowStockResponse } from "@/lib/types";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
+import { AccessRequestsBell } from "./access-requests-bell";
 
 // كل عنصر يحدد الأدوار المسموح لها برؤيته
 const NAV_ITEMS: {
@@ -151,6 +152,7 @@ export function TopNav() {
               </span>
             </div>
           )}
+          {role === "ADMIN" && <AccessRequestsBell />}
           <ThemeToggle />
           {session && (
             <button

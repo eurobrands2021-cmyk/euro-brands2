@@ -19,9 +19,12 @@ export const ROLE_LABELS: Record<Role, string> = {
 };
 
 // كلمات المرور الثابتة → الدور. (2021 = مدير، 0000 = كاشير)
+export const ADMIN_PASSWORD = "2021";
+export const CASHIER_PASSWORD = "0000";
+
 const PASSWORD_ROLES: Record<string, Role> = {
-  "2021": "ADMIN",
-  "0000": "CASHIER",
+  [ADMIN_PASSWORD]: "ADMIN",
+  [CASHIER_PASSWORD]: "CASHIER",
 };
 
 export interface Session {

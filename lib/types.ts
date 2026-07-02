@@ -266,6 +266,23 @@ export interface ActivityLogInput {
   details?: string | null;
 }
 
+// طلبات دخول الكاشير (نسيت كلمة المرور)
+export type AccessRequestStatus = "PENDING" | "APPROVED" | "REJECTED";
+
+export interface AccessRequestDTO {
+  id: string;
+  name: string;
+  status: AccessRequestStatus;
+  createdAt: string;
+  resolvedAt: string | null;
+}
+
+// حالة استرجاع حساب المدير (سؤال الأمان)
+export interface AdminRecoveryStatus {
+  configured: boolean;
+  question: string | null;
+}
+
 // إحصائيات لوحة التحكم — موحّدة (الرئيسية + التقارير)
 export interface DashboardStats {
   // القسم 1 — بطاقات سريعة

@@ -221,6 +221,25 @@ model Customer {
   @@index([lastVisitAt])
 }
 
+// طلبات دخول الكاشير (تدفّق «نسيت كلمة المرور») — يراها المدير ويوافق/يرفض
+model AccessRequest {
+  id         String    @id @default(cuid())
+  name       String // الاسم الذي أدخله الكاشير
+  status     String    @default("PENDING") // PENDING / APPROVED / REJECTED
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime? // وقت الموافقة/الرفض
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+// مخزن إعدادات عام (مفتاح/قيمة) — يُستخدم لاسترجاع حساب المدير (سؤال الأمان + بصمة الإجابة)
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
 // سجل نشاط المستخدمين (تسجيل دخول، إنشاء/إلغاء فاتورة، عمليات المنتجات، التوصيل)
 model ActivityLog {
   id        String   @id @default(cuid())

@@ -18,6 +18,13 @@ import {
   mockSeedProductTypes,
   mockListActivity,
   mockCreateActivity,
+  mockListAccessRequests,
+  mockGetAccessRequest,
+  mockCreateAccessRequest,
+  mockUpdateAccessRequestStatus,
+  mockGetAdminRecovery,
+  mockSetupAdminRecovery,
+  mockVerifyAdminRecovery,
   mockListCustomers,
   mockGetCustomer,
   mockCreateCustomer,
@@ -33,7 +40,10 @@ import {
   mockUploadUrl,
 } from "./mock-store";
 import {
+  parseAccessRequestInput,
+  parseAccessRequestStatus,
   parseActivityInput,
+  parseAdminRecoveryBody,
   parseBrandInput,
   parseCustomerInput,
   parseCustomerUpdateInput,
@@ -117,6 +127,43 @@ export async function mockApi<T>(
     if (method === "GET") return mockListActivity(sp) as T;
     if (method === "POST")
       return mockCreateActivity(parseActivityInput(body)) as T;
+  }
+
+  // /api/access-requests — طلبات دخول الكاشير
+  if (path === "/api/access-requests") {
+    if (method === "GET") return mockListAccessRequests(sp) as T;
+    if (method === "POST")
+      return mockCreateAccessRequest(parseAccessRequestInput(body)) as T;
+  }
+
+  // /api/access-requests/[id]
+  const accessReqMatch = path.match(/^\/api\/access-requests\/([^/]+)$/);
+  if (accessReqMatch) {
+    const id = decodeURIComponent(accessReqMatch[1]);
+    if (method === "GET") {
+      const dto = mockGetAccessRequest(id);
+      if (!dto) throw new Error("الطلب غير موجود");
+      return dto as T;
+    }
+    if (method === "PUT") {
+      const dto = mockUpdateAccessRequestStatus(
+        id,
+        parseAccessRequestStatus(body)
+      );
+      if (!dto) throw new Error("الطلب غير موجود");
+      return dto as T;
+    }
+  }
+
+  // /api/admin-recovery — استرجاع حساب المدير (سؤال الأمان)
+  if (path === "/api/admin-recovery") {
+    if (method === "GET") return mockGetAdminRecovery() as T;
+    if (method === "POST") {
+      const parsed = parseAdminRecoveryBody(body);
+      if (parsed.action === "setup")
+        return mockSetupAdminRecovery(parsed.question, parsed.answer) as T;
+      return mockVerifyAdminRecovery(parsed.answer) as T;
+    }
   }
 
   // /api/product-types/[id]

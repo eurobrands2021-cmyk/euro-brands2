@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Eye, EyeOff, Lock, User } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Logo } from "@/components/logo";
+import { ForgotPasswordModal } from "@/components/forgot-password-modal";
 import { isSessionValid, tryLogin } from "@/lib/auth";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 
@@ -26,6 +27,7 @@ function LoginInner() {
   const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgotOpen, setForgotOpen] = useState(false);
 
   // إذا كانت الجلسة صالحة، تخطّى صفحة الدخول
   useEffect(() => {
@@ -117,8 +119,28 @@ function LoginInner() {
             {busy && <Spinner className="h-4 w-4" />}
             دخول
           </button>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => setForgotOpen(true)}
+              className="text-sm font-medium text-accent hover:underline"
+            >
+              نسيت كلمة المرور؟
+            </button>
+          </div>
         </form>
       </div>
+
+      <ForgotPasswordModal
+        open={forgotOpen}
+        onClose={() => setForgotOpen(false)}
+        onRecovered={(pwd, recoveredName) => {
+          setPassword(pwd);
+          if (recoveredName && !name.trim()) setName(recoveredName);
+          setError(null);
+        }}
+      />
     </div>
   );
 }

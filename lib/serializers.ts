@@ -1,4 +1,5 @@
 import type {
+  AccessRequest,
   ActivityLog,
   Brand,
   Customer,
@@ -10,6 +11,8 @@ import type {
 } from "@prisma/client";
 import type { BranchValue, CategoryValue } from "./constants";
 import type {
+  AccessRequestDTO,
+  AccessRequestStatus,
   ActivityLogDTO,
   BrandDTO,
   CustomerDTO,
@@ -18,6 +21,16 @@ import type {
   SaleDTO,
   VariantDTO,
 } from "./types";
+
+export function toAccessRequestDTO(a: AccessRequest): AccessRequestDTO {
+  return {
+    id: a.id,
+    name: a.name,
+    status: a.status as AccessRequestStatus,
+    createdAt: a.createdAt.toISOString(),
+    resolvedAt: a.resolvedAt ? a.resolvedAt.toISOString() : null,
+  };
+}
 
 export function toBrandDTO(b: Brand): BrandDTO {
   return { id: b.id, name: b.name, category: b.category as CategoryValue };

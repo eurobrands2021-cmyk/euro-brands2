@@ -329,6 +329,52 @@ export function parseActivityInput(body: any): ActivityLogInput {
   };
 }
 
+// ----------------------------------------------------
+//  استرجاع كلمة المرور
+// ----------------------------------------------------
+
+// التحقق من مدخلات طلب دخول الكاشير
+export function parseAccessRequestInput(body: any): { name: string } {
+  const name = asString(body?.name);
+  if (!name) throw new ValidationError("الاسم مطلوب");
+  if (name.length > 60) throw new ValidationError("الاسم طويل جداً");
+  return { name };
+}
+
+// التحقق من قرار المدير على طلب الدخول
+export function parseAccessRequestStatus(
+  body: any
+): "APPROVED" | "REJECTED" {
+  const status = asString(body?.status).toUpperCase();
+  if (status !== "APPROVED" && status !== "REJECTED")
+    throw new ValidationError("القرار غير صحيح");
+  return status;
+}
+
+export type AdminRecoveryBody =
+  | { action: "setup"; question: string; answer: string }
+  | { action: "verify"; answer: string };
+
+// التحقق من مدخلات استرجاع حساب المدير (إعداد أو تحقق)
+export function parseAdminRecoveryBody(body: any): AdminRecoveryBody {
+  const action = asString(body?.action);
+  if (action === "setup") {
+    const question = asString(body?.question);
+    const answer = asString(body?.answer);
+    if (!question) throw new ValidationError("سؤال الأمان مطلوب");
+    if (question.length > 200)
+      throw new ValidationError("سؤال الأمان طويل جداً");
+    if (!answer) throw new ValidationError("إجابة سؤال الأمان مطلوبة");
+    return { action: "setup", question, answer };
+  }
+  if (action === "verify") {
+    const answer = asString(body?.answer);
+    if (!answer) throw new ValidationError("الإجابة مطلوبة");
+    return { action: "verify", answer };
+  }
+  throw new ValidationError("طلب غير صحيح");
+}
+
 // التحقق من بيانات التوصيل
 export function parseDeliveryInput(body: any): DeliveryInput {
   const orderSource = asString(body?.orderSource);

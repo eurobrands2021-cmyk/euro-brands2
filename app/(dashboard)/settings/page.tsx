@@ -8,6 +8,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
 import { useFetch } from "@/lib/use-fetch";
+import { AdminRecoverySetupCard } from "@/components/admin-recovery-setup";
 import { formatDateTime } from "@/lib/format";
 import {
   getSession,
@@ -67,8 +68,15 @@ export default function SettingsPage() {
         </button>
       </Card>
 
+      {/* سؤال الأمان — للمدير فقط */}
+      {session?.role === "ADMIN" && <AdminRecoverySetupCard />}
+
       {/* عارض سجل النشاط — للمدير فقط */}
-      {session?.role === "ADMIN" && <ActivityViewer />}
+      {session?.role === "ADMIN" && (
+        <div className="mt-6">
+          <ActivityViewer />
+        </div>
+      )}
     </div>
   );
 }

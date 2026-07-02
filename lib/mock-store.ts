@@ -23,10 +23,18 @@ import {
   type SaleStatusValue,
 } from "./constants";
 import { ValidationError } from "./validate";
+import {
+  normalizeAnswer,
+  ADMIN_RECOVERY_QUESTION_KEY,
+  ADMIN_RECOVERY_ANSWER_KEY,
+} from "./recovery";
 import type { NormProduct, NormSale } from "./insights-analytics";
 import type {
+  AccessRequestDTO,
+  AccessRequestStatus,
   ActivityLogDTO,
   ActivityLogInput,
+  AdminRecoveryStatus,
   BrandDTO,
   CustomerDTO,
   CustomerInput,
@@ -96,6 +104,13 @@ interface MActivityLog {
   details: string | null;
   createdAt: Date;
 }
+interface MAccessRequest {
+  id: string;
+  name: string;
+  status: AccessRequestStatus;
+  createdAt: Date;
+  resolvedAt: Date | null;
+}
 interface MItem {
   id: string;
   saleId: string;
@@ -161,6 +176,8 @@ interface Store {
   productTypes: MProductType[];
   activityLogs: MActivityLog[];
   customers: MCustomer[];
+  accessRequests: MAccessRequest[];
+  settings: Record<string, string>;
   seq: number;
 }
 
@@ -189,6 +206,8 @@ function buildStore(): Store {
     productTypes: [],
     activityLogs: [],
     customers: [],
+    accessRequests: [],
+    settings: {},
     seq: 0,
   };
   const id = (p: string) => `${p}_${++store.seq}`;
@@ -1407,6 +1426,81 @@ export function mockCreateActivity(input: ActivityLogInput): ActivityLogDTO {
   };
   store.activityLogs.unshift(log);
   return shapeActivity(log);
+}
+
+// ----- طلبات دخول الكاشير (نسيت كلمة المرور) -----
+function shapeAccessRequest(a: MAccessRequest): AccessRequestDTO {
+  return {
+    id: a.id,
+    name: a.name,
+    status: a.status,
+    createdAt: a.createdAt.toISOString(),
+    resolvedAt: a.resolvedAt ? a.resolvedAt.toISOString() : null,
+  };
+}
+
+export function mockListAccessRequests(
+  sp: URLSearchParams
+): AccessRequestDTO[] {
+  const status = sp.get("status")?.trim();
+  const limit = Math.min(Number(sp.get("limit")) || 100, 500);
+  return store.accessRequests
+    .filter((a) => !status || a.status === status)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .slice(0, limit)
+    .map(shapeAccessRequest);
+}
+
+export function mockGetAccessRequest(id: string): AccessRequestDTO | null {
+  const a = store.accessRequests.find((x) => x.id === id);
+  return a ? shapeAccessRequest(a) : null;
+}
+
+export function mockCreateAccessRequest(input: {
+  name: string;
+}): AccessRequestDTO {
+  const a: MAccessRequest = {
+    id: nextId("areq"),
+    name: input.name,
+    status: "PENDING",
+    createdAt: new Date(),
+    resolvedAt: null,
+  };
+  store.accessRequests.unshift(a);
+  return shapeAccessRequest(a);
+}
+
+export function mockUpdateAccessRequestStatus(
+  id: string,
+  status: "APPROVED" | "REJECTED"
+): AccessRequestDTO | null {
+  const a = store.accessRequests.find((x) => x.id === id);
+  if (!a) return null;
+  a.status = status;
+  a.resolvedAt = new Date();
+  return shapeAccessRequest(a);
+}
+
+// ----- استرجاع حساب المدير (سؤال الأمان) -----
+export function mockGetAdminRecovery(): AdminRecoveryStatus {
+  const question = store.settings[ADMIN_RECOVERY_QUESTION_KEY] ?? null;
+  const answer = store.settings[ADMIN_RECOVERY_ANSWER_KEY] ?? null;
+  return { configured: !!(question && answer), question };
+}
+
+export function mockSetupAdminRecovery(
+  question: string,
+  answer: string
+): AdminRecoveryStatus {
+  store.settings[ADMIN_RECOVERY_QUESTION_KEY] = question;
+  store.settings[ADMIN_RECOVERY_ANSWER_KEY] = normalizeAnswer(answer);
+  return { configured: true, question };
+}
+
+export function mockVerifyAdminRecovery(answer: string): { ok: boolean } {
+  const stored = store.settings[ADMIN_RECOVERY_ANSWER_KEY] ?? null;
+  if (!stored) return { ok: false };
+  return { ok: normalizeAnswer(answer) === stored };
 }
 
 // ----------------------------------------------------
