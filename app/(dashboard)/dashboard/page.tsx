@@ -1,17 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Banknote,
   TrendingUp,
-  TrendingDown,
   Calculator,
   Trophy,
-  CalendarDays,
   Wallet,
   Package,
-  Award,
-  UserPlus,
   Truck,
   Store,
   RotateCcw,
@@ -21,6 +17,17 @@ import {
   SlidersHorizontal,
   ChevronDown,
   ChevronUp,
+  Receipt,
+  Percent,
+  Tag,
+  Boxes,
+  PackageX,
+  AlertTriangle,
+  ArrowLeftRight,
+  Ruler,
+  Sparkles,
+  Building2,
+  CreditCard,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { format } from "date-fns";
@@ -31,49 +38,75 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BranchBarChart } from "@/components/charts/branch-bar-chart";
-import { WeekComparisonChart } from "@/components/charts/week-comparison-chart";
 import { PaymentPieChart } from "@/components/charts/payment-pie-chart";
+import { CategoryPieChart } from "@/components/charts/category-pie-chart";
+import { SalesLineChart } from "@/components/charts/sales-line-chart";
 import type { DashboardStats } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { formatCurrency, formatNumber } from "@/lib/format";
-
-// أقسام التقارير القابلة للإظهار/الإخفاء عبر لوحة الخيارات
-const REPORT_SECTIONS = [
-  { key: "quickStats", label: "البطاقات السريعة" },
-  { key: "charts", label: "الرسوم البيانية" },
-  { key: "payment", label: "توزيع طرق الدفع" },
-  { key: "tables", label: "المنتجات والعملاء" },
-  { key: "delivery", label: "إحصائيات التوصيل" },
-  { key: "cashiers", label: "أداء الكاشيرين" },
-] as const;
-
-type SectionKey = (typeof REPORT_SECTIONS)[number]["key"];
-
-type SectionVisibility = Record<SectionKey, boolean>;
-
-const ALL_VISIBLE: SectionVisibility = Object.fromEntries(
-  REPORT_SECTIONS.map((s) => [s.key, true])
-) as SectionVisibility;
+import { BRANCH_LABELS, CATEGORY_LABELS } from "@/lib/constants";
+import {
+  SALES_SECTIONS,
+  INVENTORY_SECTIONS,
+  SALES_KEYS,
+  INVENTORY_KEYS,
+  type ReportTab,
+} from "@/lib/report-sections";
 
 export default function DashboardPage() {
   const [range, setRange] = useState<DateRange | null>(null);
-  // لوحة الخيارات: مفتوحة افتراضياً، مع تحكّم بإظهار كل قسم
-  const [filtersOpen, setFiltersOpen] = useState(true);
-  const [visible, setVisible] = useState<SectionVisibility>(ALL_VISIBLE);
   const url = range
     ? `/api/dashboard?from=${encodeURIComponent(
         range.from
       )}&to=${encodeURIComponent(range.to)}`
     : null;
   const { data, loading, error } = useFetch<DashboardStats>(url);
+
+  const [tab, setTab] = useState<ReportTab>("sales");
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [selectedSales, setSelectedSales] = useState<Set<string>>(
+    () => new Set(SALES_KEYS)
+  );
+  const [selectedInv, setSelectedInv] = useState<Set<string>>(
+    () => new Set(INVENTORY_KEYS)
+  );
   const [exporting, setExporting] = useState<"pdf" | "excel" | null>(null);
+
+  const sections = tab === "sales" ? SALES_SECTIONS : INVENTORY_SECTIONS;
+  const selected = tab === "sales" ? selectedSales : selectedInv;
+  const setSelected = tab === "sales" ? setSelectedSales : setSelectedInv;
+
+  // ترتيب المفاتيح المحددة حسب ترتيب أقسام التبويب النشط
+  const orderedSelected = useMemo(
+    () => sections.map((s) => s.key).filter((k) => selected.has(k)),
+    [sections, selected]
+  );
+
+  function toggle(key: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+  function selectAll() {
+    setSelected(new Set(sections.map((s) => s.key)));
+  }
+  function deselectAll() {
+    setSelected(new Set());
+  }
 
   async function exportPdf() {
     if (!data || !range) return;
+    if (orderedSelected.length === 0) {
+      toast.error("اختر قسماً واحداً على الأقل للتصدير");
+      return;
+    }
     setExporting("pdf");
     try {
       const { generateReportPdf } = await import("@/lib/pdf/report-pdf");
-      await generateReportPdf(data, range);
+      await generateReportPdf(data, range, { tab, selected: orderedSelected });
     } catch {
       toast.error("تعذّر إنشاء ملف PDF");
     } finally {
@@ -83,10 +116,14 @@ export default function DashboardPage() {
 
   async function exportExcel() {
     if (!data || !range) return;
+    if (orderedSelected.length === 0) {
+      toast.error("اختر قسماً واحداً على الأقل للتصدير");
+      return;
+    }
     setExporting("excel");
     try {
       const { generateReportExcel } = await import("@/lib/excel-report");
-      await generateReportExcel(data, range);
+      await generateReportExcel(data, range, { tab, selected: orderedSelected });
     } catch {
       toast.error("تعذّر إنشاء ملف Excel");
     } finally {
@@ -97,8 +134,8 @@ export default function DashboardPage() {
   return (
     <div>
       <PageHeader
-        title="لوحة التحكم"
-        description="نظرة عامة على الأداء والمبيعات والمخزون"
+        title="التقارير"
+        description="تقارير المبيعات والمنتجات والجرد — اختر الأقسام التي تريد عرضها وتصديرها"
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <DateRangePicker onChange={setRange} />
@@ -130,6 +167,22 @@ export default function DashboardPage() {
         }
       />
 
+      {/* التبويبات */}
+      <div className="mb-4 flex flex-wrap gap-2">
+        <TabButton
+          active={tab === "sales"}
+          onClick={() => setTab("sales")}
+          icon={<TrendingUp className="h-4 w-4" />}
+          label="تقارير المبيعات"
+        />
+        <TabButton
+          active={tab === "inventory"}
+          onClick={() => setTab("inventory")}
+          icon={<Boxes className="h-4 w-4" />}
+          label="تقارير المنتجات والجرد"
+        />
+      </div>
+
       {loading && <PageLoader />}
       {error && (
         <Card className="p-6 text-center text-danger">
@@ -139,211 +192,30 @@ export default function DashboardPage() {
 
       {data && !loading && (
         <div className="space-y-6">
-          {/* لوحة الخيارات القابلة للطي — تتحكّم بإظهار الأقسام */}
+          {/* لوحة الخيارات القابلة للطي */}
           <FilterPanel
             open={filtersOpen}
             onToggle={() => setFiltersOpen((o) => !o)}
-            visible={visible}
-            onChange={(key) =>
-              setVisible((v) => ({ ...v, [key]: !v[key] }))
-            }
+            sections={sections}
+            selected={selected}
+            onToggleKey={toggle}
+            onSelectAll={selectAll}
+            onDeselectAll={deselectAll}
+            selectedCount={orderedSelected.length}
           />
 
-          {/* القسم 1 — بطاقات سريعة */}
-          {visible.quickStats && (
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-              <TodayVsYesterdayCard data={data} />
-              <StatCard
-                tone="accent"
-                title="مبيعات الفترة"
-                value={formatCurrency(data.rangeSales)}
-                subtitle={`${formatNumber(data.rangeSalesCount)} فاتورة`}
-                icon={<Banknote className="h-5 w-5" />}
-              />
-              <StatCard
-                tone="accent"
-                title="متوسط قيمة الفاتورة"
-                value={formatCurrency(data.avgInvoice)}
-                subtitle={`${formatNumber(data.itemsSold)} قطعة مباعة`}
-                icon={<Calculator className="h-5 w-5" />}
-              />
-              <StatCard
-                tone="success"
-                title="أعلى يوم مبيعات"
-                value={
-                  data.topDay ? (
-                    <span className="text-lg">
-                      {formatCurrency(data.topDay.total)}
-                    </span>
-                  ) : (
-                    "—"
-                  )
-                }
-                subtitle={
-                  data.topDay
-                    ? format(new Date(data.topDay.date), "yyyy/MM/dd")
-                    : "لا توجد مبيعات في الفترة"
-                }
-                icon={<CalendarDays className="h-5 w-5" />}
-              />
-              <StatCard
-                tone="warning"
-                title="رصيد متبقي عند العملاء"
-                value={formatCurrency(data.remainingTotal)}
-                subtitle="إجمالي المتبقي (كل الوقت)"
-                icon={<Wallet className="h-5 w-5" />}
-              />
-            </div>
-          )}
-
-          {/* القسم 2 — رسوم بيانية */}
-          {visible.charts && (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <Card className="p-5">
-              <h2 className="mb-4 text-base font-bold text-text">
-                مقارنة مبيعات الفروع
-              </h2>
-              <BranchBarChart data={data.branchComparison} />
-            </Card>
-            <Card className="p-5">
-              <h2 className="mb-1 text-base font-bold text-text">
-                الأسبوع الحالي مقارنة بالأسبوع السابق
-              </h2>
-              <p className="mb-3 text-xs text-muted">
-                المبيعات اليومية لآخر 7 أيام مقابل الأسبوع الذي قبله
-              </p>
-              <WeekComparisonChart
-                thisWeek={data.weekComparison.thisWeek}
-                lastWeek={data.weekComparison.lastWeek}
-              />
-            </Card>
-          </div>
-          )}
-
-          {visible.payment && (
-          <Card className="p-5">
-            <h2 className="mb-4 text-base font-bold text-text">
-              توزيع طرق الدفع
-            </h2>
-            <PaymentPieChart data={data.paymentBreakdown} />
-          </Card>
-          )}
-
-          {/* القسم 3 — جداول */}
-          {visible.tables && (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <Card className="p-5 lg:col-span-2">
-              <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
-                <Trophy className="h-5 w-5 text-success" />
-                أكثر 5 منتجات مبيعاً
-              </h2>
-              {data.topProducts.length === 0 ? (
-                <EmptyState
-                  title="لا توجد مبيعات"
-                  description="لم تُسجّل مبيعات في هذه الفترة."
-                />
-              ) : (
-                <div className="space-y-2">
-                  {data.topProducts.map((p, i) => (
-                    <div
-                      key={`${p.name}-${i}`}
-                      className="flex items-center gap-3 rounded-lg border p-2.5"
-                    >
-                      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
-                        {p.image ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={p.image}
-                            alt=""
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          <div className="flex h-full items-center justify-center text-muted">
-                            <Package className="h-5 w-5" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium text-text">
-                          {p.name}
-                        </p>
-                        <p className="text-xs text-muted">{p.brand}</p>
-                      </div>
-                      <div className="shrink-0 text-left">
-                        <p className="font-bold text-text nums">
-                          {formatNumber(p.qty)} قطعة
-                        </p>
-                        <p className="text-xs text-muted nums">
-                          {formatCurrency(p.revenue)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Card>
-
+          {/* الأقسام المحددة */}
+          {orderedSelected.length === 0 ? (
+            <EmptyState
+              title="لا توجد أقسام محددة"
+              description="فعّل قسماً واحداً على الأقل من لوحة الخيارات بالأعلى لعرض بياناته."
+            />
+          ) : (
             <div className="space-y-6">
-              <Card className="p-5" tone="success">
-                <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-text">
-                  <Award className="h-5 w-5 text-success" />
-                  أكثر براند مبيعاً
-                </h2>
-                {data.topBrand ? (
-                  <div>
-                    <p className="text-2xl font-extrabold text-text">
-                      {data.topBrand.brand}
-                    </p>
-                    <p className="mt-2 text-sm text-muted nums">
-                      {formatNumber(data.topBrand.qty)} قطعة مباعة
-                    </p>
-                    <p className="text-sm font-bold text-text nums">
-                      {formatCurrency(data.topBrand.revenue)}
-                    </p>
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted">
-                    لا توجد مبيعات في هذه الفترة
-                  </p>
-                )}
-              </Card>
-
-              <Card className="p-5" tone="accent">
-                <h2 className="mb-3 flex items-center gap-2 text-base font-bold text-text">
-                  <UserPlus className="h-5 w-5 text-accent" />
-                  عملاء جدد في الفترة
-                </h2>
-                <p className="text-3xl font-extrabold text-accent nums">
-                  {formatNumber(data.newCustomersCount)}
-                </p>
-                <p className="mt-2 text-xs text-muted">
-                  عملاء لم يظهروا في فواتير سابقة قبل هذه الفترة
-                </p>
-              </Card>
+              {orderedSelected.map((key) => (
+                <div key={key}>{renderSection(key, data)}</div>
+              ))}
             </div>
-          </div>
-          )}
-
-          {/* القسم 4 — إحصائيات التوصيل */}
-          {visible.delivery && (
-          <Card className="p-5">
-            <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
-              <Truck className="h-5 w-5 text-accent" />
-              إحصائيات التوصيل
-            </h2>
-            <DeliveryStats stats={data.deliveryStats} />
-          </Card>
-          )}
-
-          {/* القسم 5 — أداء الكاشيرين */}
-          {visible.cashiers && (
-          <Card className="p-5">
-            <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
-              <Users className="h-5 w-5 text-accent" />
-              أداء الكاشيرين
-            </h2>
-            <CashierStats stats={data.cashierStats} />
-          </Card>
           )}
         </div>
       )}
@@ -351,41 +223,95 @@ export default function DashboardPage() {
   );
 }
 
-// لوحة خيارات قابلة للطي — زر إخفاء/إظهار + مربّعات اختيار للأقسام
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-bold transition-colors",
+        active
+          ? "border-accent bg-accent text-white"
+          : "bg-surface text-muted hover:bg-[var(--surface-2)] hover:text-text"
+      )}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 function FilterPanel({
   open,
   onToggle,
-  visible,
-  onChange,
+  sections,
+  selected,
+  onToggleKey,
+  onSelectAll,
+  onDeselectAll,
+  selectedCount,
 }: {
   open: boolean;
   onToggle: () => void;
-  visible: SectionVisibility;
-  onChange: (key: SectionKey) => void;
+  sections: { key: string; label: string }[];
+  selected: Set<string>;
+  onToggleKey: (key: string) => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
+  selectedCount: number;
 }) {
   return (
     <Card className="p-4 sm:p-5">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-base font-bold text-text">
           <SlidersHorizontal className="h-5 w-5 text-accent" />
           خيارات العرض
+          <span className="text-xs font-normal text-muted nums">
+            ({selectedCount}/{sections.length})
+          </span>
         </h2>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={open}
-          className="btn btn-secondary h-9 gap-1.5 px-3 text-sm"
-        >
-          {open ? (
-            <ChevronUp className="h-4 w-4" />
-          ) : (
-            <ChevronDown className="h-4 w-4" />
-          )}
-          {open ? "إخفاء الخيارات" : "إظهار الخيارات"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onSelectAll}
+            className="btn btn-secondary h-9 px-3 text-xs"
+          >
+            تحديد الكل
+          </button>
+          <button
+            type="button"
+            onClick={onDeselectAll}
+            className="btn btn-secondary h-9 px-3 text-xs"
+          >
+            إلغاء التحديد
+          </button>
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={open}
+            className="btn btn-secondary h-9 gap-1.5 px-3 text-sm"
+          >
+            {open ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
+            {open ? "إخفاء الخيارات" : "إظهار الخيارات"}
+          </button>
+        </div>
       </div>
 
-      {/* منطقة قابلة للطي بسلاسة عبر grid-rows */}
+      {/* منطقة قابلة للطي بسلاسة */}
       <div
         className={cn(
           "grid transition-all duration-300 ease-in-out",
@@ -393,26 +319,29 @@ function FilterPanel({
         )}
       >
         <div className="overflow-hidden">
-          <div className="mt-4 grid grid-cols-2 gap-2 border-t pt-4 sm:grid-cols-3">
-            {REPORT_SECTIONS.map((s) => (
-              <label
-                key={s.key}
-                className={cn(
-                  "flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors",
-                  visible[s.key]
-                    ? "border-accent/40 bg-accent-soft text-text"
-                    : "text-muted hover:bg-[var(--surface-2)]"
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={visible[s.key]}
-                  onChange={() => onChange(s.key)}
-                  className="h-4 w-4 shrink-0 accent-accent"
-                />
-                <span className="min-w-0 truncate">{s.label}</span>
-              </label>
-            ))}
+          <div className="mt-4 grid grid-cols-1 gap-2 border-t pt-4 sm:grid-cols-2 lg:grid-cols-3">
+            {sections.map((s) => {
+              const on = selected.has(s.key);
+              return (
+                <label
+                  key={s.key}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors",
+                    on
+                      ? "border-accent/40 bg-accent-soft text-text"
+                      : "text-muted hover:bg-[var(--surface-2)]"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => onToggleKey(s.key)}
+                    className="h-4 w-4 shrink-0 accent-accent"
+                  />
+                  <span className="min-w-0 flex-1">{s.label}</span>
+                </label>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -420,121 +349,559 @@ function FilterPanel({
   );
 }
 
-function CashierStats({ stats }: { stats: DashboardStats["cashierStats"] }) {
-  if (stats.length === 0) {
-    return (
-      <p className="text-sm text-muted">
-        لا توجد فواتير مسجّلة باسم كاشير في هذه الفترة
-      </p>
-    );
-  }
-  return (
-    <>
-      {/* جدول لسطح المكتب */}
-      <div className="hidden overflow-x-auto sm:block">
-        <table className="w-full min-w-[560px] text-right text-sm">
-          <thead>
-            <tr className="border-b text-muted">
-              <th className="px-3 py-2 font-medium">الاسم</th>
-              <th className="px-3 py-2 font-medium">عدد الفواتير</th>
-              <th className="px-3 py-2 font-medium">إجمالي المبيعات</th>
-              <th className="px-3 py-2 font-medium">متوسط الفاتورة</th>
-              <th className="px-3 py-2 font-medium">أعلى فاتورة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stats.map((c) => (
-              <tr key={c.name} className="border-b border-[var(--border)]">
-                <td className="px-3 py-2 font-medium text-text">{c.name}</td>
-                <td className="px-3 py-2 text-text nums">
-                  {formatNumber(c.count)}
-                </td>
-                <td className="px-3 py-2 font-bold text-text nums">
-                  {formatCurrency(c.total)}
-                </td>
-                <td className="px-3 py-2 text-muted nums">
-                  {formatCurrency(c.avgInvoice)}
-                </td>
-                <td className="px-3 py-2 text-muted nums">
-                  {formatCurrency(c.maxInvoice)}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* بطاقات للموبايل */}
-      <div className="space-y-3 sm:hidden">
-        {stats.map((c) => (
-          <div key={c.name} className="rounded-lg border p-3">
-            <div className="flex items-center justify-between gap-2">
-              <p className="font-bold text-text">{c.name}</p>
-              <p className="font-bold text-accent nums">
-                {formatCurrency(c.total)}
-              </p>
-            </div>
-            <div className="mt-2 grid grid-cols-3 gap-2 border-t pt-2 text-center text-xs">
-              <div>
-                <p className="text-muted">الفواتير</p>
-                <p className="mt-0.5 text-text nums">{formatNumber(c.count)}</p>
-              </div>
-              <div>
-                <p className="text-muted">المتوسط</p>
-                <p className="mt-0.5 text-text nums">
-                  {formatCurrency(c.avgInvoice)}
-                </p>
-              </div>
-              <div>
-                <p className="text-muted">الأعلى</p>
-                <p className="mt-0.5 text-text nums">
-                  {formatCurrency(c.maxInvoice)}
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
-
-function TodayVsYesterdayCard({ data }: { data: DashboardStats }) {
-  const up = data.todayChangePct >= 0;
-  return (
-    <Card className="p-5" tone="accent">
-      <div className="flex items-start justify-between gap-2">
-        <div>
-          <p className="text-sm text-muted">مبيعات اليوم</p>
-          <p className="mt-1 text-2xl font-extrabold text-text nums">
-            {formatCurrency(data.todaySales)}
-          </p>
-          <p className="mt-0.5 text-xs text-muted nums">
-            {formatNumber(data.todaySalesCount)} فاتورة
-          </p>
-        </div>
-        <div
-          className={cn(
-            "flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold nums",
-            up
-              ? "bg-[rgba(59,154,110,0.14)] text-success"
-              : "bg-[rgba(217,83,79,0.14)] text-danger"
-          )}
-        >
-          {up ? (
-            <TrendingUp className="h-3.5 w-3.5" />
+// ---- عرض كل قسم كبطاقة بيانات ----
+function renderSection(key: string, data: DashboardStats): React.ReactNode {
+  switch (key) {
+    // ==== تقارير المبيعات ====
+    case "totalSales":
+      return (
+        <StatCard
+          tone="accent"
+          title="إجمالي المبيعات في الفترة (الصافي)"
+          value={formatCurrency(data.rangeSales)}
+          subtitle={`قبل الخصم: ${formatCurrency(data.grossSales)}`}
+          icon={<Banknote className="h-5 w-5" />}
+        />
+      );
+    case "invoicesCount":
+      return (
+        <StatCard
+          tone="accent"
+          title="عدد الفواتير"
+          value={formatNumber(data.rangeSalesCount)}
+          subtitle={`${formatNumber(data.itemsSold)} قطعة مباعة`}
+          icon={<Receipt className="h-5 w-5" />}
+        />
+      );
+    case "avgInvoice":
+      return (
+        <StatCard
+          tone="accent"
+          title="متوسط قيمة الفاتورة"
+          value={formatCurrency(data.avgInvoice)}
+          icon={<Calculator className="h-5 w-5" />}
+        />
+      );
+    case "maxInvoice":
+      return (
+        <StatCard
+          tone="success"
+          title="أعلى فاتورة في الفترة"
+          value={formatCurrency(data.maxInvoice)}
+          icon={<Trophy className="h-5 w-5" />}
+        />
+      );
+    case "byBranch":
+      return (
+        <SectionCard title="المبيعات حسب الفرع" icon={<Building2 />}>
+          {data.branchComparison.some((b) => b.total > 0) ? (
+            <>
+              <BranchBarChart data={data.branchComparison} />
+              <SimpleTable
+                headers={["الفرع", "عدد الفواتير", "الإجمالي"]}
+                rows={data.branchComparison.map((b) => [
+                  BRANCH_LABELS[b.branch],
+                  formatNumber(b.count),
+                  formatCurrency(b.total),
+                ])}
+              />
+            </>
           ) : (
-            <TrendingDown className="h-3.5 w-3.5" />
+            <EmptyBlock />
           )}
-          {formatNumber(Math.abs(Math.round(data.todayChangePct)))}%
-        </div>
-      </div>
-      <div className="mt-3 border-t pt-2 text-xs text-muted nums">
-        أمس: {formatCurrency(data.yesterdaySales)} ·{" "}
-        {formatNumber(data.yesterdaySalesCount)} فاتورة
-      </div>
+        </SectionCard>
+      );
+    case "byCategory":
+      return (
+        <SectionCard title="المبيعات حسب الفئة" icon={<Tag />}>
+          {data.byCategory.some((c) => c.total > 0) ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <CategoryPieChart data={data.byCategory} />
+              <SimpleTable
+                headers={["الفئة", "الكمية", "الإيراد"]}
+                rows={data.byCategory.map((c) => [
+                  CATEGORY_LABELS[c.category],
+                  formatNumber(c.qty),
+                  formatCurrency(c.total),
+                ])}
+              />
+            </div>
+          ) : (
+            <EmptyBlock />
+          )}
+        </SectionCard>
+      );
+    case "byBrand":
+      return (
+        <SectionCard title="المبيعات حسب البراند (Top 10)" icon={<Sparkles />}>
+          <SimpleTable
+            headers={["البراند", "الكمية المباعة", "الإيراد"]}
+            rows={data.topBrands.map((b) => [
+              b.brand,
+              formatNumber(b.qty),
+              formatCurrency(b.revenue),
+            ])}
+          />
+        </SectionCard>
+      );
+    case "topProducts":
+      return (
+        <SectionCard title="أكثر المنتجات مبيعاً (Top 10)" icon={<Trophy />}>
+          {data.topProducts.length === 0 ? (
+            <EmptyBlock />
+          ) : (
+            <div className="space-y-2">
+              {data.topProducts.map((p, i) => (
+                <div
+                  key={`${p.name}-${i}`}
+                  className="flex items-center gap-3 rounded-lg border p-2.5"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent-soft text-sm font-bold text-accent nums">
+                    {i + 1}
+                  </div>
+                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
+                    {p.image ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={p.image}
+                        alt=""
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-muted">
+                        <Package className="h-5 w-5" />
+                      </div>
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium text-text">{p.name}</p>
+                    <p className="text-xs text-muted">{p.brand}</p>
+                  </div>
+                  <div className="shrink-0 text-left">
+                    <p className="font-bold text-text nums">
+                      {formatNumber(p.qty)} قطعة
+                    </p>
+                    <p className="text-xs text-muted nums">
+                      {formatCurrency(p.revenue)}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </SectionCard>
+      );
+    case "cashiers":
+      return (
+        <SectionCard title="أداء الكاشيرين" icon={<Users />}>
+          {data.cashierStats.length === 0 ? (
+            <EmptyBlock text="لا توجد فواتير مسجّلة باسم كاشير في هذه الفترة" />
+          ) : (
+            <SimpleTable
+              headers={[
+                "الكاشير",
+                "عدد الفواتير",
+                "الإجمالي",
+                "المتوسط",
+                "أعلى فاتورة",
+              ]}
+              rows={data.cashierStats.map((c) => [
+                c.name,
+                formatNumber(c.count),
+                formatCurrency(c.total),
+                formatCurrency(c.avgInvoice),
+                formatCurrency(c.maxInvoice),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "byPayment":
+      return (
+        <SectionCard title="المبيعات حسب طريقة الدفع" icon={<CreditCard />}>
+          {data.paymentBreakdown.some((p) => p.total > 0) ? (
+            <PaymentPieChart data={data.paymentBreakdown} />
+          ) : (
+            <EmptyBlock />
+          )}
+        </SectionCard>
+      );
+    case "discounts":
+      return (
+        <SectionCard title="الخصومات الممنوحة" icon={<Percent />}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <MiniStat
+              label="إجمالي الخصومات"
+              value={formatCurrency(data.discountTotal)}
+            />
+            <MiniStat
+              label="فواتير عليها خصم"
+              value={formatNumber(data.discountedCount)}
+            />
+            <MiniStat
+              label="نسبة الخصم من المبيعات"
+              value={`${formatNumber(
+                data.grossSales
+                  ? Math.round((data.discountTotal / data.grossSales) * 1000) /
+                      10
+                  : 0
+              )}%`}
+            />
+          </div>
+        </SectionCard>
+      );
+    case "deliveryVsPickup":
+      return (
+        <SectionCard title="مبيعات التوصيل مقابل الاستلام" icon={<Truck />}>
+          <DeliveryStats stats={data.deliveryStats} />
+        </SectionCard>
+      );
+    case "dailyTrend":
+      return (
+        <SectionCard title="تريند المبيعات اليومي" icon={<TrendingUp />}>
+          {data.dailySales.some((d) => d.total > 0) ? (
+            <SalesLineChart
+              data={data.dailySales}
+              avg={
+                data.dailySales.length
+                  ? data.dailySales.reduce((s, d) => s + d.total, 0) /
+                    data.dailySales.length
+                  : 0
+              }
+            />
+          ) : (
+            <EmptyBlock />
+          )}
+        </SectionCard>
+      );
+
+    // ==== تقارير المنتجات والجرد ====
+    case "inventoryValue":
+      return (
+        <StatCard
+          tone="success"
+          title="إجمالي قيمة المخزون الحالي"
+          value={formatCurrency(data.inventoryValue)}
+          subtitle="بسعر البيع لكل صنف"
+          icon={<Wallet className="h-5 w-5" />}
+        />
+      );
+    case "productsCount":
+      return (
+        <StatCard
+          tone="accent"
+          title="عدد المنتجات الكلي"
+          value={formatNumber(data.productsCount)}
+          subtitle={`${formatNumber(data.variantsCount)} صنف (SKU)`}
+          icon={<Boxes className="h-5 w-5" />}
+        />
+      );
+    case "lowStock":
+      return (
+        <SectionCard
+          title="المنتجات منخفضة المخزون"
+          icon={<AlertTriangle />}
+          tone="warning"
+        >
+          {data.lowStock.length === 0 ? (
+            <EmptyBlock text="لا توجد أصناف منخفضة الكمية" />
+          ) : (
+            <SimpleTable
+              headers={["المنتج", "البراند", "الفرع", "المقاس", "الكمية"]}
+              rows={data.lowStock
+                .slice(0, 50)
+                .map((v) => [
+                  v.productName,
+                  v.brand,
+                  BRANCH_LABELS[v.branch],
+                  v.size,
+                  formatNumber(v.quantity),
+                ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "outOfStock":
+      return (
+        <SectionCard
+          title="المنتجات التي نفد مخزونها"
+          icon={<PackageX />}
+          tone="warning"
+        >
+          {data.outOfStock.length === 0 ? (
+            <EmptyBlock text="لا توجد منتجات نفد مخزونها بالكامل" />
+          ) : (
+            <SimpleTable
+              headers={["المنتج", "البراند", "الفئة"]}
+              rows={data.outOfStock.map((p) => [
+                p.name,
+                p.brand,
+                CATEGORY_LABELS[p.category],
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "stockByBranch":
+      return (
+        <SectionCard title="مقارنة مخزون الفرعين" icon={<Building2 />}>
+          <SimpleTable
+            headers={["الفرع", "الكمية", "القيمة"]}
+            rows={data.stockByBranch.map((s) => [
+              BRANCH_LABELS[s.branch],
+              formatNumber(s.quantity),
+              formatCurrency(s.value),
+            ])}
+          />
+        </SectionCard>
+      );
+    case "stockByCategory":
+      return (
+        <SectionCard title="المخزون حسب الفئة" icon={<Tag />}>
+          <SimpleTable
+            headers={["الفئة", "الكمية", "القيمة"]}
+            rows={data.stockByCategory.map((s) => [
+              CATEGORY_LABELS[s.category],
+              formatNumber(s.quantity),
+              formatCurrency(s.value),
+            ])}
+          />
+        </SectionCard>
+      );
+    case "stockByBrand":
+      return (
+        <SectionCard title="المخزون حسب البراند" icon={<Sparkles />}>
+          <SimpleTable
+            headers={["البراند", "الكمية", "القيمة"]}
+            rows={data.stockByBrand.map((s) => [
+              s.brand,
+              formatNumber(s.quantity),
+              formatCurrency(s.value),
+            ])}
+          />
+        </SectionCard>
+      );
+    case "slowMoving":
+      return (
+        <SectionCard title="المنتجات الأبطأ حركة" icon={<RotateCcw />}>
+          {data.slowMoving.length === 0 ? (
+            <EmptyBlock text="لا توجد منتجات راكدة في الفترة" />
+          ) : (
+            <SimpleTable
+              headers={["المنتج", "البراند", "المخزون"]}
+              rows={data.slowMoving.map((p) => [
+                p.name,
+                p.brand,
+                formatNumber(p.quantity),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "topProfit":
+      return (
+        <SectionCard
+          title="المنتجات الأكثر ربحية"
+          icon={<TrendingUp />}
+          tone="success"
+        >
+          <p className="mb-3 text-xs text-muted">
+            مُقدّرة بحسب الإيراد المحقّق من المبيعات في الفترة
+          </p>
+          {data.topProfit.length === 0 ? (
+            <EmptyBlock />
+          ) : (
+            <SimpleTable
+              headers={["المنتج", "البراند", "الكمية المباعة", "الإيراد"]}
+              rows={data.topProfit.map((p) => [
+                p.name,
+                p.brand,
+                formatNumber(p.qty),
+                formatCurrency(p.revenue),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "damaged":
+      return (
+        <SectionCard
+          title="تقرير الديفو (التالف/المعيب)"
+          icon={<PackageX />}
+          tone="warning"
+        >
+          {data.damagedItems.length === 0 ? (
+            <EmptyBlock text="لا توجد أصناف تالفة مسجّلة في هذه الفترة" />
+          ) : (
+            <SimpleTable
+              headers={[
+                "المنتج",
+                "البراند",
+                "الفرع",
+                "المقاس",
+                "الكمية",
+                "السبب",
+                "التاريخ",
+              ]}
+              rows={data.damagedItems.map((d) => [
+                d.productName,
+                d.brand,
+                d.branch ? BRANCH_LABELS[d.branch] : "—",
+                d.size ?? "—",
+                formatNumber(d.quantity),
+                d.reason ?? "—",
+                format(new Date(d.createdAt), "yyyy/MM/dd"),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "transfers":
+      return (
+        <SectionCard
+          title="تحويلات المخزون بين الفرعين"
+          icon={<ArrowLeftRight />}
+        >
+          {data.stockTransfers.length === 0 ? (
+            <EmptyBlock text="لا توجد تحويلات مخزون في هذه الفترة" />
+          ) : (
+            <SimpleTable
+              headers={[
+                "من",
+                "إلى",
+                "الحالة",
+                "عدد الأصناف",
+                "الكمية",
+                "التاريخ",
+              ]}
+              rows={data.stockTransfers.map((t) => [
+                BRANCH_LABELS[t.fromBranch],
+                BRANCH_LABELS[t.toBranch],
+                t.status,
+                formatNumber(t.itemsCount),
+                formatNumber(t.quantity),
+                format(new Date(t.createdAt), "yyyy/MM/dd"),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "newProducts":
+      return (
+        <SectionCard title="المنتجات الجديدة في الفترة" icon={<Sparkles />}>
+          {data.newProducts.length === 0 ? (
+            <EmptyBlock text="لم تُضَف منتجات جديدة في هذه الفترة" />
+          ) : (
+            <SimpleTable
+              headers={["المنتج", "البراند", "الفئة", "تاريخ الإضافة"]}
+              rows={data.newProducts.map((p) => [
+                p.name,
+                p.brand,
+                CATEGORY_LABELS[p.category],
+                format(new Date(p.createdAt), "yyyy/MM/dd"),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    case "sizeReport":
+      return (
+        <SectionCard title="تقرير المقاسات (أكثر مقاس مبيع)" icon={<Ruler />}>
+          {data.bySize.length === 0 ? (
+            <EmptyBlock />
+          ) : (
+            <SimpleTable
+              headers={["المقاس", "الكمية المباعة", "الإيراد"]}
+              rows={data.bySize.map((s) => [
+                s.size,
+                formatNumber(s.qty),
+                formatCurrency(s.revenue),
+              ])}
+            />
+          )}
+        </SectionCard>
+      );
+    default:
+      return null;
+  }
+}
+
+// ---- عناصر مساعدة للعرض ----
+function SectionCard({
+  title,
+  icon,
+  tone,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  tone?: "accent" | "success" | "warning";
+  children: React.ReactNode;
+}) {
+  return (
+    <Card className="p-5" tone={tone}>
+      <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
+        {icon && <span className="text-accent [&>svg]:h-5 [&>svg]:w-5">{icon}</span>}
+        {title}
+      </h2>
+      {children}
     </Card>
   );
+}
+
+function SimpleTable({
+  headers,
+  rows,
+}: {
+  headers: string[];
+  rows: (string | number)[][];
+}) {
+  if (rows.length === 0) return <EmptyBlock />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[420px] text-right text-sm">
+        <thead>
+          <tr className="border-b text-muted">
+            {headers.map((h) => (
+              <th key={h} className="px-3 py-2 font-medium">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr key={i} className="border-b border-[var(--border)]">
+              {r.map((c, j) => (
+                <td
+                  key={j}
+                  className={cn(
+                    "px-3 py-2 nums",
+                    j === 0 ? "font-medium text-text" : "text-muted"
+                  )}
+                >
+                  {c}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border p-4">
+      <p className="text-sm text-muted">{label}</p>
+      <p className="mt-2 text-2xl font-extrabold text-text nums">{value}</p>
+    </div>
+  );
+}
+
+function EmptyBlock({ text = "لا توجد بيانات في هذه الفترة" }: { text?: string }) {
+  return <p className="py-4 text-center text-sm text-muted">{text}</p>;
 }
 
 function DeliveryStats({
@@ -592,7 +959,8 @@ function DeliveryStats({
           {formatNumber(stats.returnedPct)}%
         </p>
         <p className="mt-1 text-xs text-muted nums">
-          {formatNumber(stats.returnedCount)} من {formatNumber(stats.deliveryCount)} طلب توصيل
+          {formatNumber(stats.returnedCount)} من{" "}
+          {formatNumber(stats.deliveryCount)} طلب توصيل
         </p>
         <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--surface-2)]">
           <div

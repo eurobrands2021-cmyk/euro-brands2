@@ -252,3 +252,51 @@ model ActivityLog {
   @@index([createdAt])
   @@index([userName])
 }
+
+// تحويلات المخزون بين الفرعين (نموذج لجدول قائم في قاعدة البيانات)
+model StockTransfer {
+  id          String    @id @default(cuid())
+  fromBranch  Branch // الفرع المُرسِل
+  toBranch    Branch // الفرع المستقبِل
+  status      String    @default("PENDING") // PENDING / COMPLETED / CANCELLED
+  notes       String?
+  createdBy   String? // اسم منشئ التحويل
+  createdAt   DateTime  @default(now())
+  completedAt DateTime? // وقت اكتمال التحويل
+
+  items StockTransferItem[]
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model StockTransferItem {
+  id         String        @id @default(cuid())
+  transferId String
+  transfer   StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  productId String // مرجع للمنتج (بدون علاقة إلزامية لتفادي تعديل جداول أخرى)
+  variantId String // مرجع للصنف
+  size      String
+  color     String?
+  quantity  Int
+
+  @@index([transferId])
+}
+
+// تقرير الديفو — المنتجات التالفة/المعيبة (نموذج لجدول قائم في قاعدة البيانات)
+model DamagedItem {
+  id        String   @id @default(cuid())
+  productId String // مرجع للمنتج
+  variantId String? // مرجع للصنف (اختياري)
+  branch    Branch // فرع التلف
+  size      String?
+  color     String?
+  quantity  Int      @default(1)
+  reason    String? // سبب التلف/العيب
+  notes     String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

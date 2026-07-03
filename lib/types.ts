@@ -343,8 +343,13 @@ export interface DashboardStats {
   discountTotal: number;
   discountedCount: number;
   itemsSold: number;
+  maxInvoice: number; // أعلى فاتورة في الفترة
   dailySales: { date: string; total: number }[];
   byCategory: { category: CategoryValue; total: number; qty: number }[];
+  // المبيعات حسب البراند (Top 10)
+  topBrands: { brand: string; qty: number; revenue: number }[];
+  // أكثر المقاسات مبيعاً
+  bySize: { size: string; qty: number; revenue: number }[];
   topCustomers: {
     name: string;
     phone: string | null;
@@ -364,6 +369,53 @@ export interface DashboardStats {
     name: string;
     brand: string;
     quantity: number;
+  }[];
+
+  // ---- تقارير المنتجات والجرد ----
+  inventoryValue: number; // إجمالي قيمة المخزون الحالي
+  productsCount: number; // عدد المنتجات الكلي
+  variantsCount: number; // عدد الأصناف (SKU) الكلي
+  outOfStock: {
+    id: string;
+    name: string;
+    brand: string;
+    category: CategoryValue;
+  }[]; // منتجات نفد مخزونها بالكامل
+  stockByBranch: { branch: BranchValue; quantity: number; value: number }[];
+  stockByCategory: { category: CategoryValue; quantity: number; value: number }[];
+  stockByBrand: { brand: string; quantity: number; value: number }[];
+  topProfit: {
+    name: string;
+    brand: string;
+    qty: number;
+    revenue: number;
+  }[]; // الأكثر ربحية (تقديري بحسب الإيراد المحقّق)
+  newProducts: {
+    id: string;
+    name: string;
+    brand: string;
+    category: CategoryValue;
+    createdAt: string;
+  }[]; // منتجات أُضيفت خلال الفترة
+  damagedItems: {
+    id: string;
+    productName: string;
+    brand: string;
+    branch: BranchValue | null;
+    size: string | null;
+    quantity: number;
+    reason: string | null;
+    createdAt: string;
+  }[];
+  stockTransfers: {
+    id: string;
+    fromBranch: BranchValue;
+    toBranch: BranchValue;
+    status: string;
+    itemsCount: number;
+    quantity: number;
+    createdAt: string;
+    completedAt: string | null;
   }[];
 }
 

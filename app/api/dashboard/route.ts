@@ -62,6 +62,8 @@ export async function GET(req: Request) {
       lowStockVariants,
       allProducts,
       priorCustomers,
+      damagedRows,
+      transferRows,
     ] = await Promise.all([
       // كل فواتير الفترة المختارة
       prisma.sale.findMany({
@@ -77,6 +79,7 @@ export async function GET(req: Request) {
                   images: true,
                 },
               },
+              variant: { select: { size: true } },
             },
           },
         },
@@ -122,7 +125,11 @@ export async function GET(req: Request) {
           id: true,
           name: true,
           brand: true,
-          variants: { select: { quantity: true } },
+          category: true,
+          createdAt: true,
+          variants: {
+            select: { quantity: true, price: true, branch: true },
+          },
         },
       }),
       // عملاء سابقون (قبل بداية الفترة) — لتحديد العملاء الجدد
@@ -137,6 +144,23 @@ export async function GET(req: Request) {
         },
         select: { customerName: true, customerPhone: true },
       }),
+      // الديفو (التالف/المعيب) خلال الفترة — استعلام دفاعي (الجدول قد لا يكون مفعّلاً)
+      prisma.damagedItem
+        .findMany({
+          where: { createdAt: { gte: from, lte: to } },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        })
+        .catch(() => []),
+      // تحويلات المخزون خلال الفترة — استعلام دفاعي
+      prisma.stockTransfer
+        .findMany({
+          where: { createdAt: { gte: from, lte: to } },
+          include: { items: { select: { quantity: true } } },
+          orderBy: { createdAt: "desc" },
+          take: 200,
+        })
+        .catch(() => []),
     ]);
 
     const branchMap = new Map<BranchValue, { total: number; count: number }>();
@@ -162,6 +186,7 @@ export async function GET(req: Request) {
       }
     >();
     const brandMap = new Map<string, { qty: number; revenue: number }>();
+    const sizeMap = new Map<string, { qty: number; revenue: number }>();
     const customerMap = new Map<
       string,
       { name: string; phone: string | null; total: number; count: number }
@@ -176,6 +201,7 @@ export async function GET(req: Request) {
     let grossSales = 0;
     let discountedCount = 0;
     let itemsSold = 0;
+    let maxInvoice = 0;
     let deliveryCount = 0;
     let pickupCount = 0;
     let returnedCount = 0;
@@ -186,6 +212,7 @@ export async function GET(req: Request) {
     for (const sale of rangeSales) {
       rangeTotal += sale.finalAmount;
       grossSales += sale.totalAmount;
+      if (sale.finalAmount > maxInvoice) maxInvoice = sale.finalAmount;
       if (sale.totalAmount - sale.finalAmount > 0.001) discountedCount++;
 
       const cname = (sale.customerName ?? "").trim();
@@ -270,6 +297,14 @@ export async function GET(req: Request) {
           br.revenue += item.subtotal;
           brandMap.set(brandName, br);
         }
+
+        const size = item.variant?.size ?? "";
+        if (size) {
+          const sz = sizeMap.get(size) ?? { qty: 0, revenue: 0 };
+          sz.qty += item.quantity;
+          sz.revenue += item.subtotal;
+          sizeMap.set(size, sz);
+        }
       }
     }
 
@@ -334,6 +369,101 @@ export async function GET(req: Request) {
       }))
       .slice(0, 50);
 
+    // ---- تقارير المخزون والجرد ----
+    const productInfo = new Map<string, { name: string; brand: string }>();
+    const stockBranchMap = new Map<BranchValue, { quantity: number; value: number }>();
+    for (const b of BRANCHES) stockBranchMap.set(b, { quantity: 0, value: 0 });
+    const stockCategoryMap = new Map<
+      CategoryValue,
+      { quantity: number; value: number }
+    >();
+    const stockBrandMap = new Map<string, { quantity: number; value: number }>();
+
+    let inventoryValue = 0;
+    let variantsCount = 0;
+    const outOfStock: DashboardStats["outOfStock"] = [];
+
+    for (const p of allProducts) {
+      productInfo.set(p.id, { name: p.name, brand: p.brand });
+      let productStock = 0;
+      for (const v of p.variants) {
+        variantsCount += 1;
+        productStock += v.quantity;
+        const value = v.quantity * v.price;
+        inventoryValue += value;
+
+        const sb = stockBranchMap.get(v.branch as BranchValue);
+        if (sb) {
+          sb.quantity += v.quantity;
+          sb.value += value;
+        }
+
+        const sc = stockCategoryMap.get(p.category as CategoryValue) ?? {
+          quantity: 0,
+          value: 0,
+        };
+        sc.quantity += v.quantity;
+        sc.value += value;
+        stockCategoryMap.set(p.category as CategoryValue, sc);
+
+        if (p.brand) {
+          const sbr = stockBrandMap.get(p.brand) ?? { quantity: 0, value: 0 };
+          sbr.quantity += v.quantity;
+          sbr.value += value;
+          stockBrandMap.set(p.brand, sbr);
+        }
+      }
+      if (productStock <= 0) {
+        outOfStock.push({
+          id: p.id,
+          name: p.name,
+          brand: p.brand,
+          category: p.category as CategoryValue,
+        });
+      }
+    }
+
+    const newProducts = allProducts
+      .filter((p) => p.createdAt >= from && p.createdAt <= to)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        brand: p.brand,
+        category: p.category as CategoryValue,
+        createdAt: p.createdAt.toISOString(),
+      }))
+      .slice(0, 100);
+
+    // الديفو — ربط اسم المنتج من خريطة المنتجات
+    const damagedItems: DashboardStats["damagedItems"] = damagedRows.map((d) => {
+      const info = productInfo.get(d.productId);
+      return {
+        id: d.id,
+        productName: info?.name ?? "—",
+        brand: info?.brand ?? "",
+        branch: (d.branch as BranchValue) ?? null,
+        size: d.size ?? null,
+        quantity: d.quantity,
+        reason: d.reason ?? null,
+        createdAt: d.createdAt.toISOString(),
+      };
+    });
+
+    // تحويلات المخزون — تجميع عدد الأصناف والكميات لكل تحويل
+    const stockTransfers: DashboardStats["stockTransfers"] = transferRows.map(
+      (t) => ({
+        id: t.id,
+        fromBranch: t.fromBranch as BranchValue,
+        toBranch: t.toBranch as BranchValue,
+        status: t.status,
+        itemsCount: t.items.length,
+        quantity: t.items.reduce((s, it) => s + it.quantity, 0),
+        createdAt: t.createdAt.toISOString(),
+        completedAt: t.completedAt ? t.completedAt.toISOString() : null,
+      })
+    );
+
     const stats: DashboardStats = {
       todaySales,
       todaySalesCount: todayAgg._count,
@@ -377,7 +507,7 @@ export async function GET(req: Request) {
 
       topProducts: [...productMap.values()]
         .sort((a, b) => b.qty - a.qty)
-        .slice(0, 5)
+        .slice(0, 10)
         .map((p) => ({ ...p, revenue: round2(p.revenue) })),
       topBrand,
       newCustomersCount,
@@ -405,6 +535,7 @@ export async function GET(req: Request) {
       discountTotal: round2(grossSales - rangeTotal),
       discountedCount,
       itemsSold,
+      maxInvoice: round2(maxInvoice),
       dailySales: [...dayBuckets.entries()].map(([date, total]) => ({
         date,
         total: round2(total),
@@ -414,6 +545,18 @@ export async function GET(req: Request) {
         total: round2(v.total),
         qty: v.qty,
       })),
+      topBrands: [...brandMap.entries()]
+        .map(([brand, v]) => ({
+          brand,
+          qty: v.qty,
+          revenue: round2(v.revenue),
+        }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10),
+      bySize: [...sizeMap.entries()]
+        .map(([size, v]) => ({ size, qty: v.qty, revenue: round2(v.revenue) }))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 15),
       topCustomers: [...customerMap.values()]
         .sort((a, b) => b.total - a.total)
         .slice(0, 5)
@@ -427,6 +570,41 @@ export async function GET(req: Request) {
         quantity: v.quantity,
       })),
       slowMoving,
+
+      inventoryValue: round2(inventoryValue),
+      productsCount: allProducts.length,
+      variantsCount,
+      outOfStock: outOfStock.slice(0, 100),
+      stockByBranch: [...stockBranchMap.entries()].map(([branch, v]) => ({
+        branch,
+        quantity: v.quantity,
+        value: round2(v.value),
+      })),
+      stockByCategory: [...stockCategoryMap.entries()].map(([category, v]) => ({
+        category,
+        quantity: v.quantity,
+        value: round2(v.value),
+      })),
+      stockByBrand: [...stockBrandMap.entries()]
+        .map(([brand, v]) => ({
+          brand,
+          quantity: v.quantity,
+          value: round2(v.value),
+        }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 15),
+      topProfit: [...productMap.values()]
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 10)
+        .map((p) => ({
+          name: p.name,
+          brand: p.brand,
+          qty: p.qty,
+          revenue: round2(p.revenue),
+        })),
+      newProducts,
+      damagedItems,
+      stockTransfers,
     };
 
     return ok(stats);
