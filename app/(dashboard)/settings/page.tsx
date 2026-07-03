@@ -9,6 +9,7 @@ import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
 import { useFetch } from "@/lib/use-fetch";
 import { AdminRecoverySetupCard } from "@/components/admin-recovery-setup";
+import { InvoiceTemplateSettingsCard } from "@/components/invoice-template-settings";
 import { formatDateTime } from "@/lib/format";
 import {
   getSession,
@@ -67,6 +68,11 @@ export default function SettingsPage() {
           تسجيل الخروج
         </button>
       </Card>
+
+      {/* قالب الفاتورة الافتراضي */}
+      <div className="mb-6">
+        <InvoiceTemplateSettingsCard />
+      </div>
 
       {/* سؤال الأمان — للمدير فقط */}
       {session?.role === "ADMIN" && <AdminRecoverySetupCard />}

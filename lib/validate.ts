@@ -149,6 +149,11 @@ export function parseImportRows(body: any): ImportRow[] {
     const productType = asString(r?.productType) || null;
     const quantity = Number(r?.quantity);
     const price = Number(r?.price);
+    const rawAction = asString(r?.action);
+    const action: ImportRow["action"] =
+      rawAction === "merge" || rawAction === "skip" || rawAction === "replace"
+        ? rawAction
+        : "replace";
     const at = `الصف ${i + 1}`;
 
     if (!name) throw new ValidationError(`اسم المنتج مطلوب (${at})`);
@@ -174,6 +179,7 @@ export function parseImportRows(body: any): ImportRow[] {
       price,
       sku,
       productType,
+      action,
     };
   });
 }

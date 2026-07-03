@@ -10,6 +10,8 @@ import {
   FileDown,
   Ban,
   Eye,
+  Pencil,
+  Truck,
   Banknote,
   Wallet,
   Tag,
@@ -375,9 +377,20 @@ export default function SalesPage() {
                           href={`/sales/${sale.id}`}
                           className="btn btn-ghost h-8 w-8 !px-0"
                           aria-label="عرض"
+                          title="عرض الفاتورة"
                         >
                           <Eye className="h-4 w-4" />
                         </Link>
+                        {sale.status !== "CANCELLED" && (
+                          <Link
+                            href={`/sales/${sale.id}/edit`}
+                            className="btn btn-ghost h-8 w-8 !px-0"
+                            aria-label="تعديل"
+                            title="تعديل الفاتورة"
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Link>
+                        )}
                         {sale.status !== "CANCELLED" && (
                           <button
                             onClick={() => setCancelTarget(sale)}
@@ -442,6 +455,15 @@ export default function SalesPage() {
                       عرض
                     </Link>
                     {sale.status !== "CANCELLED" && (
+                      <Link
+                        href={`/sales/${sale.id}/edit`}
+                        className="btn btn-secondary h-9 text-xs"
+                      >
+                        <Pencil className="h-4 w-4" />
+                        تعديل
+                      </Link>
+                    )}
+                    {sale.status !== "CANCELLED" && (
                       <button
                         onClick={() => setCancelTarget(sale)}
                         className="btn btn-ghost h-9 text-xs text-danger"
@@ -503,22 +525,30 @@ export default function SalesPage() {
   );
 }
 
+// شارات الحالة الملوّنة: مكتملة=أخضر · ملغية=أحمر · توصيل=أزرق · رصيد=أصفر
 function StatusBadge({ sale }: { sale: SaleDTO }) {
-  if (sale.status === "CANCELLED")
-    return (
-      <span className="badge bg-[rgba(217,83,79,0.14)] text-danger">
-        {SALE_STATUS_LABELS.CANCELLED}
-      </span>
-    );
-  if (sale.remainingAmount > 0)
-    return (
-      <span className="badge bg-[rgba(201,133,26,0.14)] text-warning">
-        رصيد متبقٍ
-      </span>
-    );
   return (
-    <span className="badge bg-[rgba(59,154,110,0.14)] text-success">
-      مدفوعة
+    <span className="inline-flex flex-wrap items-center gap-1">
+      {sale.status === "CANCELLED" ? (
+        <span className="badge gap-1 bg-[rgba(217,83,79,0.14)] text-danger">
+          <Ban className="h-3 w-3" />
+          {SALE_STATUS_LABELS.CANCELLED}
+        </span>
+      ) : sale.remainingAmount > 0 ? (
+        <span className="badge bg-[rgba(201,133,26,0.14)] text-warning">
+          رصيد متبقٍ
+        </span>
+      ) : (
+        <span className="badge bg-[rgba(59,154,110,0.14)] text-success">
+          مكتملة
+        </span>
+      )}
+      {sale.isDelivery && sale.status !== "CANCELLED" && (
+        <span className="badge gap-1 bg-[rgba(72,120,229,0.14)] text-[#4878e5]">
+          <Truck className="h-3 w-3" />
+          توصيل
+        </span>
+      )}
     </span>
   );
 }

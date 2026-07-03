@@ -34,6 +34,7 @@ import {
   mockGetSale,
   mockCreateSale,
   mockCancelSale,
+  mockUpdateSale,
   mockListDelivery,
   mockUpdateDeliveryStatus,
   mockDashboard,
@@ -244,7 +245,13 @@ export async function mockApi<T>(
   // /api/sales/[id]
   const saleMatch = path.match(/^\/api\/sales\/([^/]+)$/);
   if (saleMatch) {
-    const dto = mockGetSale(decodeURIComponent(saleMatch[1]));
+    const saleId = decodeURIComponent(saleMatch[1]);
+    if (method === "PUT") {
+      const res = mockUpdateSale(saleId, parseSaleInput(body));
+      if (!res.ok) throw new Error(res.error);
+      return res.sale as T;
+    }
+    const dto = mockGetSale(saleId);
     if (!dto) throw new Error("الفاتورة غير موجودة");
     return dto as T;
   }

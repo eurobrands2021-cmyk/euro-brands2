@@ -367,3 +367,400 @@
     print-color-adjust: exact;
   }
 }
+
+/* ============================================
+   مستند الفاتورة (Feature 2) — قوالب كلاسيك/مينيمال/بولد + مقاسات A4/حراري/A5
+   المستند ورقة بيضاء بألوان ثابتة كي تتطابق المعاينة على الشاشة مع الطباعة.
+   ============================================ */
+.inv-doc {
+  --inv-accent: #6c63ff;
+  --inv-ink: #1a1d2e;
+  --inv-line: #d9dce6;
+  --inv-muted: #6b6f80;
+  box-sizing: border-box;
+  width: 100%;
+  margin-inline: auto;
+  padding: 22px;
+  background: #ffffff;
+  color: var(--inv-ink);
+  font-family: var(--font-tajawal), "Tajawal", sans-serif;
+  line-height: 1.5;
+}
+.inv-doc * {
+  box-sizing: border-box;
+}
+
+.inv-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--inv-line);
+}
+.inv-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.inv-logo {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+.inv-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+.inv-store {
+  font-weight: 800;
+  font-size: 20px;
+}
+.inv-tagline {
+  font-size: 12px;
+  color: var(--inv-muted);
+}
+.inv-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+}
+.inv-num {
+  font-weight: 800;
+  font-size: 18px;
+  color: var(--inv-accent);
+}
+.inv-date {
+  font-size: 12px;
+  color: var(--inv-muted);
+}
+.inv-branch {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.inv-customer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  padding: 10px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--inv-line);
+}
+.inv-customer b {
+  font-weight: 700;
+}
+
+.inv-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0;
+  font-size: 13px;
+  text-align: right;
+}
+.inv-table thead th {
+  padding: 8px;
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--inv-muted);
+  border-bottom: 2px solid var(--inv-line);
+}
+.inv-table tbody td {
+  padding: 8px;
+  border-bottom: 1px solid var(--inv-line);
+  vertical-align: top;
+}
+.inv-col-name {
+  width: 42%;
+}
+.inv-item-name {
+  display: block;
+  font-weight: 600;
+}
+.inv-item-brand {
+  display: block;
+  font-size: 11px;
+  color: var(--inv-muted);
+}
+
+.inv-totals {
+  margin-inline-start: auto;
+  max-width: 300px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.inv-total-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+.inv-total-row.inv-grand {
+  font-weight: 800;
+  font-size: 17px;
+  border-top: 2px solid var(--inv-line);
+  margin-top: 6px;
+  padding-top: 8px;
+}
+.inv-discount {
+  color: #b06a12;
+}
+.inv-remaining {
+  color: #b23b36;
+  font-weight: 700;
+}
+.inv-dim {
+  color: var(--inv-muted);
+  font-size: 11px;
+}
+.inv-delivery {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px dashed var(--inv-line);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.inv-notes {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--inv-muted);
+}
+.inv-footer {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--inv-line);
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--inv-muted);
+}
+
+/* ---- قالب كلاسيك: شعار كبير بالوسط وإطار كامل ---- */
+.inv-doc[data-template="classic"] {
+  --inv-accent: #1a1d2e;
+  border: 2px solid var(--inv-ink);
+  padding: 24px;
+}
+.inv-doc[data-template="classic"] .inv-header {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 8px;
+  border-bottom: 3px double var(--inv-ink);
+}
+.inv-doc[data-template="classic"] .inv-brand {
+  flex-direction: column;
+  gap: 6px;
+}
+.inv-doc[data-template="classic"] .inv-logo {
+  width: 62px;
+  height: 62px;
+}
+.inv-doc[data-template="classic"] .inv-brand-text {
+  align-items: center;
+}
+.inv-doc[data-template="classic"] .inv-store {
+  font-size: 24px;
+}
+.inv-doc[data-template="classic"] .inv-meta {
+  align-items: center;
+  text-align: center;
+}
+
+/* ---- قالب مينيمال: أبيض نظيف وخطوط رفيعة وشعار صغير ---- */
+.inv-doc[data-template="minimal"] {
+  --inv-accent: #111827;
+  --inv-line: #ececf0;
+  padding: 28px;
+}
+.inv-doc[data-template="minimal"] .inv-header {
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--inv-line);
+}
+.inv-doc[data-template="minimal"] .inv-logo {
+  width: 34px;
+  height: 34px;
+}
+.inv-doc[data-template="minimal"] .inv-store {
+  font-size: 17px;
+  letter-spacing: 0.3px;
+}
+.inv-doc[data-template="minimal"] .inv-num {
+  font-size: 16px;
+}
+.inv-doc[data-template="minimal"] .inv-table thead th {
+  border-bottom: 1px solid var(--inv-line);
+}
+.inv-doc[data-template="minimal"] .inv-total-row.inv-grand {
+  border-top: 1px solid var(--inv-ink);
+}
+
+/* ---- قالب بولد: ترويسة داكنة بنص أبيض ولون مميّز ---- */
+.inv-doc[data-template="bold"] {
+  --inv-accent: #6c63ff;
+  padding: 20px;
+  border: 1px solid var(--inv-line);
+  border-radius: 10px;
+}
+.inv-doc[data-template="bold"] .inv-header {
+  margin: -20px -20px 16px;
+  padding: 20px;
+  background: #1a1d2e;
+  color: #ffffff;
+  border-bottom: 4px solid var(--inv-accent);
+  border-radius: 10px 10px 0 0;
+}
+.inv-doc[data-template="bold"] .inv-tagline,
+.inv-doc[data-template="bold"] .inv-date {
+  color: #c9ccd8;
+}
+.inv-doc[data-template="bold"] .inv-num {
+  color: #ffffff;
+}
+.inv-doc[data-template="bold"] .inv-branch {
+  background: var(--inv-accent);
+  color: #ffffff;
+  padding: 1px 10px;
+  border-radius: 20px;
+}
+.inv-doc[data-template="bold"] .inv-table thead th {
+  color: var(--inv-accent);
+}
+.inv-doc[data-template="bold"] .inv-total-row.inv-grand {
+  color: var(--inv-accent);
+  border-top-color: var(--inv-accent);
+}
+
+/* ---- مقاسات المعاينة على الشاشة ---- */
+.inv-doc[data-size="a4"] {
+  max-width: 794px;
+}
+.inv-doc[data-size="a5"] {
+  max-width: 560px;
+}
+.inv-doc[data-size="thermal"] {
+  max-width: 302px;
+  padding: 14px;
+  font-size: 12px;
+}
+.inv-doc[data-size="thermal"] .inv-header {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  border-bottom: 1px dashed var(--inv-line);
+}
+.inv-doc[data-size="thermal"] .inv-brand {
+  flex-direction: column;
+  gap: 4px;
+}
+.inv-doc[data-size="thermal"] .inv-brand-text {
+  align-items: center;
+}
+.inv-doc[data-size="thermal"] .inv-meta {
+  align-items: center;
+  text-align: center;
+}
+.inv-doc[data-size="thermal"] .inv-store {
+  font-size: 16px;
+}
+.inv-doc[data-size="thermal"] .inv-table {
+  font-size: 11px;
+}
+.inv-doc[data-size="thermal"] .inv-table thead th,
+.inv-doc[data-size="thermal"] .inv-table tbody td {
+  padding: 4px 3px;
+}
+.inv-doc[data-size="thermal"] .inv-col-name {
+  width: auto;
+}
+.inv-doc[data-size="thermal"] .inv-totals {
+  max-width: none;
+}
+.inv-doc[data-size="thermal"] .inv-logo {
+  width: 40px;
+  height: 40px;
+}
+
+/* حاوية الطباعة — خارج الشاشة عادةً */
+.inv-print-area {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+}
+
+/* مقاسات صفحات الطباعة المسمّاة */
+@page eb-a4 {
+  size: A4;
+  margin: 12mm;
+}
+@page eb-a5 {
+  size: A5;
+  margin: 10mm;
+}
+@page eb-thermal {
+  size: 80mm auto;
+  margin: 4mm;
+}
+
+@media print {
+  /* عزل مستند الفاتورة: أخفِ كل شيء عدا حاوية الطباعة */
+  body.inv-print * {
+    visibility: hidden;
+  }
+  body.inv-print .inv-print-area,
+  body.inv-print .inv-print-area * {
+    visibility: visible;
+  }
+  body.inv-print .inv-print-area {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    padding: 0;
+  }
+  body.inv-print .inv-doc {
+    margin: 0 auto !important;
+    max-width: none !important;
+    width: auto !important;
+    box-shadow: none !important;
+  }
+
+  /* اربط كل مقاس بصفحته المسمّاة */
+  body.inv-print.inv-size-a4 .inv-print-area {
+    page: eb-a4;
+  }
+  body.inv-print.inv-size-a5 .inv-print-area {
+    page: eb-a5;
+  }
+  body.inv-print.inv-size-thermal .inv-print-area {
+    page: eb-thermal;
+  }
+
+  /* حافظ على ألوان القالب رغم تجريد الطباعة العام للألوان */
+  body.inv-print .inv-doc,
+  body.inv-print .inv-doc * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  body.inv-print .inv-doc[data-template="bold"] .inv-header {
+    background: #1a1d2e !important;
+    border-bottom: 4px solid var(--inv-accent) !important;
+  }
+  body.inv-print .inv-doc[data-template="bold"] .inv-header .inv-store,
+  body.inv-print .inv-doc[data-template="bold"] .inv-header .inv-num {
+    color: #ffffff !important;
+  }
+  body.inv-print .inv-doc[data-template="bold"] .inv-header .inv-tagline,
+  body.inv-print .inv-doc[data-template="bold"] .inv-header .inv-date {
+    color: #c9ccd8 !important;
+  }
+  body.inv-print .inv-doc[data-template="bold"] .inv-branch {
+    background: var(--inv-accent) !important;
+    color: #ffffff !important;
+  }
+}

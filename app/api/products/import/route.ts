@@ -35,6 +35,9 @@ export async function POST(req: Request) {
         );
 
         for (const row of rows) {
+          // تخطي الصفوف المعلَّمة بـ «تخطي» من واجهة المعاينة
+          if (row.action === "skip") continue;
+
           // أنواع المنتجات: نُنشئها لو الاسم جاء في الصف ولم يكن موجوداً
           let productTypeId: string | null = null;
           let typeCode: string | null = null;
@@ -118,16 +121,21 @@ export async function POST(req: Request) {
               branch: row.branch as Branch,
               color: row.color,
             },
-            select: { id: true, sku: true, skuManual: true },
+            select: { id: true, sku: true, skuManual: true, quantity: true },
           });
 
           if (existing) {
+            // «تجميع» يضيف الكمية الواردة للكمية الحالية، و«استبدال» يستبدلها
+            const nextQuantity =
+              row.action === "merge"
+                ? existing.quantity + row.quantity
+                : row.quantity;
             const update: {
               quantity: number;
               price: number;
               sku?: string;
               skuManual?: boolean;
-            } = { quantity: row.quantity, price: row.price };
+            } = { quantity: nextQuantity, price: row.price };
             if (row.sku) {
               if (existing.sku) takenSku.delete(existing.sku);
               update.sku = uniquifySku(row.sku, takenSku);

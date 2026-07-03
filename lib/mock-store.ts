@@ -1202,6 +1202,7 @@ export function mockImportInventory(rows: ImportRow[]): ImportResult {
   };
 
   for (const row of rows) {
+    if (row.action === "skip") continue;
     const key = (s: string) => s.trim().toLowerCase();
     let product = store.products.find(
       (p) => key(p.name) === key(row.name) && key(p.brand) === key(row.brand)
@@ -1261,7 +1262,8 @@ export function mockImportInventory(rows: ImportRow[]): ImportResult {
         (v.color ?? null) === (row.color ?? null)
     );
     if (variant) {
-      variant.quantity = row.quantity;
+      variant.quantity =
+        row.action === "merge" ? variant.quantity + row.quantity : row.quantity;
       variant.price = row.price;
       if (row.sku) {
         variant.sku = row.sku;
@@ -1816,6 +1818,125 @@ export function mockCancelSale(
   sale.status = "CANCELLED";
   sale.cancellationReason = reason || "—";
   return { ok: true, sale: shapeSale(sale) };
+}
+
+// تعديل كامل للفاتورة — إرجاع الكميات القديمة ثم خصم الجديدة وإعادة حساب الإجماليات
+export function mockUpdateSale(
+  id: string,
+  input: SaleInput
+): { ok: true; sale: SaleDTO } | { ok: false; status: number; error: string } {
+  const sale = store.sales.find((s) => s.id === id);
+  if (!sale) return { ok: false, status: 404, error: "الفاتورة غير موجودة" };
+  if (sale.status === "CANCELLED")
+    return { ok: false, status: 409, error: "لا يمكن تعديل فاتورة ملغية" };
+
+  // 1) إرجاع كميات العناصر القديمة
+  for (const it of sale.items) {
+    const ref = findVariant(it.variantId);
+    if (ref) ref.variant.quantity += it.quantity;
+  }
+
+  // 2) التحقق من العناصر الجديدة (بعد الإرجاع)
+  const merged = new Map<string, number>();
+  for (const it of input.items)
+    merged.set(it.variantId, (merged.get(it.variantId) ?? 0) + it.quantity);
+
+  const rollback = () => {
+    // إعادة الحالة كما كانت: اخصم القديمة مرة أخرى
+    for (const it of sale.items) {
+      const ref = findVariant(it.variantId);
+      if (ref) ref.variant.quantity -= it.quantity;
+    }
+  };
+
+  let totalAmount = 0;
+  const items: MItem[] = [];
+  for (const [variantId, qty] of merged.entries()) {
+    const ref = findVariant(variantId);
+    if (!ref) {
+      rollback();
+      return {
+        ok: false,
+        status: 422,
+        error: "أحد المنتجات لم يعد متاحاً في المخزون",
+      };
+    }
+    if (ref.variant.branch !== input.branch) {
+      rollback();
+      return {
+        ok: false,
+        status: 422,
+        error: `المنتج "${ref.product.name}" لا ينتمي للفرع المحدد`,
+      };
+    }
+    if (ref.variant.quantity < qty) {
+      // احسب المتاح قبل الاسترجاع كي تُظهر الرسالة الرقم الصحيح
+      const avail = ref.variant.quantity;
+      rollback();
+      return {
+        ok: false,
+        status: 422,
+        error: `الكمية غير كافية من "${ref.product.name}" مقاس ${ref.variant.size} (المتاح: ${avail})`,
+      };
+    }
+    const subtotal = round2(ref.variant.price * qty);
+    totalAmount += subtotal;
+    items.push({
+      id: nextId("si"),
+      saleId: sale.id,
+      productId: ref.product.id,
+      variantId,
+      quantity: qty,
+      unitPrice: ref.variant.price,
+      subtotal,
+    });
+  }
+
+  totalAmount = round2(totalAmount);
+  const { finalAmount } = calcDiscount(
+    totalAmount,
+    input.discountType,
+    input.discountValue
+  );
+
+  // 3) خصم الكميات الجديدة
+  for (const [variantId, qty] of merged.entries()) {
+    findVariant(variantId)!.variant.quantity -= qty;
+  }
+
+  const paidAmount =
+    input.paidAmount == null
+      ? finalAmount
+      : Math.min(Math.max(input.paidAmount, 0), finalAmount);
+
+  // 4) تحديث بيانات الفاتورة
+  sale.branch = input.branch;
+  sale.totalAmount = totalAmount;
+  sale.discountType = input.discountType;
+  sale.discountValue = input.discountValue;
+  sale.finalAmount = finalAmount;
+  sale.customerName = input.customerName ?? null;
+  sale.customerPhone = input.customerPhone ?? null;
+  sale.customerNotes = input.customerNotes ?? null;
+  sale.paymentMethod = input.paymentMethod;
+  sale.transferMethod = input.transferMethod ?? null;
+  sale.invoiceNotes = input.invoiceNotes ?? null;
+  sale.paidAmount = round2(paidAmount);
+  sale.remainingAmount = round2(finalAmount - paidAmount);
+  sale.isDelivery = !!input.delivery;
+  sale.orderSource = input.delivery?.orderSource ?? null;
+  sale.deliveryMethod = input.delivery?.deliveryMethod ?? null;
+  sale.deliveryAddress = input.delivery?.deliveryAddress ?? null;
+  sale.addressNotes = input.delivery?.addressNotes ?? null;
+  sale.trackingNumber = input.delivery?.trackingNumber ?? null;
+  sale.deliveryStatus = input.delivery
+    ? sale.deliveryStatus ?? "NEW"
+    : null;
+  sale.items = items;
+
+  const dto = shapeSale(sale);
+  dto.lastEditedAt = new Date().toISOString();
+  return { ok: true, sale: dto };
 }
 
 // ----------------------------------------------------

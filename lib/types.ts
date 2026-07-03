@@ -132,6 +132,7 @@ export interface SaleDTO {
   trackingNumber: string | null;
   deliveryStatus: DeliveryStatusValue | null;
   createdAt: string;
+  lastEditedAt?: string | null; // آخر تعديل على الفاتورة (من سجل النشاط)
   items: SaleItemDTO[];
   itemsCount?: number;
 }
@@ -170,6 +171,13 @@ export interface ProductInput {
 }
 
 // استيراد الجرد من Excel
+
+// إجراء التعامل مع الصف المتعارض (الصنف موجود مسبقاً):
+//   replace = استبدال الكمية بالقيمة الجديدة
+//   merge   = تجميع (الكمية الحالية + الكمية الجديدة)
+//   skip    = تخطي الصف (لا يُرسَل للخادم عادةً، لكن يُحترم أيضاً هناك)
+export type ImportAction = "replace" | "merge" | "skip";
+
 export interface ImportRow {
   name: string;
   brand: string;
@@ -181,6 +189,7 @@ export interface ImportRow {
   price: number;
   sku: string | null;
   productType: string | null; // اسم النوع — يُنشأ إن لم يكن موجوداً
+  action?: ImportAction; // كيفية التعامل مع الصنف الموجود (افتراضي: replace)
 }
 
 export interface ImportResult {

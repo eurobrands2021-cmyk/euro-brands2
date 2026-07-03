@@ -1,18 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Download,
   Upload,
   FileSpreadsheet,
   CheckCircle2,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { apiPost } from "@/lib/client";
 import { cn } from "@/lib/cn";
+import { normalizeArabic } from "@/lib/normalize";
 import {
   BRANCHES,
   BRANCH_LABELS,
@@ -22,7 +24,12 @@ import {
   type CategoryValue,
 } from "@/lib/constants";
 import { formatNumber } from "@/lib/format";
-import type { ImportResult, ImportRow, ProductDTO } from "@/lib/types";
+import type {
+  ImportAction,
+  ImportResult,
+  ImportRow,
+  ProductDTO,
+} from "@/lib/types";
 
 // ترتيب أعمدة القالب الجديد (أ→ي): اسم المنتج، البراند، الفئة، النوع، اللون،
 // المقاس، الفرع، الكمية، السعر، الكود (SKU).
@@ -46,7 +53,20 @@ const BRANCH_BY_LABEL = Object.fromEntries(
   BRANCHES.map((b) => [BRANCH_LABELS[b], b])
 ) as Record<string, BranchValue>;
 
+// حالة الصف: جديد كلياً / تحديث لصنف موجود / خطأ في البيانات
+type RowStatus = "new" | "update" | "error";
+
+// الحقول القابلة للتحرير المباشر داخل جدول المعاينة
+type EditableField =
+  | "name"
+  | "brand"
+  | "size"
+  | "color"
+  | "quantity"
+  | "price";
+
 interface PreviewRow {
+  // القيم الخام (قابلة للتحرير)
   name: string;
   brand: string;
   categoryLabel: string;
@@ -57,10 +77,14 @@ interface PreviewRow {
   quantity: string;
   price: string;
   sku: string;
+  // مشتقّات
   parsed?: ImportRow;
   valid: boolean;
   error?: string;
-  status: string;
+  status: RowStatus;
+  currentQuantity: number | null; // كمية الصنف الحالية في القاعدة (عند التحديث)
+  action: ImportAction; // إجراء التعامل مع التعارض
+  edited: boolean; // عُدِّل يدوياً في المعاينة
 }
 
 function norm(v: unknown): string {
@@ -83,6 +107,38 @@ function pickAny(obj: Record<string, unknown>, ...headers: string[]): unknown {
   return "";
 }
 
+// القيم الخام لصف من ملف Excel
+type RawRow = Pick<
+  PreviewRow,
+  | "name"
+  | "brand"
+  | "categoryLabel"
+  | "productType"
+  | "branchLabel"
+  | "size"
+  | "color"
+  | "quantity"
+  | "price"
+  | "sku"
+>;
+
+function rawFromObj(obj: Record<string, unknown>): RawRow {
+  return {
+    // "اسم المنتج" هو الرأس الجديد، و"المنتج" رأس قديم نبقي عليه للملفات السابقة
+    name: norm(pickAny(obj, "اسم المنتج", "المنتج")),
+    brand: norm(pick(obj, "البراند")),
+    categoryLabel: norm(pick(obj, "الفئة")),
+    productType: norm(pick(obj, "النوع")),
+    branchLabel: norm(pick(obj, "الفرع")),
+    size: norm(pick(obj, "المقاس")),
+    color: norm(pick(obj, "اللون")),
+    quantity: norm(pick(obj, "الكمية")),
+    price: norm(pick(obj, "السعر")),
+    // "الكود (SKU)" هو الرأس الجديد، و"SKU" رأس قديم نبقي عليه للملفات السابقة
+    sku: norm(pickAny(obj, "الكود (SKU)", "SKU")),
+  };
+}
+
 export function ImportInventoryModal({
   open,
   onClose,
@@ -99,88 +155,92 @@ export function ImportInventoryModal({
   const [parsing, setParsing] = useState(false);
   const [importing, setImporting] = useState(false);
 
-  function classify(row: ImportRow): string {
-    const k = (s: string) => s.trim().toLowerCase();
+  // بحث ذكي مطبَّع (اسود=أسود، ابيض=أبيض...) لمطابقة المنتج/الصنف الموجود.
+  // نُعيد أيضاً المنتج والصنف المطابقين كي نُرسل قيمهما «الرسمية» للخادم فيُحدِّث
+  // الصنف الصحيح تماماً (لأن مطابقة الخادم حرفية لا مطبَّعة).
+  function findExistingVariant(
+    raw: RawRow,
+    branch: BranchValue | undefined
+  ): { product: ProductDTO; variant: ProductDTO["variants"][number] } | null {
+    if (!branch) return null;
+    const nName = normalizeArabic(raw.name);
+    const nBrand = normalizeArabic(raw.brand);
     const p = products.find(
-      (x) => k(x.name) === k(row.name) && k(x.brand) === k(row.brand)
+      (x) =>
+        normalizeArabic(x.name) === nName &&
+        normalizeArabic(x.brand) === nBrand
     );
-    if (!p) return "منتج جديد";
+    if (!p) return null;
+    const nSize = normalizeArabic(raw.size);
+    const nColor = normalizeArabic(raw.color);
     const v = p.variants.find(
       (vr) =>
-        vr.size === row.size &&
-        vr.branch === row.branch &&
-        (vr.color ?? null) === (row.color ?? null)
+        normalizeArabic(vr.size) === nSize &&
+        vr.branch === branch &&
+        normalizeArabic(vr.color ?? "") === nColor
     );
-    return v ? "تحديث الكمية" : "صنف جديد";
+    return v ? { product: p, variant: v } : null;
   }
 
-  function buildRow(obj: Record<string, unknown>): PreviewRow {
-    // "اسم المنتج" هو الرأس الجديد، و"المنتج" رأس قديم نبقي عليه للملفات السابقة
-    const name = norm(pickAny(obj, "اسم المنتج", "المنتج"));
-    const brand = norm(pick(obj, "البراند"));
-    const categoryLabel = norm(pick(obj, "الفئة"));
-    const productType = norm(pick(obj, "النوع"));
-    const branchLabel = norm(pick(obj, "الفرع"));
-    const size = norm(pick(obj, "المقاس"));
-    const color = norm(pick(obj, "اللون"));
-    const quantity = norm(pick(obj, "الكمية"));
-    const price = norm(pick(obj, "السعر"));
-    // "الكود (SKU)" هو الرأس الجديد، و"SKU" رأس قديم نبقي عليه للملفات السابقة
-    const sku = norm(pickAny(obj, "الكود (SKU)", "SKU"));
-
+  // إعادة حساب مشتقّات الصف من قيمه الخام (بعد التحرير أو عند القراءة الأولى)
+  function compute(
+    raw: RawRow,
+    action: ImportAction,
+    edited: boolean
+  ): PreviewRow {
     const category =
-      CATEGORY_BY_LABEL[categoryLabel] ??
-      (CATEGORIES.includes(categoryLabel as CategoryValue)
-        ? (categoryLabel as CategoryValue)
+      CATEGORY_BY_LABEL[raw.categoryLabel] ??
+      (CATEGORIES.includes(raw.categoryLabel as CategoryValue)
+        ? (raw.categoryLabel as CategoryValue)
         : undefined);
     const branch =
-      BRANCH_BY_LABEL[branchLabel] ??
-      (BRANCHES.includes(branchLabel as BranchValue)
-        ? (branchLabel as BranchValue)
+      BRANCH_BY_LABEL[raw.branchLabel] ??
+      (BRANCHES.includes(raw.branchLabel as BranchValue)
+        ? (raw.branchLabel as BranchValue)
         : undefined);
-    const qty = Number(quantity);
-    const prc = Number(price);
+    const qty = Number(raw.quantity);
+    const prc = Number(raw.price);
 
     let error: string | undefined;
-    if (!name) error = "اسم المنتج مفقود";
-    else if (!brand) error = "البراند مفقود";
+    if (!raw.name) error = "اسم المنتج مفقود";
+    else if (!raw.brand) error = "البراند مفقود";
     else if (!category) error = "فئة غير معروفة";
     else if (!branch) error = "فرع غير معروف";
-    else if (!size) error = "المقاس مفقود";
+    else if (!raw.size) error = "المقاس مفقود";
     else if (!Number.isFinite(qty) || qty < 0) error = "كمية غير صحيحة";
     else if (!Number.isFinite(prc) || prc < 0) error = "سعر غير صحيح";
 
     const valid = !error;
+    const existing = valid ? findExistingVariant(raw, branch) : null;
+    const status: RowStatus = !valid ? "error" : existing ? "update" : "new";
+
     const parsed: ImportRow | undefined = valid
       ? {
-          name,
-          brand,
+          // عند التحديث نُرسل القيم الرسمية للصنف الموجود لتطابق الخادم الحرفي؛
+          // وعند الجديد نُرسل ما كتبه المستخدم كما هو.
+          name: existing ? existing.product.name : raw.name,
+          brand: existing ? existing.product.brand : raw.brand,
           category: category!,
           branch: branch!,
-          size,
-          color: color || null,
+          size: existing ? existing.variant.size : raw.size,
+          color: existing ? existing.variant.color : raw.color || null,
           quantity: Math.floor(qty),
           price: prc,
-          sku: sku || null,
-          productType: productType || null,
+          sku: raw.sku || null,
+          productType: raw.productType || null,
+          action: status === "update" ? action : "replace",
         }
       : undefined;
 
     return {
-      name,
-      brand,
-      categoryLabel,
-      productType,
-      branchLabel,
-      size,
-      color,
-      quantity,
-      price,
-      sku,
+      ...raw,
       parsed,
       valid,
       error,
-      status: valid ? classify(parsed!) : "—",
+      status,
+      currentQuantity: existing ? existing.variant.quantity : null,
+      action,
+      edited,
     };
   }
 
@@ -245,7 +305,7 @@ export function ImportInventoryModal({
         toast.error("الملف لا يحتوي على بيانات");
         return;
       }
-      setPreview(json.map(buildRow));
+      setPreview(json.map((o) => compute(rawFromObj(o), "replace", false)));
     } catch {
       toast.error("تعذّر قراءة ملف Excel");
     } finally {
@@ -253,8 +313,45 @@ export function ImportInventoryModal({
     }
   }
 
+  // تحرير خلية مباشرة في المعاينة — يُعيد حساب الحالة/التعارض ويعلّم الصف كمعدَّل
+  function editCell(index: number, field: EditableField, value: string) {
+    setPreview((prev) =>
+      prev
+        ? prev.map((r, i) =>
+            i === index ? compute({ ...r, [field]: value }, r.action, true) : r
+          )
+        : prev
+    );
+  }
+
+  // تغيير إجراء التعارض لصف واحد
+  function setRowAction(index: number, action: ImportAction) {
+    setPreview((prev) =>
+      prev
+        ? prev.map((r, i) =>
+            i === index && r.status === "update"
+              ? compute(r, action, r.edited)
+              : r
+          )
+        : prev
+    );
+  }
+
+  // تطبيق الإجراء نفسه على كل صفوف التحديث دفعةً واحدة
+  function applyActionToAll(action: ImportAction) {
+    setPreview((prev) =>
+      prev
+        ? prev.map((r) =>
+            r.status === "update" ? compute(r, action, r.edited) : r
+          )
+        : prev
+    );
+  }
+
   async function handleConfirm() {
-    const rows = (preview ?? []).filter((r) => r.valid).map((r) => r.parsed!);
+    const rows = (preview ?? [])
+      .filter((r) => r.valid && r.action !== "skip")
+      .map((r) => r.parsed!);
     if (rows.length === 0) {
       toast.error("لا توجد صفوف صالحة للاستيراد");
       return;
@@ -279,8 +376,18 @@ export function ImportInventoryModal({
     onClose();
   }
 
-  const validCount = preview?.filter((r) => r.valid).length ?? 0;
-  const invalidCount = (preview?.length ?? 0) - validCount;
+  const stats = useMemo(() => {
+    const rows = preview ?? [];
+    return {
+      newCount: rows.filter((r) => r.status === "new").length,
+      updateCount: rows.filter((r) => r.status === "update").length,
+      errorCount: rows.filter((r) => r.status === "error").length,
+      skipCount: rows.filter((r) => r.action === "skip").length,
+      importCount: rows.filter((r) => r.valid && r.action !== "skip").length,
+    };
+  }, [preview]);
+
+  const hasConflicts = stats.updateCount > 0;
 
   return (
     <Modal
@@ -294,7 +401,7 @@ export function ImportInventoryModal({
           <p className="text-sm text-muted">
             نزّل القالب، املأ الصفوف بالأعمدة: اسم المنتج، البراند، الفئة،
             النوع، اللون، المقاس، الفرع، الكمية، السعر، الكود (SKU)، ثم ارفع
-            الملف لتحديث المخزون بالجملة. «النوع» و«اللون» و«الكود (SKU)»
+            الملف لمعاينته وتعديله قبل التأكيد. «النوع» و«اللون» و«الكود (SKU)»
             اختيارية — لو تركت الكود فارغاً سيُولَّد تلقائياً.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row">
@@ -327,77 +434,87 @@ export function ImportInventoryModal({
           />
           <div className="flex items-center gap-2 rounded-lg border border-dashed p-3 text-xs text-muted">
             <FileSpreadsheet className="h-4 w-4 shrink-0" />
-            الصفوف المطابقة (نفس المنتج والفرع والمقاس واللون) ستُحدَّث
-            كميتها وسعرها، والجديدة ستُضاف تلقائياً مع توليد SKU إن لم يكن
-            معبَّأ. أنواع المنتجات الجديدة المذكورة في عمود «النوع» تُنشأ
-            تلقائياً.
+            بعد الرفع يمكنك تعديل أي خلية مباشرةً، وسيُكتشف تلقائياً الأصناف
+            الموجودة مسبقاً (نفس المنتج والفرع والمقاس واللون) لتختار: استبدال
+            الكمية أو تجميعها أو تخطي الصف.
           </div>
         </div>
       ) : (
         <div className="space-y-4">
+          {/* ملخّص الحالات */}
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <span className="flex items-center gap-1.5 text-success">
               <CheckCircle2 className="h-4 w-4" />
-              {formatNumber(validCount)} صف صالح
+              {formatNumber(stats.newCount)} جديد
             </span>
-            {invalidCount > 0 && (
+            <span className="flex items-center gap-1.5 text-warning">
+              <AlertTriangle className="h-4 w-4" />
+              {formatNumber(stats.updateCount)} تحديث
+            </span>
+            {stats.errorCount > 0 && (
               <span className="flex items-center gap-1.5 text-danger">
                 <AlertTriangle className="h-4 w-4" />
-                {formatNumber(invalidCount)} صف به أخطاء (سيتم تجاهله)
+                {formatNumber(stats.errorCount)} خطأ
+              </span>
+            )}
+            {stats.skipCount > 0 && (
+              <span className="flex items-center gap-1.5 text-muted">
+                {formatNumber(stats.skipCount)} متخطّى
               </span>
             )}
           </div>
 
-          <div className="max-h-[50vh] overflow-auto rounded-lg border">
-            <table className="w-full min-w-[920px] text-right text-xs">
-              <thead className="sticky top-0 bg-surface">
+          {/* تطبيق الإجراء على كل صفوف التعارض دفعة واحدة */}
+          {hasConflicts && (
+            <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-[var(--surface-2)] p-2.5 text-xs">
+              <span className="font-medium text-text">
+                تطبيق على كل التعارضات:
+              </span>
+              <button
+                onClick={() => applyActionToAll("replace")}
+                className="btn btn-secondary h-8 px-3 text-xs"
+              >
+                استبدال الكل
+              </button>
+              <button
+                onClick={() => applyActionToAll("merge")}
+                className="btn btn-secondary h-8 px-3 text-xs"
+              >
+                تجميع الكل
+              </button>
+              <button
+                onClick={() => applyActionToAll("skip")}
+                className="btn btn-secondary h-8 px-3 text-xs"
+              >
+                تخطّي الكل
+              </button>
+            </div>
+          )}
+
+          <div className="max-h-[52vh] overflow-auto rounded-lg border">
+            <table className="w-full min-w-[1040px] text-right text-xs">
+              <thead className="sticky top-0 z-10 bg-surface">
                 <tr className="border-b text-muted">
                   <th className="px-2 py-2 font-medium">المنتج</th>
                   <th className="px-2 py-2 font-medium">البراند</th>
                   <th className="px-2 py-2 font-medium">الفئة</th>
-                  <th className="px-2 py-2 font-medium">النوع</th>
                   <th className="px-2 py-2 font-medium">الفرع</th>
                   <th className="px-2 py-2 font-medium">المقاس</th>
                   <th className="px-2 py-2 font-medium">اللون</th>
                   <th className="px-2 py-2 font-medium">الكمية</th>
                   <th className="px-2 py-2 font-medium">السعر</th>
-                  <th className="px-2 py-2 font-medium">SKU</th>
-                  <th className="px-2 py-2 font-medium">الحالة</th>
+                  <th className="px-2 py-2 font-medium">الحالة / التعارض</th>
                 </tr>
               </thead>
               <tbody>
                 {preview.slice(0, 200).map((r, i) => (
-                  <tr
+                  <PreviewRowView
                     key={i}
-                    className={cn(
-                      "border-b border-[var(--border)]",
-                      !r.valid && "bg-[rgba(217,83,79,0.08)]"
-                    )}
-                  >
-                    <td className="px-2 py-2 text-text">{r.name || "—"}</td>
-                    <td className="px-2 py-2 text-muted">{r.brand || "—"}</td>
-                    <td className="px-2 py-2 text-muted">
-                      {r.categoryLabel || "—"}
-                    </td>
-                    <td className="px-2 py-2 text-muted">
-                      {r.productType || "—"}
-                    </td>
-                    <td className="px-2 py-2 text-muted">
-                      {r.branchLabel || "—"}
-                    </td>
-                    <td className="px-2 py-2 text-text nums">{r.size || "—"}</td>
-                    <td className="px-2 py-2 text-muted">{r.color || "—"}</td>
-                    <td className="px-2 py-2 text-text nums">{r.quantity}</td>
-                    <td className="px-2 py-2 text-text nums">{r.price}</td>
-                    <td className="px-2 py-2 text-muted nums">{r.sku || "—"}</td>
-                    <td className="px-2 py-2">
-                      {r.valid ? (
-                        <span className="text-success">{r.status}</span>
-                      ) : (
-                        <span className="text-danger">{r.error}</span>
-                      )}
-                    </td>
-                  </tr>
+                    row={r}
+                    index={i}
+                    onEdit={editCell}
+                    onAction={setRowAction}
+                  />
                 ))}
               </tbody>
             </table>
@@ -411,7 +528,7 @@ export function ImportInventoryModal({
           <div className="flex flex-col gap-2 sm:flex-row">
             <button
               onClick={handleConfirm}
-              disabled={importing || validCount === 0}
+              disabled={importing || stats.importCount === 0}
               className="btn btn-primary h-11 sm:w-auto"
             >
               {importing ? (
@@ -419,7 +536,7 @@ export function ImportInventoryModal({
               ) : (
                 <CheckCircle2 className="h-4 w-4" />
               )}
-              تأكيد الاستيراد ({formatNumber(validCount)})
+              تأكيد الاستيراد ({formatNumber(stats.importCount)})
             </button>
             <button
               onClick={() => setPreview(null)}
@@ -432,5 +549,170 @@ export function ImportInventoryModal({
         </div>
       )}
     </Modal>
+  );
+}
+
+// خلية قابلة للتحرير — نصية أو رقمية
+function EditableCell({
+  value,
+  onChange,
+  type = "text",
+  className,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  type?: "text" | "number";
+  className?: string;
+}) {
+  return (
+    <input
+      type={type}
+      inputMode={type === "number" ? "decimal" : undefined}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        "w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-text outline-none transition-colors hover:border-[var(--border)] focus:border-accent focus:bg-surface",
+        type === "number" && "nums",
+        className
+      )}
+    />
+  );
+}
+
+function PreviewRowView({
+  row,
+  index,
+  onEdit,
+  onAction,
+}: {
+  row: PreviewRow;
+  index: number;
+  onEdit: (i: number, field: EditableField, v: string) => void;
+  onAction: (i: number, a: ImportAction) => void;
+}) {
+  // لون الصف حسب الحالة: أصفر (تحديث)، أخضر (جديد)، أحمر (خطأ)
+  const tone =
+    row.status === "error"
+      ? "bg-[rgba(217,83,79,0.08)]"
+      : row.action === "skip"
+        ? "bg-[var(--surface-2)] opacity-60"
+        : row.status === "update"
+          ? "bg-[rgba(201,133,26,0.08)]"
+          : "bg-[rgba(59,154,110,0.06)]";
+
+  // الكمية بعد تطبيق الإجراء (لعرض «سيصبح»)
+  const incoming = Number(row.quantity);
+  const current = row.currentQuantity ?? 0;
+  const next =
+    row.action === "merge"
+      ? current + (Number.isFinite(incoming) ? incoming : 0)
+      : row.action === "skip"
+        ? current
+        : Number.isFinite(incoming)
+          ? incoming
+          : 0;
+  const diff = next - current;
+
+  return (
+    <tr className={cn("border-b border-[var(--border)] align-top", tone)}>
+      <td className="px-2 py-1.5">
+        <div className="flex items-center gap-1">
+          <EditableCell
+            value={row.name}
+            onChange={(v) => onEdit(index, "name", v)}
+          />
+          {row.edited && (
+            <span className="flex shrink-0 items-center gap-0.5 rounded bg-[rgba(108,99,255,0.14)] px-1.5 py-0.5 text-[10px] font-bold text-accent">
+              <Pencil className="h-2.5 w-2.5" />
+              تم التعديل
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-2 py-1.5">
+        <EditableCell
+          value={row.brand}
+          onChange={(v) => onEdit(index, "brand", v)}
+        />
+      </td>
+      <td className="px-2 py-1.5 text-muted">{row.categoryLabel || "—"}</td>
+      <td className="px-2 py-1.5 text-muted">{row.branchLabel || "—"}</td>
+      <td className="px-2 py-1.5">
+        <EditableCell
+          value={row.size}
+          onChange={(v) => onEdit(index, "size", v)}
+          className="nums"
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <EditableCell
+          value={row.color}
+          onChange={(v) => onEdit(index, "color", v)}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <EditableCell
+          type="number"
+          value={row.quantity}
+          onChange={(v) => onEdit(index, "quantity", v)}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        <EditableCell
+          type="number"
+          value={row.price}
+          onChange={(v) => onEdit(index, "price", v)}
+        />
+      </td>
+      <td className="px-2 py-1.5">
+        {row.status === "error" ? (
+          <span className="text-danger">{row.error}</span>
+        ) : row.status === "new" ? (
+          <span className="font-medium text-success">منتج/صنف جديد</span>
+        ) : (
+          <div className="space-y-1">
+            <p className="nums text-[11px] text-muted">
+              كان: <span className="font-bold text-text">{current}</span> |
+              سيصبح: <span className="font-bold text-text">{next}</span> |
+              الفرق:{" "}
+              <span
+                className={cn(
+                  "font-bold",
+                  diff > 0
+                    ? "text-success"
+                    : diff < 0
+                      ? "text-danger"
+                      : "text-muted"
+                )}
+              >
+                {diff > 0 ? `+${diff}` : diff}
+              </span>
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  ["replace", "استبدال"],
+                  ["merge", "تجميع"],
+                  ["skip", "تخطي"],
+                ] as [ImportAction, string][]
+              ).map(([act, label]) => (
+                <button
+                  key={act}
+                  onClick={() => onAction(index, act)}
+                  className={cn(
+                    "rounded border px-2 py-0.5 text-[11px] font-medium transition-colors",
+                    row.action === act
+                      ? "border-accent bg-accent text-white"
+                      : "border-[var(--border)] text-muted hover:text-text"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </td>
+    </tr>
   );
 }

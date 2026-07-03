@@ -1,11 +1,38 @@
+import {
+  Prisma,
+  type Branch,
+  type DeliveryMethod,
+  type DiscountType,
+  type OrderSource,
+  type PaymentMethod,
+} from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ok, fail, handleServerError } from "@/lib/api";
 import { toSaleDTO } from "@/lib/serializers";
-import { MOCK_MODE, mockGetSale } from "@/lib/mock-store";
+import { parseSaleInput, ValidationError } from "@/lib/validate";
+import { calcDiscount, round2 } from "@/lib/sale-utils";
+import { formatSaleNumber } from "@/lib/format";
+import {
+  MOCK_MODE,
+  mockGetSale,
+  mockUpdateSale,
+} from "@/lib/mock-store";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/sales/[id] — تفاصيل فاتورة كاملة
+const saleInclude = {
+  items: {
+    include: {
+      product: { select: { name: true, brand: true } },
+      variant: { select: { size: true, color: true, sku: true } },
+    },
+  },
+} satisfies Prisma.SaleInclude;
+
+// وصف الإجراء المسجَّل عند تعديل الفاتورة (يُستخدم أيضاً لجلب «آخر تعديل»)
+const EDIT_ACTION = "تعديل فاتورة";
+
+// GET /api/sales/[id] — تفاصيل فاتورة كاملة (مع طابع آخر تعديل من سجل النشاط)
 export async function GET(
   _req: Request,
   { params }: { params: { id: string } }
@@ -17,18 +44,197 @@ export async function GET(
     }
     const sale = await prisma.sale.findUnique({
       where: { id: params.id },
-      include: {
-        items: {
-          include: {
-            product: { select: { name: true, brand: true } },
-            variant: { select: { size: true, color: true, sku: true } },
-          },
-        },
-      },
+      include: saleInclude,
     });
     if (!sale) return fail("الفاتورة غير موجودة", 404);
-    return ok(toSaleDTO(sale));
+
+    const dto = toSaleDTO(sale);
+    // آخر تعديل: أحدث سجل نشاط بإجراء «تعديل فاتورة» يشير لرقم هذه الفاتورة
+    const lastEdit = await prisma.activityLog.findFirst({
+      where: {
+        action: EDIT_ACTION,
+        details: { contains: formatSaleNumber(sale.saleNumber) },
+      },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    });
+    dto.lastEditedAt = lastEdit ? lastEdit.createdAt.toISOString() : null;
+
+    return ok(dto);
   } catch (error) {
+    return handleServerError(error);
+  }
+}
+
+// PUT /api/sales/[id] — تعديل كامل للفاتورة مع تصحيح المخزون في معاملة واحدة
+export async function PUT(
+  req: Request,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const body = await req.json();
+    const input = parseSaleInput(body);
+
+    // اسم/دور المُعدِّل لتسجيله في سجل النشاط (اختياري)
+    const editorName =
+      typeof body?.editorName === "string" && body.editorName.trim()
+        ? body.editorName.trim()
+        : "النظام";
+    const editorRole = body?.editorRole === "CASHIER" ? "CASHIER" : "ADMIN";
+
+    if (MOCK_MODE) {
+      const res = mockUpdateSale(params.id, input);
+      return res.ok ? ok(res.sale) : fail(res.error, res.status);
+    }
+
+    // دمج الكميات المكررة لنفس الصنف
+    const merged = new Map<string, number>();
+    for (const it of input.items) {
+      merged.set(it.variantId, (merged.get(it.variantId) ?? 0) + it.quantity);
+    }
+    const variantIds = [...merged.keys()];
+
+    const result = await prisma.$transaction(async (tx) => {
+      const sale = await tx.sale.findUnique({
+        where: { id: params.id },
+        include: { items: true },
+      });
+      if (!sale)
+        return { ok: false as const, error: "الفاتورة غير موجودة", status: 404 };
+      if (sale.status === "CANCELLED")
+        return {
+          ok: false as const,
+          error: "لا يمكن تعديل فاتورة ملغية",
+          status: 409,
+        };
+
+      // 1) إرجاع كميات العناصر القديمة للمخزون
+      for (const it of sale.items) {
+        await tx.productVariant.update({
+          where: { id: it.variantId },
+          data: { quantity: { increment: it.quantity } },
+        });
+      }
+
+      // 2) قراءة الأصناف الجديدة بعد الإرجاع (الكمية المتاحة محدَّثة)
+      const variants = await tx.productVariant.findMany({
+        where: { id: { in: variantIds } },
+        include: { product: { select: { name: true } } },
+      });
+      const vmap = new Map(variants.map((v) => [v.id, v]));
+
+      let totalAmount = 0;
+      const itemsData: {
+        productId: string;
+        variantId: string;
+        quantity: number;
+        unitPrice: number;
+        subtotal: number;
+      }[] = [];
+      for (const [variantId, qty] of merged.entries()) {
+        const v = vmap.get(variantId);
+        // نرمي ValidationError كي تُلغى المعاملة بالكامل (بما فيها إرجاع
+        // الكميات في الخطوة 1) فلا يتضخّم المخزون عند فشل التحقق.
+        if (!v)
+          throw new ValidationError("أحد المنتجات لم يعد متاحاً في المخزون");
+        if (v.branch !== (input.branch as Branch))
+          throw new ValidationError(
+            `المنتج "${v.product.name}" لا ينتمي للفرع المحدد`
+          );
+        if (v.quantity < qty)
+          throw new ValidationError(
+            `الكمية غير كافية من "${v.product.name}" مقاس ${v.size} (المتاح: ${v.quantity})`
+          );
+
+        const subtotal = round2(v.price * qty);
+        totalAmount += subtotal;
+        itemsData.push({
+          productId: v.productId,
+          variantId: v.id,
+          quantity: qty,
+          unitPrice: v.price,
+          subtotal,
+        });
+      }
+
+      totalAmount = round2(totalAmount);
+      const { finalAmount } = calcDiscount(
+        totalAmount,
+        input.discountType,
+        input.discountValue
+      );
+
+      const paidAmount =
+        input.paidAmount == null
+          ? finalAmount
+          : Math.min(Math.max(input.paidAmount, 0), finalAmount);
+      const remainingAmount = round2(finalAmount - paidAmount);
+
+      // 3) خصم الكميات الجديدة من المخزون
+      for (const [variantId, qty] of merged.entries()) {
+        await tx.productVariant.update({
+          where: { id: variantId },
+          data: { quantity: { decrement: qty } },
+        });
+      }
+
+      // 4) حالة التوصيل: نُبقيها إن كانت الفاتورة توصيلاً بالفعل، وإلا NEW
+      const deliveryStatus = input.delivery
+        ? sale.deliveryStatus ?? "NEW"
+        : null;
+
+      // 5) استبدال العناصر وتحديث بيانات الفاتورة
+      await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
+      const updated = await tx.sale.update({
+        where: { id: sale.id },
+        data: {
+          branch: input.branch as Branch,
+          totalAmount,
+          discountType: (input.discountType as DiscountType | null) ?? null,
+          discountValue: input.discountValue,
+          finalAmount,
+          customerName: input.customerName,
+          customerPhone: input.customerPhone,
+          customerNotes: input.customerNotes,
+          paymentMethod: input.paymentMethod as PaymentMethod,
+          transferMethod: input.transferMethod ?? null,
+          invoiceNotes: input.invoiceNotes ?? null,
+          paidAmount: round2(paidAmount),
+          remainingAmount,
+          isDelivery: !!input.delivery,
+          orderSource:
+            (input.delivery?.orderSource as OrderSource | undefined) ?? null,
+          deliveryMethod:
+            (input.delivery?.deliveryMethod as DeliveryMethod | undefined) ??
+            null,
+          deliveryAddress: input.delivery?.deliveryAddress ?? null,
+          addressNotes: input.delivery?.addressNotes ?? null,
+          trackingNumber: input.delivery?.trackingNumber ?? null,
+          deliveryStatus,
+          items: { create: itemsData },
+        },
+        include: saleInclude,
+      });
+
+      // 6) تسجيل التعديل في سجل النشاط (يُعتمَد عليه لعرض «آخر تعديل»)
+      await tx.activityLog.create({
+        data: {
+          userName: editorName,
+          userRole: editorRole,
+          action: EDIT_ACTION,
+          details: `فاتورة رقم ${formatSaleNumber(updated.saleNumber)}`,
+        },
+      });
+
+      return { ok: true as const, sale: updated };
+    });
+
+    if (!result.ok) return fail(result.error, result.status);
+    const dto = toSaleDTO(result.sale);
+    dto.lastEditedAt = new Date().toISOString();
+    return ok(dto);
+  } catch (error) {
+    if (error instanceof ValidationError) return fail(error.message, 422);
     return handleServerError(error);
   }
 }
