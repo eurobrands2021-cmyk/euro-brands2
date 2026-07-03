@@ -34,6 +34,7 @@ import {
   TextOnlyInput,
 } from "@/components/ui/inputs";
 import { isCompleteEgyPhone } from "@/lib/input-validators";
+import { extractSkuFromScan } from "@/lib/public-url";
 import { cn } from "@/lib/cn";
 import { calcDiscount, round2 } from "@/lib/sale-utils";
 import {
@@ -325,7 +326,10 @@ function PosRegister({
 
   // مسح الباركود: بحث فوري بنفس رقم الباركود، وإضافة تلقائية للسلة إن كان
   // هناك صنف مطابق واحد فقط في هذا الفرع، وإلا تُعرض النتائج للاختيار.
-  async function handleBarcodeScan(code: string) {
+  async function handleBarcodeScan(rawCode: string) {
+    // يدعم مسح QR الذي يشفّر رابط /p/[sku] كما يدعم باركود الـ SKU المباشر:
+    // نستخرج الـ SKU من الرابط إن وُجد، وإلا نستخدم القيمة كما هي.
+    const code = extractSkuFromScan(rawCode);
     try {
       const results = await apiGet<ProductDTO[]>(
         `/api/products?branch=${branch}&search=${encodeURIComponent(code)}`

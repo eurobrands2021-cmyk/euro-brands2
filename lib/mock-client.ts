@@ -4,6 +4,7 @@
 import {
   mockListProducts,
   mockGetProduct,
+  mockGetProductBySku,
   mockCreateProduct,
   mockUpdateProduct,
   mockDeleteProduct,
@@ -82,6 +83,16 @@ export async function mockApi<T>(
   // /api/products/import (قبل مطابقة المعرّف لأن "import" يطابق النمط)
   if (path === "/api/products/import" && method === "POST")
     return mockImportInventory(parseImportRows(body)) as T;
+
+  // /api/public/products/[sku] — صفحة المنتج العامة (بيانات آمنة)
+  const publicMatch = path.match(/^\/api\/public\/products\/([^/]+)$/);
+  if (publicMatch && method === "GET") {
+    const sku = decodeURIComponent(publicMatch[1]);
+    const dto = mockGetProductBySku(sku);
+    if (!dto) throw new Error("المنتج غير موجود");
+    const { toPublicProduct } = await import("./public-product");
+    return toPublicProduct(dto) as T;
+  }
 
   // /api/products/[id]
   const productMatch = path.match(/^\/api\/products\/([^/]+)$/);

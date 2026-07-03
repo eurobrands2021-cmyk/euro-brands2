@@ -911,6 +911,15 @@ export function mockGetProduct(id: string): ProductDTO | null {
   return p ? shapeProduct(p) : null;
 }
 
+// البحث عن منتج عبر كود SKU لأي من أصنافه (لصفحة المنتج العامة)
+export function mockGetProductBySku(sku: string): ProductDTO | null {
+  const needle = sku.trim().toLowerCase();
+  const p = store.products.find((x) =>
+    x.variants.some((v) => (v.sku ?? "").toLowerCase() === needle)
+  );
+  return p ? shapeProduct(p) : null;
+}
+
 // بيانات موحّدة لصفحة الذكاء (وضع المعاينة)
 export function mockNormalizedData(): {
   sales: NormSale[];

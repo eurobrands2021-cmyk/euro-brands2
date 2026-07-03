@@ -212,3 +212,158 @@
     padding: 0;
   }
 }
+
+/* ============================================
+   تيكيت المنتج (Feature 2) — تخطيط ومعاينة وطباعة
+   ============================================ */
+.eb-ticket {
+  box-sizing: border-box;
+  padding: 2mm;
+  background: #ffffff;
+  color: #000000;
+  font-family: var(--font-tajawal), "Tajawal", sans-serif;
+  text-align: center;
+  line-height: 1.35;
+}
+.eb-ticket .eb-tk-store {
+  font-weight: 800;
+  font-size: 11pt;
+  letter-spacing: 0.3px;
+}
+.eb-ticket .eb-tk-name {
+  font-weight: 700;
+  font-size: 10pt;
+  margin-top: 1mm;
+}
+.eb-ticket .eb-tk-brand {
+  font-size: 8.5pt;
+}
+.eb-ticket .eb-tk-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3mm;
+  justify-content: center;
+  font-size: 8.5pt;
+  margin-top: 1mm;
+}
+.eb-ticket .eb-tk-price {
+  font-weight: 800;
+  font-size: 12pt;
+  margin-top: 1mm;
+}
+.eb-ticket .eb-tk-qr {
+  display: flex;
+  justify-content: center;
+  margin: 2mm 0;
+}
+.eb-ticket .eb-tk-barcode {
+  display: flex;
+  justify-content: center;
+  margin-top: 2mm;
+}
+.eb-ticket .eb-tk-qr svg,
+.eb-ticket .eb-tk-barcode svg {
+  max-width: 100%;
+  height: auto;
+}
+/* تخطيط الباركود الأفقي */
+.eb-ticket .eb-tk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2mm;
+  margin-top: 2mm;
+}
+.eb-ticket .eb-tk-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.eb-ticket .eb-tk-qr-sm {
+  margin: 0;
+}
+/* تخطيط البطاقة الأنيقة */
+.eb-ticket .eb-tk-card {
+  border: 1px solid #000000;
+  border-radius: 2mm;
+  overflow: hidden;
+}
+.eb-ticket .eb-tk-card-head {
+  background: #000000;
+  color: #ffffff;
+  font-weight: 800;
+  padding: 1.5mm;
+}
+.eb-ticket .eb-tk-card-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2mm;
+  padding: 2mm;
+  text-align: right;
+}
+.eb-ticket .eb-tk-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+/* الحاوية خارج الشاشة عادةً — تُرسم لتوليد الأكواد لكن لا تظهر */
+.print-ticket {
+  position: fixed;
+  left: -10000px;
+  top: 0;
+}
+.eb-tickets-a4 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6mm;
+}
+
+@media print {
+  /* عزل التيكيت: أخفِ كل شيء عدا حاوية الطباعة */
+  body.ticket-open * {
+    visibility: hidden;
+  }
+  body.ticket-open .print-ticket,
+  body.ticket-open .print-ticket * {
+    visibility: visible;
+  }
+  /* سطّح حاوية النافذة المنبثقة */
+  body.ticket-open .fixed.inset-0 {
+    position: static !important;
+    display: block !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+  body.ticket-open .fixed.inset-0 > .card {
+    position: static !important;
+    max-width: none !important;
+    max-height: none !important;
+    overflow: visible !important;
+    border: none !important;
+  }
+  body.ticket-open .print-ticket {
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+  }
+  body.ticket-open .eb-ticket {
+    margin: 0 auto;
+  }
+  /* كل تيكيت حراري في صفحة مستقلة (ليخرج ملصقاً منفصلاً) */
+  body.ticket-open .eb-tickets-thermal .eb-ticket {
+    page-break-after: always;
+    break-after: page;
+  }
+  body.ticket-open .eb-tickets-thermal .eb-ticket:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+  /* أبقِ رأس البطاقة الأنيقة أسود/أبيض حتى مع تجريد الألوان العام */
+  body.ticket-open .eb-tk-card-head {
+    background: #000000 !important;
+    color: #ffffff !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
