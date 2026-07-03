@@ -14,6 +14,8 @@ import {
   Copy,
   LayoutGrid,
   List as ListIcon,
+  PackageX,
+  ArrowLeftRight,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
@@ -21,6 +23,8 @@ import { apiDelete, apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { ImportInventoryModal } from "@/components/import-inventory-modal";
 import { AddBrandModal } from "@/components/add-brand-modal";
+import { RecordDamagedModal } from "@/components/record-damaged-modal";
+import { TransferStockModal } from "@/components/transfer-stock-modal";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
@@ -71,6 +75,8 @@ export default function InventoryPage() {
   const [deleting, setDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [brandModalOpen, setBrandModalOpen] = useState(false);
+  const [damagedOpen, setDamagedOpen] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   // تفضيل العرض من localStorage
@@ -183,7 +189,21 @@ export default function InventoryPage() {
         title="المخزون"
         description="إدارة المنتجات والكميات في الفرعين"
         actions={
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setTransferOpen(true)}
+              className="btn btn-secondary"
+            >
+              <ArrowLeftRight className="h-4 w-4" />
+              تحويل مخزون
+            </button>
+            <button
+              onClick={() => setDamagedOpen(true)}
+              className="btn btn-secondary"
+            >
+              <PackageX className="h-4 w-4" />
+              تسجيل ديفو
+            </button>
             <button
               onClick={() => setImportOpen(true)}
               className="btn btn-secondary"
@@ -418,6 +438,20 @@ export default function InventoryPage() {
         onClose={() => setImportOpen(false)}
         onImported={refetch}
         products={products}
+      />
+
+      <RecordDamagedModal
+        open={damagedOpen}
+        onClose={() => setDamagedOpen(false)}
+        products={products}
+        onDone={refetch}
+      />
+
+      <TransferStockModal
+        open={transferOpen}
+        onClose={() => setTransferOpen(false)}
+        products={products}
+        onDone={refetch}
       />
 
       {filters.category && (

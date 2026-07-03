@@ -44,6 +44,8 @@ import type {
   CustomerInput,
   CustomerListResponse,
   CustomerUpdateInput,
+  DamagedDTO,
+  DamagedInput,
   DashboardStats,
   ImportResult,
   ImportRow,
@@ -55,6 +57,8 @@ import type {
   ReportsData,
   SaleDTO,
   SaleInput,
+  TransferDTO,
+  TransferInput,
   VariantDTO,
 } from "./types";
 import { buildVariantSku, uniquifySku } from "./sku";
@@ -174,6 +178,26 @@ interface MCustomer {
   updatedAt: Date;
 }
 
+interface MDamaged {
+  id: string;
+  productId: string;
+  variantId: string;
+  branch: BranchValue;
+  quantity: number;
+  reason: string | null;
+  createdAt: Date;
+}
+interface MTransfer {
+  id: string;
+  productId: string;
+  variantId: string;
+  fromBranch: BranchValue;
+  toBranch: BranchValue;
+  quantity: number;
+  notes: string | null;
+  createdAt: Date;
+}
+
 interface Store {
   products: MProduct[];
   sales: MSale[];
@@ -182,6 +206,8 @@ interface Store {
   activityLogs: MActivityLog[];
   customers: MCustomer[];
   accessRequests: MAccessRequest[];
+  damaged: MDamaged[];
+  transfers: MTransfer[];
   settings: Record<string, string>;
   seq: number;
 }
@@ -212,6 +238,8 @@ function buildStore(): Store {
     activityLogs: [],
     customers: [],
     accessRequests: [],
+    damaged: [],
+    transfers: [],
     settings: {},
     seq: 0,
   };
@@ -2163,6 +2191,153 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
   };
 }
 
+export function mockCreateDamaged(input: DamagedInput): DamagedDTO {
+  const ref = findVariant(input.variantId);
+  if (!ref || ref.product.id !== input.productId)
+    throw new ValidationError("الصنف غير موجود");
+  if (input.quantity > ref.variant.quantity)
+    throw new ValidationError(
+      `الكمية المتاحة في المخزون ${ref.variant.quantity} فقط`
+    );
+  ref.variant.quantity -= input.quantity;
+  const rec: MDamaged = {
+    id: nextId("dmg"),
+    productId: input.productId,
+    variantId: input.variantId,
+    branch: ref.variant.branch,
+    quantity: input.quantity,
+    reason: input.reason,
+    createdAt: new Date(),
+  };
+  store.damaged.push(rec);
+  return {
+    id: rec.id,
+    productName: ref.product.name,
+    brand: ref.product.brand,
+    size: ref.variant.size,
+    branch: rec.branch,
+    quantity: rec.quantity,
+    reason: rec.reason,
+    createdAt: rec.createdAt.toISOString(),
+  };
+}
+
+export function mockListDamaged(): DamagedDTO[] {
+  return [...store.damaged]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((d) => {
+      const ref = findVariant(d.variantId);
+      return {
+        id: d.id,
+        productName: ref?.product.name ?? "—",
+        brand: ref?.product.brand ?? "",
+        size: ref?.variant.size ?? null,
+        branch: d.branch,
+        quantity: d.quantity,
+        reason: d.reason,
+        createdAt: d.createdAt.toISOString(),
+      };
+    });
+}
+
+export function mockCreateTransfer(input: TransferInput): TransferDTO {
+  const ref = findVariant(input.variantId);
+  if (!ref || ref.product.id !== input.productId)
+    throw new ValidationError("الصنف غير موجود");
+  const source = ref.variant;
+  if (source.branch === input.toBranch)
+    throw new ValidationError("لا يمكن التحويل إلى نفس الفرع");
+  if (input.quantity > source.quantity)
+    throw new ValidationError(
+      `الكمية المتاحة في فرع المصدر ${source.quantity} فقط`
+    );
+  const fromBranch = source.branch;
+  source.quantity -= input.quantity;
+
+  const product = ref.product;
+  const dest = product.variants.find(
+    (v) =>
+      v.size === source.size &&
+      (v.color ?? null) === (source.color ?? null) &&
+      v.branch === input.toBranch
+  );
+  if (dest) {
+    dest.quantity += input.quantity;
+  } else {
+    const taken = new Set(
+      store.products.flatMap((p) =>
+        p.variants.map((v) => v.sku).filter((s): s is string => !!s)
+      )
+    );
+    const type = store.productTypes.find((t) => t.id === product.productTypeId);
+    const sku = uniquifySku(
+      buildVariantSku({
+        productId: product.id,
+        typeCode: type?.code ?? null,
+        size: source.size,
+        branch: input.toBranch,
+        color: source.color,
+      }),
+      taken
+    );
+    product.variants.push({
+      id: nextId("v"),
+      productId: product.id,
+      size: source.size,
+      color: source.color,
+      branch: input.toBranch,
+      quantity: input.quantity,
+      minQuantity: source.minQuantity,
+      price: source.price,
+      cost: source.cost,
+      sku,
+      skuManual: false,
+    });
+  }
+
+  const rec: MTransfer = {
+    id: nextId("trf"),
+    productId: input.productId,
+    variantId: source.id,
+    fromBranch,
+    toBranch: input.toBranch,
+    quantity: input.quantity,
+    notes: input.notes,
+    createdAt: new Date(),
+  };
+  store.transfers.push(rec);
+  return {
+    id: rec.id,
+    productName: product.name,
+    brand: product.brand,
+    size: source.size,
+    fromBranch,
+    toBranch: input.toBranch,
+    quantity: input.quantity,
+    notes: input.notes,
+    createdAt: rec.createdAt.toISOString(),
+  };
+}
+
+export function mockListTransfers(): TransferDTO[] {
+  return [...store.transfers]
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map((t) => {
+      const ref = findVariant(t.variantId);
+      return {
+        id: t.id,
+        productName: ref?.product.name ?? "—",
+        brand: ref?.product.brand ?? "",
+        size: ref?.variant.size ?? null,
+        fromBranch: t.fromBranch,
+        toBranch: t.toBranch,
+        quantity: t.quantity,
+        notes: t.notes,
+        createdAt: t.createdAt.toISOString(),
+      };
+    });
+}
+
 export function mockReports(sp: URLSearchParams): ReportsData {
   const { from, to } = rangeBounds(sp, 29);
   const inRange = store.sales.filter(
@@ -2378,6 +2553,13 @@ export function mockReports(sp: URLSearchParams): ReportsData {
     .sort((a, b) => b.profit - a.profit)
     .slice(0, 10);
 
+  const damagedInRange = store.damaged.filter(
+    (d) => d.createdAt >= from && d.createdAt <= to
+  );
+  const transfersInRange = store.transfers.filter(
+    (t) => t.createdAt >= from && t.createdAt <= to
+  );
+
   const newProducts = store.products
     .filter((p) => p.createdAt >= from && p.createdAt <= to)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
@@ -2479,10 +2661,42 @@ export function mockReports(sp: URLSearchParams): ReportsData {
       .slice(0, 10),
     slowMoving,
     mostProfitable,
-    damaged: [],
-    damagedSummary: { count: 0, units: 0 },
-    transfers: [],
-    transfersSummary: { count: 0, units: 0 },
+    damaged: damagedInRange
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((d) => {
+        const ref = findVariant(d.variantId);
+        return {
+          productName: ref?.product.name ?? "—",
+          brand: ref?.product.brand ?? "",
+          size: ref?.variant.size ?? null,
+          branch: d.branch,
+          quantity: d.quantity,
+          reason: d.reason,
+          date: d.createdAt.toISOString(),
+        };
+      }),
+    damagedSummary: {
+      count: damagedInRange.length,
+      units: damagedInRange.reduce((s, d) => s + d.quantity, 0),
+    },
+    transfers: transfersInRange
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((t) => {
+        const ref = findVariant(t.variantId);
+        return {
+          productName: ref?.product.name ?? "—",
+          brand: ref?.product.brand ?? "",
+          size: ref?.variant.size ?? null,
+          fromBranch: t.fromBranch,
+          toBranch: t.toBranch,
+          quantity: t.quantity,
+          date: t.createdAt.toISOString(),
+        };
+      }),
+    transfersSummary: {
+      count: transfersInRange.length,
+      units: transfersInRange.reduce((s, t) => s + t.quantity, 0),
+    },
     newProducts,
     sizeReport: [...sizeMap.entries()].map(([category, sizes]) => {
       const arr = [...sizes.entries()]

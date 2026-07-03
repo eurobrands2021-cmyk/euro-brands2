@@ -169,6 +169,46 @@ export interface ProductInput {
   variants: VariantInput[];
 }
 
+// ----- الديفو (التالف/المعيب) -----
+export interface DamagedInput {
+  productId: string;
+  variantId: string;
+  quantity: number;
+  reason: string | null;
+}
+
+export interface DamagedDTO {
+  id: string;
+  productName: string;
+  brand: string;
+  size: string | null;
+  branch: BranchValue;
+  quantity: number;
+  reason: string | null;
+  createdAt: string;
+}
+
+// ----- تحويلات المخزون بين الفرعين -----
+export interface TransferInput {
+  productId: string;
+  variantId: string;
+  toBranch: BranchValue;
+  quantity: number;
+  notes: string | null;
+}
+
+export interface TransferDTO {
+  id: string;
+  productName: string;
+  brand: string;
+  size: string | null;
+  fromBranch: BranchValue;
+  toBranch: BranchValue;
+  quantity: number;
+  notes: string | null;
+  createdAt: string;
+}
+
 // استيراد الجرد من Excel
 export interface ImportRow {
   name: string;

@@ -21,11 +21,13 @@ import type {
   BrandInput,
   CustomerInput,
   CustomerUpdateInput,
+  DamagedInput,
   DeliveryInput,
   ImportRow,
   ProductInput,
   ProductTypeInput,
   SaleInput,
+  TransferInput,
   VariantInput,
 } from "./types";
 
@@ -111,6 +113,41 @@ export function parseProductInput(body: any): ProductInput {
     images,
     productTypeId,
     variants,
+  };
+}
+
+// التحقق من مدخلات الديفو (التالف/المعيب)
+export function parseDamagedInput(body: any): DamagedInput {
+  const productId = asString(body?.productId);
+  const variantId = asString(body?.variantId);
+  const quantity = Math.floor(Number(body?.quantity));
+  const reason = asString(body?.reason) || null;
+  if (!productId) throw new ValidationError("المنتج مطلوب");
+  if (!variantId) throw new ValidationError("الصنف (المقاس) مطلوب");
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    throw new ValidationError("الكمية يجب أن تكون أكبر من صفر");
+  return { productId, variantId, quantity, reason };
+}
+
+// التحقق من مدخلات تحويل المخزون بين الفرعين
+export function parseTransferInput(body: any): TransferInput {
+  const productId = asString(body?.productId);
+  const variantId = asString(body?.variantId);
+  const toBranch = asString(body?.toBranch);
+  const quantity = Math.floor(Number(body?.quantity));
+  const notes = asString(body?.notes) || null;
+  if (!productId) throw new ValidationError("المنتج مطلوب");
+  if (!variantId) throw new ValidationError("الصنف (المقاس) مطلوب");
+  if (!BRANCHES.includes(toBranch as BranchValue))
+    throw new ValidationError("الفرع الوجهة غير صحيح");
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    throw new ValidationError("الكمية يجب أن تكون أكبر من صفر");
+  return {
+    productId,
+    variantId,
+    toBranch: toBranch as BranchValue,
+    quantity,
+    notes,
   };
 }
 

@@ -38,6 +38,10 @@ import {
   mockDashboard,
   mockReports,
   mockUploadUrl,
+  mockCreateDamaged,
+  mockListDamaged,
+  mockCreateTransfer,
+  mockListTransfers,
 } from "./mock-store";
 import {
   parseAccessRequestInput,
@@ -47,11 +51,13 @@ import {
   parseBrandInput,
   parseCustomerInput,
   parseCustomerUpdateInput,
+  parseDamagedInput,
   parseDeliveryStatus,
   parseImportRows,
   parseProductInput,
   parseProductTypeInput,
   parseSaleInput,
+  parseTransferInput,
 } from "./validate";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
@@ -82,6 +88,20 @@ export async function mockApi<T>(
   // /api/products/import (قبل مطابقة المعرّف لأن "import" يطابق النمط)
   if (path === "/api/products/import" && method === "POST")
     return mockImportInventory(parseImportRows(body)) as T;
+
+  // /api/damaged — الديفو
+  if (path === "/api/damaged") {
+    if (method === "GET") return mockListDamaged() as T;
+    if (method === "POST")
+      return mockCreateDamaged(parseDamagedInput(body)) as T;
+  }
+
+  // /api/transfers — تحويلات المخزون
+  if (path === "/api/transfers") {
+    if (method === "GET") return mockListTransfers() as T;
+    if (method === "POST")
+      return mockCreateTransfer(parseTransferInput(body)) as T;
+  }
 
   // /api/products/[id]
   const productMatch = path.match(/^\/api\/products\/([^/]+)$/);
