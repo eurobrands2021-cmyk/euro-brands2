@@ -18,6 +18,9 @@ import {
   FileDown,
   FileSpreadsheet,
   Users,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { format } from "date-fns";
@@ -34,8 +37,29 @@ import type { DashboardStats } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { formatCurrency, formatNumber } from "@/lib/format";
 
+// أقسام التقارير القابلة للإظهار/الإخفاء عبر لوحة الخيارات
+const REPORT_SECTIONS = [
+  { key: "quickStats", label: "البطاقات السريعة" },
+  { key: "charts", label: "الرسوم البيانية" },
+  { key: "payment", label: "توزيع طرق الدفع" },
+  { key: "tables", label: "المنتجات والعملاء" },
+  { key: "delivery", label: "إحصائيات التوصيل" },
+  { key: "cashiers", label: "أداء الكاشيرين" },
+] as const;
+
+type SectionKey = (typeof REPORT_SECTIONS)[number]["key"];
+
+type SectionVisibility = Record<SectionKey, boolean>;
+
+const ALL_VISIBLE: SectionVisibility = Object.fromEntries(
+  REPORT_SECTIONS.map((s) => [s.key, true])
+) as SectionVisibility;
+
 export default function DashboardPage() {
   const [range, setRange] = useState<DateRange | null>(null);
+  // لوحة الخيارات: مفتوحة افتراضياً، مع تحكّم بإظهار كل قسم
+  const [filtersOpen, setFiltersOpen] = useState(true);
+  const [visible, setVisible] = useState<SectionVisibility>(ALL_VISIBLE);
   const url = range
     ? `/api/dashboard?from=${encodeURIComponent(
         range.from
@@ -115,52 +139,65 @@ export default function DashboardPage() {
 
       {data && !loading && (
         <div className="space-y-6">
+          {/* لوحة الخيارات القابلة للطي — تتحكّم بإظهار الأقسام */}
+          <FilterPanel
+            open={filtersOpen}
+            onToggle={() => setFiltersOpen((o) => !o)}
+            visible={visible}
+            onChange={(key) =>
+              setVisible((v) => ({ ...v, [key]: !v[key] }))
+            }
+          />
+
           {/* القسم 1 — بطاقات سريعة */}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            <TodayVsYesterdayCard data={data} />
-            <StatCard
-              tone="accent"
-              title="مبيعات الفترة"
-              value={formatCurrency(data.rangeSales)}
-              subtitle={`${formatNumber(data.rangeSalesCount)} فاتورة`}
-              icon={<Banknote className="h-5 w-5" />}
-            />
-            <StatCard
-              tone="accent"
-              title="متوسط قيمة الفاتورة"
-              value={formatCurrency(data.avgInvoice)}
-              subtitle={`${formatNumber(data.itemsSold)} قطعة مباعة`}
-              icon={<Calculator className="h-5 w-5" />}
-            />
-            <StatCard
-              tone="success"
-              title="أعلى يوم مبيعات"
-              value={
-                data.topDay ? (
-                  <span className="text-lg">
-                    {formatCurrency(data.topDay.total)}
-                  </span>
-                ) : (
-                  "—"
-                )
-              }
-              subtitle={
-                data.topDay
-                  ? format(new Date(data.topDay.date), "yyyy/MM/dd")
-                  : "لا توجد مبيعات في الفترة"
-              }
-              icon={<CalendarDays className="h-5 w-5" />}
-            />
-            <StatCard
-              tone="warning"
-              title="رصيد متبقي عند العملاء"
-              value={formatCurrency(data.remainingTotal)}
-              subtitle="إجمالي المتبقي (كل الوقت)"
-              icon={<Wallet className="h-5 w-5" />}
-            />
-          </div>
+          {visible.quickStats && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+              <TodayVsYesterdayCard data={data} />
+              <StatCard
+                tone="accent"
+                title="مبيعات الفترة"
+                value={formatCurrency(data.rangeSales)}
+                subtitle={`${formatNumber(data.rangeSalesCount)} فاتورة`}
+                icon={<Banknote className="h-5 w-5" />}
+              />
+              <StatCard
+                tone="accent"
+                title="متوسط قيمة الفاتورة"
+                value={formatCurrency(data.avgInvoice)}
+                subtitle={`${formatNumber(data.itemsSold)} قطعة مباعة`}
+                icon={<Calculator className="h-5 w-5" />}
+              />
+              <StatCard
+                tone="success"
+                title="أعلى يوم مبيعات"
+                value={
+                  data.topDay ? (
+                    <span className="text-lg">
+                      {formatCurrency(data.topDay.total)}
+                    </span>
+                  ) : (
+                    "—"
+                  )
+                }
+                subtitle={
+                  data.topDay
+                    ? format(new Date(data.topDay.date), "yyyy/MM/dd")
+                    : "لا توجد مبيعات في الفترة"
+                }
+                icon={<CalendarDays className="h-5 w-5" />}
+              />
+              <StatCard
+                tone="warning"
+                title="رصيد متبقي عند العملاء"
+                value={formatCurrency(data.remainingTotal)}
+                subtitle="إجمالي المتبقي (كل الوقت)"
+                icon={<Wallet className="h-5 w-5" />}
+              />
+            </div>
+          )}
 
           {/* القسم 2 — رسوم بيانية */}
+          {visible.charts && (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <Card className="p-5">
               <h2 className="mb-4 text-base font-bold text-text">
@@ -181,15 +218,19 @@ export default function DashboardPage() {
               />
             </Card>
           </div>
+          )}
 
+          {visible.payment && (
           <Card className="p-5">
             <h2 className="mb-4 text-base font-bold text-text">
               توزيع طرق الدفع
             </h2>
             <PaymentPieChart data={data.paymentBreakdown} />
           </Card>
+          )}
 
           {/* القسم 3 — جداول */}
+          {visible.tables && (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <Card className="p-5 lg:col-span-2">
               <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
@@ -281,8 +322,10 @@ export default function DashboardPage() {
               </Card>
             </div>
           </div>
+          )}
 
           {/* القسم 4 — إحصائيات التوصيل */}
+          {visible.delivery && (
           <Card className="p-5">
             <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
               <Truck className="h-5 w-5 text-accent" />
@@ -290,8 +333,10 @@ export default function DashboardPage() {
             </h2>
             <DeliveryStats stats={data.deliveryStats} />
           </Card>
+          )}
 
           {/* القسم 5 — أداء الكاشيرين */}
+          {visible.cashiers && (
           <Card className="p-5">
             <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
               <Users className="h-5 w-5 text-accent" />
@@ -299,9 +344,79 @@ export default function DashboardPage() {
             </h2>
             <CashierStats stats={data.cashierStats} />
           </Card>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+// لوحة خيارات قابلة للطي — زر إخفاء/إظهار + مربّعات اختيار للأقسام
+function FilterPanel({
+  open,
+  onToggle,
+  visible,
+  onChange,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  visible: SectionVisibility;
+  onChange: (key: SectionKey) => void;
+}) {
+  return (
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-base font-bold text-text">
+          <SlidersHorizontal className="h-5 w-5 text-accent" />
+          خيارات العرض
+        </h2>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={open}
+          className="btn btn-secondary h-9 gap-1.5 px-3 text-sm"
+        >
+          {open ? (
+            <ChevronUp className="h-4 w-4" />
+          ) : (
+            <ChevronDown className="h-4 w-4" />
+          )}
+          {open ? "إخفاء الخيارات" : "إظهار الخيارات"}
+        </button>
+      </div>
+
+      {/* منطقة قابلة للطي بسلاسة عبر grid-rows */}
+      <div
+        className={cn(
+          "grid transition-all duration-300 ease-in-out",
+          open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+        )}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-4 grid grid-cols-2 gap-2 border-t pt-4 sm:grid-cols-3">
+            {REPORT_SECTIONS.map((s) => (
+              <label
+                key={s.key}
+                className={cn(
+                  "flex cursor-pointer items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors",
+                  visible[s.key]
+                    ? "border-accent/40 bg-accent-soft text-text"
+                    : "text-muted hover:bg-[var(--surface-2)]"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={visible[s.key]}
+                  onChange={() => onChange(s.key)}
+                  className="h-4 w-4 shrink-0 accent-accent"
+                />
+                <span className="min-w-0 truncate">{s.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      </div>
+    </Card>
   );
 }
 
