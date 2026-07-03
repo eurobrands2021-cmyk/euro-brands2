@@ -276,11 +276,10 @@ function sectionHtml(key: string, data: DashboardStats): string {
       return (
         sectionTitle(title) +
         table(
-          ["المنتج", "الفرع", "المقاس", "الكمية", "السبب", "التاريخ"],
+          ["المنتج", "الفرع", "الكمية", "السبب", "التاريخ"],
           data.damagedItems.map((d) => [
             d.productName,
             d.branch ? BRANCH_LABELS[d.branch] : "—",
-            d.size ?? "—",
             num(d.quantity),
             d.reason ?? "—",
             format(new Date(d.createdAt), "yyyy/MM/dd"),

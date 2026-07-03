@@ -443,7 +443,6 @@ export async function GET(req: Request) {
         productName: info?.name ?? "—",
         brand: info?.brand ?? "",
         branch: (d.branch as BranchValue) ?? null,
-        size: d.size ?? null,
         quantity: d.quantity,
         reason: d.reason ?? null,
         createdAt: d.createdAt.toISOString(),

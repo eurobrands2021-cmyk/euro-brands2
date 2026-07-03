@@ -284,18 +284,14 @@ model StockTransferItem {
   @@index([transferId])
 }
 
-// تقرير الديفو — المنتجات التالفة/المعيبة (نموذج لجدول قائم في قاعدة البيانات)
+// تقرير الديفو — المنتجات التالفة/المعيبة (نموذج مطابق لأعمدة الجدول القائم)
 model DamagedItem {
   id        String   @id @default(cuid())
   productId String // مرجع للمنتج
-  variantId String? // مرجع للصنف (اختياري)
+  variantId String? // مرجع للصنف
   branch    Branch // فرع التلف
-  size      String?
-  color     String?
   quantity  Int      @default(1)
   reason    String? // سبب التلف/العيب
-  notes     String?
-  createdBy String?
   createdAt DateTime @default(now())
 
   @@index([createdAt])

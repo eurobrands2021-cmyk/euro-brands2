@@ -402,7 +402,6 @@ export interface DashboardStats {
     productName: string;
     brand: string;
     branch: BranchValue | null;
-    size: string | null;
     quantity: number;
     reason: string | null;
     createdAt: string;

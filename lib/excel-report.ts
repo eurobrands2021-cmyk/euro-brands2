@@ -158,12 +158,11 @@ function sectionRows(key: string, data: DashboardStats): Row[] {
       ];
     case "damaged":
       return [
-        ...head(["المنتج", "البراند", "الفرع", "المقاس", "الكمية", "السبب", "التاريخ"]),
+        ...head(["المنتج", "البراند", "الفرع", "الكمية", "السبب", "التاريخ"]),
         ...data.damagedItems.map((d) => [
           d.productName,
           d.brand,
           d.branch ? BRANCH_LABELS[d.branch] : "—",
-          d.size ?? "—",
           d.quantity,
           d.reason ?? "—",
           format(new Date(d.createdAt), "yyyy/MM/dd"),

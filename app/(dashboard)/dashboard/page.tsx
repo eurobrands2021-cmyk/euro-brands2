@@ -734,20 +734,11 @@ function renderSection(key: string, data: DashboardStats): React.ReactNode {
             <EmptyBlock text="لا توجد أصناف تالفة مسجّلة في هذه الفترة" />
           ) : (
             <SimpleTable
-              headers={[
-                "المنتج",
-                "البراند",
-                "الفرع",
-                "المقاس",
-                "الكمية",
-                "السبب",
-                "التاريخ",
-              ]}
+              headers={["المنتج", "البراند", "الفرع", "الكمية", "السبب", "التاريخ"]}
               rows={data.damagedItems.map((d) => [
                 d.productName,
                 d.brand,
                 d.branch ? BRANCH_LABELS[d.branch] : "—",
-                d.size ?? "—",
                 formatNumber(d.quantity),
                 d.reason ?? "—",
                 format(new Date(d.createdAt), "yyyy/MM/dd"),
