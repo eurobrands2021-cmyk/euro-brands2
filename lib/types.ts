@@ -38,6 +38,7 @@ export interface ProductDTO {
   productType: ProductTypeDTO | null;
   variants: VariantDTO[];
   totalQuantity: number;
+  isDraft: boolean; // مسودة أُضيفت سريعاً من POS وتحتاج إكمال بياناتها
   soldCount?: number; // إجمالي القطع المباعة (للترتيب بالأكثر مبيعاً)
   createdAt: string;
   updatedAt: string;
@@ -165,6 +166,7 @@ export interface ProductInput {
   images: string[];
   productTypeId?: string | null;
   variants: VariantInput[];
+  isDraft?: boolean; // عند الإنشاء: يعلّم المنتج كمسودة (إضافة سريعة من POS)
 }
 
 // استيراد الجرد من Excel

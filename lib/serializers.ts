@@ -109,6 +109,7 @@ export function toProductDTO(
     productType: p.productType ? toProductTypeDTO(p.productType) : null,
     variants,
     totalQuantity: variants.reduce((sum, v) => sum + v.quantity, 0),
+    isDraft: p.isDraft ?? false,
     ...(soldCount !== undefined ? { soldCount } : {}),
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),

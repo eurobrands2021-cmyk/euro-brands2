@@ -108,6 +108,7 @@ export function parseProductInput(body: any): ProductInput {
     images,
     productTypeId,
     variants,
+    isDraft: body?.isDraft === true,
   };
 }
 

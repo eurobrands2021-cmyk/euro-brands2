@@ -25,7 +25,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
-import { CategoryBadge, StockBadge, Badge } from "@/components/ui/badge";
+import { CategoryBadge, StockBadge, Badge, DraftBadge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { BrandDTO, ProductDTO, ProductInput } from "@/lib/types";
 import {
@@ -65,6 +65,7 @@ export default function InventoryPage() {
     useFetch<BrandDTO[]>("/api/brands");
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
+  const [draftsOnly, setDraftsOnly] = useState(false);
   const [sort, setSort] = useState<SortKey>("newest");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [toDelete, setToDelete] = useState<ProductDTO | null>(null);
@@ -102,6 +103,7 @@ export default function InventoryPage() {
   const filtered = useMemo(() => {
     const q = filters.search.trim().toLowerCase();
     const result = products.filter((p) => {
+      if (draftsOnly && !p.isDraft) return false;
       if (
         q &&
         !`${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""}`
@@ -125,9 +127,14 @@ export default function InventoryPage() {
     else if (sort === "lowestQty")
       result.sort((a, b) => a.totalQuantity - b.totalQuantity);
     return result;
-  }, [products, filters, sort]);
+  }, [products, filters, draftsOnly, sort]);
 
-  const hasActiveFilters = Object.values(filters).some(Boolean);
+  const draftsCount = useMemo(
+    () => products.filter((p) => p.isDraft).length,
+    [products]
+  );
+
+  const hasActiveFilters = Object.values(filters).some(Boolean) || draftsOnly;
 
   async function handleDelete() {
     if (!toDelete) return;
@@ -305,10 +312,23 @@ export default function InventoryPage() {
               <option value="mostSold">الأكثر مبيعاً</option>
               <option value="lowestQty">الأقل كمية</option>
             </select>
+            <button
+              onClick={() => setDraftsOnly((v) => !v)}
+              className={cn(
+                "btn h-8 px-2.5 text-xs",
+                draftsOnly ? "btn-primary" : "btn-secondary"
+              )}
+              title="عرض المسودات التي تحتاج إكمال فقط"
+            >
+              مسودات{draftsCount > 0 ? ` (${formatNumber(draftsCount)})` : ""}
+            </button>
             {hasActiveFilters && (
               <button
                 className="btn btn-ghost h-8 px-2 text-xs"
-                onClick={() => setFilters(EMPTY_FILTERS)}
+                onClick={() => {
+                  setFilters(EMPTY_FILTERS);
+                  setDraftsOnly(false);
+                }}
               >
                 <X className="h-4 w-4" />
                 مسح الفلاتر
@@ -476,6 +496,11 @@ function ProductCard({
             {product.productType.name}
           </span>
         )}
+        {product.isDraft && (
+          <span className="absolute left-2 top-2">
+            <DraftBadge />
+          </span>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col p-4">
@@ -566,6 +591,7 @@ function ProductListRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <p className="truncate font-medium text-text">{product.name}</p>
+          {product.isDraft && <DraftBadge />}
           {product.productType && (
             <span className="hidden text-xs text-muted sm:inline">
               · {product.productType.name}

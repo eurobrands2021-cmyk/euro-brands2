@@ -46,6 +46,20 @@ export function StockBadge({ quantity }: { quantity: number }) {
   );
 }
 
+// شارة المنتجات المسودة (أُضيفت سريعاً من POS وتحتاج إكمال بياناتها)
+export function DraftBadge({ className }: { className?: string }) {
+  return (
+    <span
+      className={cn(
+        "badge bg-[rgba(201,133,26,0.14)] text-warning",
+        className
+      )}
+    >
+      يحتاج إكمال
+    </span>
+  );
+}
+
 export function Badge({
   children,
   className,

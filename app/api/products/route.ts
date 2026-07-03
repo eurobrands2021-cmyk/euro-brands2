@@ -5,6 +5,7 @@ import { toProductDTO } from "@/lib/serializers";
 import { parseProductInput, ValidationError } from "@/lib/validate";
 import { MOCK_MODE, mockListProducts, mockCreateProduct } from "@/lib/mock-store";
 import { buildVariantSku, uniquifySku } from "@/lib/sku";
+import { normalizeArabic } from "@/lib/normalize";
 
 export const dynamic = "force-dynamic";
 
@@ -24,15 +25,8 @@ export async function GET(req: Request) {
 
     if (category) where.category = category as Category;
     if (brand) where.brand = brand;
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { brand: { contains: search, mode: "insensitive" } },
-        { sku: { contains: search, mode: "insensitive" } },
-        { barcode: { contains: search } },
-        { variants: { some: { sku: { contains: search, mode: "insensitive" } } } },
-      ];
-    }
+    // ملاحظة: البحث النصي يُطبَّق بعد الجلب باستخدام تطبيع عربي ذكي
+    // (توحيد الهمزة + إزالة «ال») حتى يطابق "اديداس" اسم "أديداس".
 
     // فلترة على مستوى المقاسات (الفرع/المقاس)
     const variantWhere: Prisma.ProductVariantWhereInput = {};
@@ -44,7 +38,7 @@ export async function GET(req: Request) {
       where.variants = { some: variantWhere };
     }
 
-    const products = await prisma.product.findMany({
+    const allProducts = await prisma.product.findMany({
       where,
       include: {
         productType: true,
@@ -55,6 +49,24 @@ export async function GET(req: Request) {
       },
       orderBy: { createdAt: "desc" },
     });
+
+    // بحث نصي بتطبيع عربي: يطابق الاسم/البراند/الكود/الباركود/كود الصنف
+    const products = search
+      ? (() => {
+          const nq = normalizeArabic(search);
+          if (!nq) return allProducts;
+          return allProducts.filter((p) => {
+            const fields = [
+              p.name,
+              p.brand,
+              p.sku ?? "",
+              p.barcode ?? "",
+              ...p.variants.map((v) => v.sku ?? ""),
+            ];
+            return fields.some((f) => normalizeArabic(f).includes(nq));
+          });
+        })()
+      : allProducts;
 
     let soldMap: Map<string, number> | null = null;
     if (withSales) {
@@ -106,6 +118,7 @@ export async function POST(req: Request) {
           barcode: input.barcode ?? null,
           images: input.images,
           productTypeId: input.productTypeId ?? null,
+          isDraft: input.isDraft ?? false,
         },
       });
 

@@ -24,6 +24,7 @@ import { getSession } from "@/lib/auth";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import { ReceiptModal } from "@/components/receipt-modal";
+import { QuickAddProductModal } from "@/components/quick-add-product-modal";
 import { Modal } from "@/components/ui/modal";
 import { Card } from "@/components/ui/card";
 import { Spinner, PageLoader } from "@/components/ui/spinner";
@@ -35,6 +36,7 @@ import {
 } from "@/components/ui/inputs";
 import { isCompleteEgyPhone } from "@/lib/input-validators";
 import { extractSkuFromScan } from "@/lib/public-url";
+import { normalizeArabic } from "@/lib/normalize";
 import { cn } from "@/lib/cn";
 import { calcDiscount, round2 } from "@/lib/sale-utils";
 import {
@@ -61,7 +63,13 @@ import {
   type PaymentMethodValue,
   type TransferMethodValue,
 } from "@/lib/constants";
-import type { CustomerDTO, CustomerListResponse, ProductDTO, SaleDTO } from "@/lib/types";
+import type {
+  CustomerDTO,
+  CustomerListResponse,
+  ProductDTO,
+  SaleDTO,
+  VariantDTO,
+} from "@/lib/types";
 
 interface CartItem {
   variantId: string;
@@ -100,7 +108,20 @@ interface HeldInvoice {
   trackingNumber?: string;
 }
 
+// آخر 5 منتجات أُضيفت للسلة (تظهر عند تركيز حقل البحث وهو فارغ)
+interface SearchHistoryItem {
+  id: string;
+  name: string;
+  brand: string;
+  size: string;
+  color: string | null;
+  price: number;
+  variantId: string;
+}
+
 const BRANCH_KEY = "eb-pos-branch";
+const SEARCH_HISTORY_KEY = "pos_search_history";
+const SEARCH_HISTORY_MAX = 5;
 
 export default function PosPage() {
   const [branch, setBranch] = useState<BranchValue | null>(null);
@@ -201,6 +222,8 @@ function PosRegister({
   const [heldOpen, setHeldOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  const [history, setHistory] = useState<SearchHistoryItem[]>([]);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -223,26 +246,66 @@ function PosRegister({
     localStorage.setItem(heldKey, JSON.stringify(held));
   }, [held, heldKey]);
 
+  // تحميل سجل آخر المنتجات المضافة (مشترك بين الفروع)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
+      setHistory(raw ? JSON.parse(raw) : []);
+    } catch {
+      setHistory([]);
+    }
+  }, []);
 
+  // يسجّل منتجاً في سجل «آخر المنتجات المضافة» عند كل إضافة ناجحة للسلة
+  function recordHistory(product: ProductDTO, variant: VariantDTO) {
+    const entry: SearchHistoryItem = {
+      id: product.id,
+      name: product.name,
+      brand: product.brand,
+      size: variant.size,
+      color: variant.color ?? null,
+      price: variant.price,
+      variantId: variant.id,
+    };
+    setHistory((prev) => {
+      const next = [
+        entry,
+        ...prev.filter((h) => h.variantId !== entry.variantId),
+      ].slice(0, SEARCH_HISTORY_MAX);
+      try {
+        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        /* تجاهل */
+      }
+      return next;
+    });
+  }
+
+  const normalizedSearch = normalizeArabic(debounced);
   const url = `/api/products?branch=${branch}${
-    debounced ? `&search=${encodeURIComponent(debounced)}` : ""
+    debounced ? `&search=${encodeURIComponent(normalizedSearch)}` : ""
   }`;
   const { data, loading, error, refetch } = useFetch<ProductDTO[]>(url);
   const results = data ?? [];
   const dropdownItems = results.slice(0, 8);
   const dropdownOpen =
     searchFocused && debounced.length >= 2 && dropdownItems.length > 0 && !loading;
+  // سجل آخر المنتجات: يظهر عند تركيز حقل البحث وهو فارغ ووجود سجل
+  const historyOpen =
+    searchFocused && term.trim() === "" && history.length > 0;
 
   // ---- عمليات السلة ----
   function addVariant(product: ProductDTO, variant: ProductDTO["variants"][0]) {
     if (variant.quantity <= 0) return;
+    const existingQty =
+      cart.find((i) => i.variantId === variant.id)?.quantity ?? 0;
+    if (existingQty >= variant.quantity) {
+      toast.error("لا توجد كمية إضافية متاحة");
+      return;
+    }
     setCart((prev) => {
       const existing = prev.find((i) => i.variantId === variant.id);
       if (existing) {
-        if (existing.quantity >= variant.quantity) {
-          toast.error("لا توجد كمية إضافية متاحة");
-          return prev;
-        }
         return prev.map((i) =>
           i.variantId === variant.id ? { ...i, quantity: i.quantity + 1 } : i
         );
@@ -263,6 +326,55 @@ function PosRegister({
         },
       ];
     });
+    recordHistory(product, variant);
+  }
+
+  // إضافة منتج من سجل «آخر المنتجات المضافة»: نجلب أحدث بيانات الصنف
+  // (الكمية المتاحة) قبل الإضافة، ونحذف العنصر من السجل إن لم يعد موجوداً.
+  async function addFromHistory(item: SearchHistoryItem) {
+    setSearchFocused(false);
+    try {
+      const results = await apiGet<ProductDTO[]>(
+        `/api/products?branch=${branch}&search=${encodeURIComponent(
+          normalizeArabic(item.name)
+        )}`
+      );
+      let found: { product: ProductDTO; variant: VariantDTO } | null = null;
+      for (const p of results) {
+        const v = p.variants.find((x) => x.id === item.variantId);
+        if (v) {
+          found = { product: p, variant: v };
+          break;
+        }
+      }
+      if (!found) {
+        toast.error("المنتج لم يعد متاحاً");
+        setHistory((prev) => {
+          const next = prev.filter((h) => h.variantId !== item.variantId);
+          try {
+            localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
+          } catch {
+            /* تجاهل */
+          }
+          return next;
+        });
+        return;
+      }
+      if (found.variant.quantity <= 0) {
+        toast.error("نفدت كمية هذا المنتج");
+        return;
+      }
+      addVariant(found.product, found.variant);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر إضافة المنتج");
+    }
+  }
+
+  // إضافة منتج مسودة أُنشئ للتو من نافذة الإضافة السريعة
+  function handleQuickAdded(product: ProductDTO, variant: VariantDTO) {
+    addVariant(product, variant);
+    toast.success("تم إضافة المنتج كمسودة — أكمل بياناته من المخزون");
+    refetch();
   }
 
   // يضيف أول مقاس متاح للمنتج (لاختصار لوحة المفاتيح)
@@ -398,6 +510,11 @@ function PosRegister({
   const remainingAmount = round2(finalAmount - paidAmount);
 
   function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Escape يُخفي القائمة المنسدلة (النتائج أو سجل آخر المنتجات)
+    if (e.key === "Escape") {
+      setSearchFocused(false);
+      return;
+    }
     if (!dropdownOpen) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -649,7 +766,49 @@ function PosRegister({
                     ))}
                   </div>
                 )}
+
+                {/* سجل آخر المنتجات المضافة (يظهر عند تركيز الحقل وهو فارغ) */}
+                {historyOpen && (
+                  <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border bg-surface shadow-card">
+                    <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
+                      آخر المنتجات المضافة
+                    </div>
+                    {history.map((h) => (
+                      <button
+                        key={h.variantId}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          void addFromHistory(h);
+                        }}
+                        className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right last:border-0 hover:bg-accent-soft"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-text">
+                            {h.name}
+                          </p>
+                          <p className="text-xs text-muted">
+                            {h.brand} · مقاس {h.size}
+                            {h.color ? ` / ${h.color}` : ""}
+                          </p>
+                        </div>
+                        <span className="shrink-0 text-sm font-bold text-accent nums">
+                          {formatCurrency(h.price)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
+              <button
+                type="button"
+                onClick={() => setQuickAddOpen(true)}
+                className="btn btn-secondary flex-shrink-0"
+                title="إضافة منتج سريعة"
+              >
+                <Plus className="h-4 w-4" />
+                <span className="hidden sm:inline">إضافة</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setScannerOpen(true)}
@@ -1174,6 +1333,13 @@ function PosRegister({
         onScan={(code) => {
           void handleBarcodeScan(code);
         }}
+      />
+
+      <QuickAddProductModal
+        open={quickAddOpen}
+        branch={branch}
+        onClose={() => setQuickAddOpen(false)}
+        onAdded={handleQuickAdded}
       />
 
       <ReceiptModal sale={receipt} onClose={() => setReceipt(null)} />

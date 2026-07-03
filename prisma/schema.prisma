@@ -79,6 +79,7 @@ model Product {
   sku         String? // (مهجور) كان كود المنتج — الآن لكل صنف SKU خاص به
   barcode     String? // الباركود (اختياري)
   images      String[] @default([]) // حتى 3 صور
+  isDraft     Boolean  @default(false) // مسودة أُضيفت سريعاً من POS وتحتاج إكمال بياناتها
 
   productTypeId String?
   productType   ProductType? @relation(fields: [productTypeId], references: [id], onDelete: SetNull)

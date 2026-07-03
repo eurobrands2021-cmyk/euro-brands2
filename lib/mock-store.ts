@@ -7,6 +7,7 @@ import {
   setHours,
 } from "date-fns";
 import { calcDiscount, round2 } from "./sale-utils";
+import { normalizeArabic } from "./normalize";
 import {
   BRANCHES,
   DEFAULT_PRODUCT_TYPES,
@@ -86,6 +87,7 @@ interface MProduct {
   barcode: string | null;
   images: string[];
   productTypeId: string | null;
+  isDraft: boolean;
   variants: MVariant[];
   createdAt: Date;
   updatedAt: Date;
@@ -234,6 +236,7 @@ function buildStore(): Store {
       barcode: `62${String(n).padStart(10, "0")}`,
       images: [image],
       productTypeId: null,
+      isDraft: false,
       createdAt: new Date(),
       updatedAt: new Date(),
       variants: specs.map(([size, branch, quantity, price], idx) => {
@@ -713,6 +716,7 @@ function shapeProduct(
     productType: type ? shapeProductType(type) : null,
     variants,
     totalQuantity: variants.reduce((s, v) => s + v.quantity, 0),
+    isDraft: p.isDraft ?? false,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),
   };
@@ -888,12 +892,9 @@ export function mockListProducts(sp: URLSearchParams): ProductDTO[] {
           .map((v) => v.sku ?? "")
           .filter(Boolean)
           .join(" ");
-        if (
-          !`${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""} ${variantSkus}`
-            .toLowerCase()
-            .includes(search)
-        )
-          return false;
+        const nq = normalizeArabic(search);
+        const hay = `${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""} ${variantSkus}`;
+        if (nq && !normalizeArabic(hay).includes(nq)) return false;
       }
       if (hasVariantFilter && !p.variants.some(matchVariant)) return false;
       return true;
@@ -1023,6 +1024,7 @@ export function mockCreateProduct(input: ProductInput): ProductDTO {
     barcode: input.barcode ?? null,
     images: input.images,
     productTypeId: input.productTypeId ?? null,
+    isDraft: input.isDraft ?? false,
     createdAt: new Date(),
     updatedAt: new Date(),
     variants: input.variants.map((v) => {
@@ -1161,6 +1163,8 @@ export function mockUpdateProduct(
   product.barcode = input.barcode ?? null;
   product.images = input.images;
   product.productTypeId = input.productTypeId ?? null;
+  // إكمال المنتج عبر نموذج التعديل الكامل يُلغي علم المسودة
+  product.isDraft = false;
   product.updatedAt = new Date();
   registerBrand(product.brand, product.category);
 
@@ -1238,6 +1242,7 @@ export function mockImportInventory(rows: ImportRow[]): ImportResult {
         barcode: null,
         images: [],
         productTypeId: typeId,
+        isDraft: false,
         createdAt: new Date(),
         updatedAt: new Date(),
         variants: [],

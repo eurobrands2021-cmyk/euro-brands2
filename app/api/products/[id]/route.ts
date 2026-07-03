@@ -194,6 +194,8 @@ export async function PUT(
           barcode: input.barcode ?? null,
           images: input.images,
           productTypeId: input.productTypeId ?? null,
+          // إكمال المنتج عبر نموذج التعديل الكامل يُلغي علم المسودة
+          isDraft: false,
         },
         include: {
           productType: true,
