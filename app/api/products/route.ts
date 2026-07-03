@@ -132,6 +132,7 @@ export async function POST(req: Request) {
           quantity: v.quantity,
           minQuantity: v.minQuantity,
           price: v.price,
+          cost: v.cost,
           sku,
           skuManual: !!explicit && v.skuManual !== false,
         };

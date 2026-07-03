@@ -77,6 +77,7 @@ interface MVariant {
   minQuantity: number;
   branch: BranchValue;
   price: number;
+  cost: number;
   sku: string | null;
   skuManual: boolean;
 }
@@ -252,6 +253,7 @@ function buildStore(): Store {
           minQuantity: 5,
           branch,
           price,
+          cost: Math.round(price * 0.6),
           sku,
           skuManual: false,
         };
@@ -682,6 +684,7 @@ function shapeVariant(v: MVariant): VariantDTO {
     minQuantity: v.minQuantity,
     branch: v.branch,
     price: v.price,
+    cost: v.cost ?? 0,
     sku: v.sku,
     skuManual: v.skuManual,
   };
@@ -1043,6 +1046,7 @@ export function mockCreateProduct(input: ProductInput): ProductDTO {
         quantity: v.quantity,
         minQuantity: v.minQuantity,
         price: v.price,
+        cost: v.cost,
         sku,
         skuManual,
       };
@@ -1098,6 +1102,7 @@ export function mockUpdateProduct(
       existing.quantity = vi.quantity;
       existing.minQuantity = vi.minQuantity;
       existing.price = vi.price;
+      existing.cost = vi.cost;
       const explicit = vi.sku?.trim();
       if (explicit) {
         // SKU يدوي (أو محرَّر) — نمنع التكرار مع الباقي
@@ -1143,6 +1148,7 @@ export function mockUpdateProduct(
         quantity: vi.quantity,
         minQuantity: vi.minQuantity,
         price: vi.price,
+        cost: vi.cost,
         sku,
         skuManual: !!explicit && vi.skuManual !== false,
       });
@@ -1286,6 +1292,7 @@ export function mockImportInventory(rows: ImportRow[]): ImportResult {
         quantity: row.quantity,
         minQuantity: 5,
         price: row.price,
+        cost: 0,
         sku,
         skuManual: !!row.sku,
       });

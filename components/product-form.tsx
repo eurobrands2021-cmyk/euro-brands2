@@ -47,6 +47,7 @@ interface VariantRow {
   quantity: string;
   minQuantity: string;
   price: string;
+  cost: string;
   sku: string;
   skuManual: boolean;
 }
@@ -62,6 +63,7 @@ function emptyRow(branch: BranchValue = "HADAYEK"): VariantRow {
     quantity: "0",
     minQuantity: "5",
     price: "0",
+    cost: "0",
     sku: "",
     skuManual: false,
   };
@@ -112,6 +114,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
           quantity: String(v.quantity),
           minQuantity: String(v.minQuantity ?? 5),
           price: String(v.price),
+          cost: String(v.cost ?? 0),
           sku: v.sku ?? "",
           skuManual: v.skuManual,
         }))
@@ -288,6 +291,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         quantity: Math.max(0, Math.floor(Number(r.quantity) || 0)),
         minQuantity: Math.max(0, Math.floor(Number(r.minQuantity) || 0)),
         price: Math.max(0, Number(r.price) || 0),
+        cost: Math.max(0, Number(r.cost) || 0),
         sku: r.sku.trim() || null,
         skuManual: r.skuManual,
       })),
@@ -593,13 +597,14 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         </div>
 
         <div className="space-y-2">
-          <div className="hidden gap-2 px-1 text-xs font-medium text-muted sm:grid sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_1.3fr_auto]">
+          <div className="hidden gap-2 px-1 text-xs font-medium text-muted sm:grid sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_0.9fr_1.3fr_auto]">
             <span>الفرع</span>
             <span>المقاس</span>
             <span>اللون</span>
             <span>الكمية</span>
             <span>الحد الأدنى</span>
             <span>السعر</span>
+            <span>التكلفة</span>
             <span>كود SKU</span>
             <span></span>
           </div>
@@ -607,7 +612,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
           {variants.map((row) => (
             <div
               key={row.clientId}
-              className="grid grid-cols-2 gap-3 rounded-lg border p-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_1.3fr_auto] sm:h-9 sm:items-center sm:gap-2 sm:border-0 sm:p-0"
+              className="grid grid-cols-2 gap-3 rounded-lg border p-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_0.9fr_1.3fr_auto] sm:h-9 sm:items-center sm:gap-2 sm:border-0 sm:p-0"
             >
               <VariantField label="الفرع">
                 <select
@@ -688,6 +693,15 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                   className="input nums sm:h-9 sm:py-1"
                   value={row.price}
                   onChange={(v) => updateRow(row.clientId, { price: v })}
+                />
+              </VariantField>
+
+              <VariantField label="التكلفة (ج.م)">
+                <NumberInput
+                  decimal
+                  className="input nums sm:h-9 sm:py-1"
+                  value={row.cost}
+                  onChange={(v) => updateRow(row.clientId, { cost: v })}
                 />
               </VariantField>
 

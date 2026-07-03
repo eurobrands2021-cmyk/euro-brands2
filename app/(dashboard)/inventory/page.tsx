@@ -163,6 +163,7 @@ export default function InventoryPage() {
           quantity: v.quantity,
           minQuantity: v.minQuantity,
           price: v.price,
+          cost: v.cost,
           sku: null, // عند التكرار: ندَع التوليد التلقائي يُنشئ SKUs جديدة
         })),
       };

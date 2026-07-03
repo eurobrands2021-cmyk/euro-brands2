@@ -63,6 +63,8 @@ export function parseProductInput(body: any): ProductInput {
     const branch = asString(v?.branch);
     const quantity = Number(v?.quantity);
     const price = Number(v?.price);
+    const costRaw = Number(v?.cost);
+    const cost = Number.isFinite(costRaw) && costRaw >= 0 ? costRaw : 0;
     const minRaw = Number(v?.minQuantity);
     const minQuantity =
       Number.isFinite(minRaw) && minRaw >= 0 ? Math.floor(minRaw) : 5;
@@ -94,6 +96,7 @@ export function parseProductInput(body: any): ProductInput {
       quantity: Math.floor(quantity),
       minQuantity,
       price,
+      cost,
       sku,
       skuManual,
     };

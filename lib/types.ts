@@ -21,6 +21,7 @@ export interface VariantDTO {
   minQuantity: number;
   branch: BranchValue;
   price: number;
+  cost: number;
   sku: string | null;
   skuManual: boolean;
 }
@@ -152,6 +153,7 @@ export interface VariantInput {
   minQuantity: number;
   branch: BranchValue;
   price: number;
+  cost: number; // سعر التكلفة/الشراء (لحساب الربحية) — يُقبَل 0 افتراضياً
   sku: string | null; // إن غاب أو فضل null يُولَّد تلقائياً، وإن جاء معتمداً يُعتَبر يدوي
   skuManual?: boolean;
 }

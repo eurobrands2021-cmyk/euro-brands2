@@ -81,6 +81,7 @@ export function toVariantDTO(v: ProductVariant): VariantDTO {
     minQuantity: v.minQuantity,
     branch: v.branch as BranchValue,
     price: v.price,
+    cost: v.cost,
     sku: v.sku ?? null,
     skuManual: v.skuManual,
   };
