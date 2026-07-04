@@ -38,6 +38,15 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+// تحويل قيمة كمية إلى عدد صحيح مهما كان نوعها (رقم/نص/أرقام عربية).
+// يعيد NaN عند التعذّر ليرفضها المتحقق. يضمن عدم تسرّب "0" أو NaN للتخزين.
+function parseQuantity(v: unknown): number {
+  if (typeof v === "number") return Math.floor(v);
+  const digits = digitsOnly(String(v ?? "")); // "٤" → "4"، "" عند الفراغ
+  if (!digits) return NaN;
+  return parseInt(digits, 10);
+}
+
 // التحقق من مدخلات المنتج
 export function parseProductInput(body: any): ProductInput {
   const name = asString(body?.name);
@@ -410,8 +419,9 @@ export function parseDamagedInput(body: any): DamagedInput {
   const variantId = asString(body?.variantId);
   if (!variantId) throw new ValidationError("يجب اختيار الصنف التالف");
 
-  const quantity = Number(body?.quantity);
-  if (!Number.isFinite(quantity) || quantity <= 0)
+  // كمية صحيحة موجبة — تتحمّل الأرقام كنص أو أرقاماً عربية (٤ → 4)
+  const quantity = parseQuantity(body?.quantity);
+  if (!Number.isInteger(quantity) || quantity <= 0)
     throw new ValidationError("الكمية غير صحيحة");
 
   const reasonCode = asString(body?.reasonCode);
@@ -434,7 +444,7 @@ export function parseDamagedInput(body: any): DamagedInput {
 
   return {
     variantId,
-    quantity: Math.floor(quantity),
+    quantity, // عدد صحيح موجب مضمون
     reasonCode: reasonCode as DefectReasonValue,
     detail,
     unitCost,

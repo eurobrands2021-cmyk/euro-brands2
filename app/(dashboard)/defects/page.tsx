@@ -147,8 +147,9 @@ function RecordDefectCard({
       toast.error("اختر المنتج والصنف أولاً");
       return;
     }
-    const qty = Number(quantity);
-    if (!Number.isFinite(qty) || qty <= 0) {
+    // عدد صحيح موجب صريح (لا نرسل نصاً أو قيمة كسرية أبداً)
+    const qty = parseInt(quantity, 10);
+    if (!Number.isInteger(qty) || qty <= 0) {
       toast.error("الكمية غير صحيحة");
       return;
     }
