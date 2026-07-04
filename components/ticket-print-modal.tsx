@@ -237,21 +237,30 @@ export function TicketPrintModal({
   open,
   items,
   onClose,
+  ensureQr = false,
 }: {
   open: boolean;
   items: TicketItem[];
   onClose: () => void;
+  // عند الفتح: يضمن تفعيل خانة QR Code افتراضياً (مثلاً من زر «طباعة QR» في المخزون)
+  ensureQr?: boolean;
 }) {
   const [settings, setSettings] = useState<TicketSettings>(DEFAULT_SETTINGS);
   const [loaded, setLoaded] = useState(false);
 
-  // تحميل الإعدادات المحفوظة عند أول فتح
+  // تحميل الإعدادات المحفوظة عند كل فتح (مع ضمان تفعيل QR إن طُلب)
   useEffect(() => {
     if (open && !loaded) {
-      setSettings(loadSettings());
+      const s = loadSettings();
+      setSettings(ensureQr ? { ...s, fields: { ...s.fields, qr: true } } : s);
       setLoaded(true);
     }
-  }, [open, loaded]);
+  }, [open, loaded, ensureQr]);
+
+  // إعادة التحميل عند الإغلاق حتى يُطبَّق ضمان QR في الفتح التالي
+  useEffect(() => {
+    if (!open) setLoaded(false);
+  }, [open]);
 
   // حفظ الإعدادات كلما تغيّرت
   useEffect(() => {

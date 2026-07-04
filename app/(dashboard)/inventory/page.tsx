@@ -21,6 +21,7 @@ import { apiDelete, apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { ImportInventoryModal } from "@/components/import-inventory-modal";
 import { AddBrandModal } from "@/components/add-brand-modal";
+import { PrintQrButton } from "@/components/print-qr-button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
@@ -532,6 +533,7 @@ function ProductCard({
             <Pencil className="h-4 w-4" />
             تعديل
           </Link>
+          <PrintQrButton product={product} className="h-10 w-10" />
           <button
             onClick={onDuplicate}
             disabled={duplicating}
@@ -621,6 +623,7 @@ function ProductListRow({
         >
           <Pencil className="h-4 w-4" />
         </Link>
+        <PrintQrButton product={product} className="h-9 w-9" />
         <button
           onClick={onDuplicate}
           disabled={duplicating}
