@@ -136,6 +136,26 @@ export function sizesForCategory(category: CategoryValue): readonly string[] {
 export const CURRENCY = "ج.م";
 export const LOW_STOCK_THRESHOLD = 3; // عتبة تحذير قلة المخزون
 
+// ----------------------------------------------------
+//  أسباب التلف/العيب (الديفو)
+// ----------------------------------------------------
+export const DEFECT_REASONS = [
+  "MANUFACTURING",
+  "SHIPPING_DAMAGE",
+  "BROKEN",
+  "COLOR_FADING",
+  "OTHER",
+] as const;
+export type DefectReasonValue = (typeof DEFECT_REASONS)[number];
+
+export const DEFECT_REASON_LABELS: Record<DefectReasonValue, string> = {
+  MANUFACTURING: "عيب تصنيع",
+  SHIPPING_DAMAGE: "تلف أثناء الشحن",
+  BROKEN: "مكسور",
+  COLOR_FADING: "بهتان اللون",
+  OTHER: "أخرى",
+};
+
 // قائمة ألوان شائعة للاختيار السريع (قائمة منسدلة في نافذة الإضافة السريعة)
 export const COMMON_COLORS = [
   "أسود",

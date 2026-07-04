@@ -3,13 +3,28 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowRight, Printer, Pencil, Clock, Ban } from "lucide-react";
+import {
+  ArrowRight,
+  Printer,
+  Pencil,
+  Clock,
+  Ban,
+  Lock,
+  LockOpen,
+} from "lucide-react";
+import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
+import { apiPost } from "@/lib/client";
+import { getSession } from "@/lib/auth";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
+import { Modal } from "@/components/ui/modal";
 import { InvoiceDocument } from "@/components/invoice-document";
 import { InvoiceTemplatePicker } from "@/components/invoice-template-picker";
 import { PrintInvoiceModal } from "@/components/print-invoice-modal";
+import { useSettings } from "@/components/settings-provider";
+import { useInvoiceBranding } from "@/lib/use-invoice-branding";
+import { invoiceLockInfo } from "@/lib/invoice-lock";
 import {
   loadInvoiceTemplate,
   saveInvoiceTemplate,
@@ -20,10 +35,17 @@ import type { SaleDTO } from "@/lib/types";
 
 export default function SaleDetailPage() {
   const params = useParams<{ id: string }>();
-  const { data, loading, error } = useFetch<SaleDTO>(`/api/sales/${params.id}`);
+  const { data, loading, error, refetch, setData } = useFetch<SaleDTO>(
+    `/api/sales/${params.id}`
+  );
+  const { settings } = useSettings();
+  const branding = useInvoiceBranding();
 
   const [template, setTemplate] = useState<InvoiceTemplate>("classic");
   const [printOpen, setPrintOpen] = useState(false);
+  const [unlockOpen, setUnlockOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [unlocking, setUnlocking] = useState(false);
 
   useEffect(() => {
     setTemplate(loadInvoiceTemplate());
@@ -32,6 +54,30 @@ export default function SaleDetailPage() {
   function changeTemplate(t: InvoiceTemplate) {
     setTemplate(t);
     saveInvoiceTemplate(t);
+  }
+
+  async function handleUnlock() {
+    if (!data) return;
+    if (!reason.trim()) {
+      toast.error("سبب فتح القفل مطلوب");
+      return;
+    }
+    setUnlocking(true);
+    try {
+      const updated = await apiPost<SaleDTO>(`/api/sales/${data.id}/unlock`, {
+        reason: reason.trim(),
+        by: getSession()?.name ?? "المدير",
+      });
+      setData(updated);
+      toast.success("تم فتح القفل — يمكنك الآن تعديل الفاتورة");
+      setUnlockOpen(false);
+      setReason("");
+      refetch();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر فتح القفل");
+    } finally {
+      setUnlocking(false);
+    }
   }
 
   if (loading) return <PageLoader />;
@@ -43,6 +89,13 @@ export default function SaleDetailPage() {
     );
 
   const cancelled = data.status === "CANCELLED";
+  const lock = invoiceLockInfo(
+    data.createdAt,
+    settings.lockDays,
+    data.unlockedAt
+  );
+  const isAdmin = getSession()?.role === "ADMIN";
+  const canEdit = !cancelled && !lock.locked;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -55,7 +108,7 @@ export default function SaleDetailPage() {
           رجوع إلى السجل
         </Link>
         <div className="flex items-center gap-2">
-          {!cancelled && (
+          {canEdit && (
             <Link
               href={`/sales/${data.id}/edit`}
               className="btn btn-secondary h-9 text-sm"
@@ -63,6 +116,15 @@ export default function SaleDetailPage() {
               <Pencil className="h-4 w-4" />
               تعديل
             </Link>
+          )}
+          {lock.locked && isAdmin && (
+            <button
+              onClick={() => setUnlockOpen(true)}
+              className="btn btn-secondary h-9 text-sm"
+            >
+              <LockOpen className="h-4 w-4" />
+              فتح القفل
+            </button>
           )}
           <button
             onClick={() => setPrintOpen(true)}
@@ -74,12 +136,25 @@ export default function SaleDetailPage() {
         </div>
       </div>
 
-      {/* حالة الفاتورة + آخر تعديل */}
+      {/* حالة الفاتورة + القفل + آخر تعديل */}
       <div className="no-print mb-4 flex flex-wrap items-center gap-3">
         {cancelled && (
           <span className="badge bg-[rgba(217,83,79,0.14)] text-danger">
             <Ban className="ml-1 h-3.5 w-3.5" />
             ملغية{data.cancellationReason ? ` — ${data.cancellationReason}` : ""}
+          </span>
+        )}
+        {lock.locked && (
+          <span className="badge bg-[rgba(201,133,26,0.14)] text-warning">
+            <Lock className="ml-1 h-3.5 w-3.5" />
+            مقفلة (أقدم من {settings.lockDays} يوم)
+          </span>
+        )}
+        {lock.wasUnlocked && !lock.locked && (
+          <span className="badge bg-accent-soft text-accent">
+            <LockOpen className="ml-1 h-3.5 w-3.5" />
+            فُتح القفل يدوياً
+            {data.unlockReason ? ` — ${data.unlockReason}` : ""}
           </span>
         )}
         {data.lastEditedAt && (
@@ -98,7 +173,12 @@ export default function SaleDetailPage() {
 
       {/* المعاينة الحيّة بالقالب المختار */}
       <div className="overflow-x-auto rounded-xl border bg-[var(--surface-2)] p-3 sm:p-5">
-        <InvoiceDocument sale={data} template={template} size="a4" />
+        <InvoiceDocument
+          sale={data}
+          template={template}
+          size="a4"
+          branding={branding}
+        />
       </div>
 
       <PrintInvoiceModal
@@ -107,6 +187,42 @@ export default function SaleDetailPage() {
         open={printOpen}
         onClose={() => setPrintOpen(false)}
       />
+
+      {/* نافذة فتح القفل (للمدير) — تتطلب سبباً يُسجَّل في التدقيق */}
+      <Modal
+        open={unlockOpen}
+        onClose={() => setUnlockOpen(false)}
+        title="فتح قفل الفاتورة"
+        footer={
+          <>
+            <button
+              onClick={handleUnlock}
+              disabled={unlocking}
+              className="btn btn-primary w-full sm:w-auto"
+            >
+              <LockOpen className="h-4 w-4" />
+              {unlocking ? "جارٍ…" : "فتح القفل"}
+            </button>
+            <button
+              onClick={() => setUnlockOpen(false)}
+              className="btn btn-ghost w-full sm:w-auto"
+            >
+              إلغاء
+            </button>
+          </>
+        }
+      >
+        <p className="mb-3 text-sm text-muted">
+          فتح قفل فاتورة قديمة يتيح تعديلها. سيُسجَّل السبب في سجل التدقيق.
+        </p>
+        <label className="label">سبب فتح القفل</label>
+        <textarea
+          className="input min-h-[90px]"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="مثال: تصحيح خطأ في الكمية بطلب من الإدارة"
+        />
+      </Modal>
     </div>
   );
 }

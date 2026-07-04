@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Home,
   LayoutDashboard,
@@ -16,6 +16,9 @@ import {
   X,
   LogOut,
   Users,
+  AlertTriangle,
+  MoreHorizontal,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/client";
@@ -31,13 +34,15 @@ import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { AccessRequestsBell } from "./access-requests-bell";
 
-// كل عنصر يحدد الأدوار المسموح لها برؤيته
-const NAV_ITEMS: {
+interface NavItem {
   href: string;
   label: string;
   icon: typeof Home;
   roles: Role[];
-}[] = [
+}
+
+// الروابط الرئيسية — ظاهرة دائماً على سطح المكتب
+const MAIN_ITEMS: NavItem[] = [
   { href: "/", label: "الرئيسية", icon: Home, roles: ["ADMIN"] },
   {
     href: "/dashboard",
@@ -60,6 +65,11 @@ const NAV_ITEMS: {
     icon: ReceiptText,
     roles: ["ADMIN"],
   },
+];
+
+// روابط أقل استخداماً — مجمّعة داخل قائمة «المزيد»
+const MORE_ITEMS: NavItem[] = [
+  { href: "/defects", label: "الديفو (التالف)", icon: AlertTriangle, roles: ["ADMIN"] },
   { href: "/customers", label: "العملاء", icon: Users, roles: ["ADMIN"] },
   {
     href: "/settings",
@@ -78,8 +88,10 @@ export function TopNav() {
   const pathname = usePathname();
   const router = useRouter();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const [lowStock, setLowStock] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
+  const moreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSession(getSession());
@@ -91,8 +103,23 @@ export function TopNav() {
       .catch(() => {});
   }, [pathname]);
 
+  // أغلق قائمة «المزيد» عند التنقّل أو النقر خارجها
+  useEffect(() => setMoreOpen(false), [pathname]);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(e.target as Node))
+        setMoreOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [moreOpen]);
+
   const role = session?.role;
-  const items = NAV_ITEMS.filter((item) => !role || item.roles.includes(role));
+  const byRole = (item: NavItem) => !role || item.roles.includes(role);
+  const mainItems = MAIN_ITEMS.filter(byRole);
+  const moreItems = MORE_ITEMS.filter(byRole);
+  const moreActive = moreItems.some((i) => isActive(pathname, i.href));
 
   function logout() {
     endSession();
@@ -114,7 +141,7 @@ export function TopNav() {
 
           {/* روابط سطح المكتب */}
           <nav className="hidden items-center gap-1 md:flex">
-            {items.map((item) => {
+            {mainItems.map((item) => {
               const active = isActive(pathname, item.href);
               return (
                 <Link
@@ -137,6 +164,58 @@ export function TopNav() {
                 </Link>
               );
             })}
+
+            {/* قائمة «المزيد» — الصفحات الأقل استخداماً */}
+            {moreItems.length > 0 && (
+              <div className="relative" ref={moreRef}>
+                <button
+                  onClick={() => setMoreOpen((v) => !v)}
+                  aria-haspopup="menu"
+                  aria-expanded={moreOpen}
+                  className={cn(
+                    "flex h-16 items-center gap-1.5 border-b-[3px] px-2.5 text-sm font-medium transition-colors lg:px-3",
+                    moreActive || moreOpen
+                      ? "border-accent text-accent"
+                      : "border-transparent text-muted hover:text-text"
+                  )}
+                >
+                  <MoreHorizontal className="h-4 w-4 shrink-0" />
+                  <span className="hidden lg:inline">المزيد</span>
+                  <ChevronDown
+                    className={cn(
+                      "h-3.5 w-3.5 transition-transform",
+                      moreOpen && "rotate-180"
+                    )}
+                  />
+                </button>
+                {moreOpen && (
+                  <div
+                    role="menu"
+                    className="absolute left-0 top-full z-40 mt-1 w-52 overflow-hidden rounded-xl border bg-surface shadow-card animate-fade-in"
+                  >
+                    {moreItems.map((item) => {
+                      const active = isActive(pathname, item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          role="menuitem"
+                          className={cn(
+                            "flex items-center gap-3 px-4 py-3 text-sm font-medium",
+                            active
+                              ? "bg-accent-soft text-accent"
+                              : "text-text hover:bg-[var(--surface-2)]"
+                          )}
+                        >
+                          <item.icon className="h-4 w-4 shrink-0" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </nav>
         </div>
 
@@ -179,7 +258,7 @@ export function TopNav() {
         </div>
       </div>
 
-      {/* قائمة الموبايل */}
+      {/* قائمة الموبايل (قابلة للطي) */}
       {mobileOpen && (
         <nav className="border-t md:hidden">
           {session && (
@@ -190,34 +269,38 @@ export function TopNav() {
               </span>
             </div>
           )}
-          {items.map((item) => {
-            const active = isActive(pathname, item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  "flex items-center gap-3 border-r-[3px] px-5 py-4 text-base font-medium",
-                  active
-                    ? "border-accent bg-accent-soft text-accent"
-                    : "border-transparent text-muted"
-                )}
-              >
-                <item.icon className="h-5 w-5" />
-                {item.label}
-                {item.href === "/dashboard" && lowStock > 0 && (
-                  <span className="mr-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white nums">
-                    {lowStock}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
+          {mainItems.map((item) => (
+            <MobileLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              lowStock={lowStock}
+              onClick={() => setMobileOpen(false)}
+            />
+          ))}
+
+          {/* قسم «المزيد» */}
+          {moreItems.length > 0 && (
+            <>
+              <div className="border-t bg-[var(--surface-2)] px-5 py-2 text-xs font-bold text-muted">
+                المزيد
+              </div>
+              {moreItems.map((item) => (
+                <MobileLink
+                  key={item.href}
+                  item={item}
+                  pathname={pathname}
+                  lowStock={lowStock}
+                  onClick={() => setMobileOpen(false)}
+                />
+              ))}
+            </>
+          )}
+
           {session && (
             <button
               onClick={logout}
-              className="flex w-full items-center gap-3 border-r-[3px] border-transparent px-5 py-4 text-base font-medium text-danger"
+              className="flex w-full items-center gap-3 border-t border-r-[3px] border-transparent px-5 py-4 text-base font-medium text-danger"
             >
               <LogOut className="h-5 w-5" />
               تسجيل الخروج
@@ -226,5 +309,39 @@ export function TopNav() {
         </nav>
       )}
     </header>
+  );
+}
+
+function MobileLink({
+  item,
+  pathname,
+  lowStock,
+  onClick,
+}: {
+  item: NavItem;
+  pathname: string;
+  lowStock: number;
+  onClick: () => void;
+}) {
+  const active = isActive(pathname, item.href);
+  return (
+    <Link
+      href={item.href}
+      onClick={onClick}
+      className={cn(
+        "flex items-center gap-3 border-r-[3px] px-5 py-4 text-base font-medium",
+        active
+          ? "border-accent bg-accent-soft text-accent"
+          : "border-transparent text-muted"
+      )}
+    >
+      <item.icon className="h-5 w-5" />
+      {item.label}
+      {item.href === "/dashboard" && lowStock > 0 && (
+        <span className="mr-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white nums">
+          {lowStock}
+        </span>
+      )}
+    </Link>
   );
 }

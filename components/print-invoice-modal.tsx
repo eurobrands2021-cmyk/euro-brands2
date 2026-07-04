@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Printer, Check } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { InvoiceDocument } from "@/components/invoice-document";
+import { useInvoiceBranding } from "@/lib/use-invoice-branding";
 import { cn } from "@/lib/cn";
 import {
   INVOICE_SIZES,
@@ -26,6 +27,7 @@ export function PrintInvoiceModal({
   onClose: () => void;
 }) {
   const [size, setSize] = useState<InvoiceSize>("a4");
+  const branding = useInvoiceBranding();
 
   function handlePrint() {
     const sizeClasses = INVOICE_SIZES.map((s) => `inv-size-${s}`);
@@ -83,14 +85,14 @@ export function PrintInvoiceModal({
         <div>
           <p className="mb-2 text-sm font-medium text-text">معاينة</p>
           <div className="max-h-[46vh] overflow-auto rounded-lg border bg-[var(--surface-2)] p-4">
-            <InvoiceDocument sale={sale} template={template} size={size} />
+            <InvoiceDocument sale={sale} template={template} size={size} branding={branding} />
           </div>
         </div>
       </div>
 
       {/* حاوية الطباعة الفعلية (خارج الشاشة) */}
       <div className="inv-print-area" aria-hidden>
-        <InvoiceDocument sale={sale} template={template} size={size} />
+        <InvoiceDocument sale={sale} template={template} size={size} branding={branding} />
       </div>
     </Modal>
   );

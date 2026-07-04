@@ -38,6 +38,7 @@ import {
 } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
+import { matchesWithBrandAliases } from "@/lib/brand-map";
 
 interface Filters {
   search: string;
@@ -101,14 +102,15 @@ export default function InventoryPage() {
   );
 
   const filtered = useMemo(() => {
-    const q = filters.search.trim().toLowerCase();
+    const q = filters.search.trim();
     const result = products.filter((p) => {
       if (draftsOnly && !p.isDraft) return false;
       if (
         q &&
-        !`${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""}`
-          .toLowerCase()
-          .includes(q)
+        !matchesWithBrandAliases(
+          [p.name, p.brand, p.sku, p.barcode],
+          q
+        )
       )
         return false;
       if (filters.category && p.category !== filters.category) return false;

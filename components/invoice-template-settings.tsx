@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import { Card } from "@/components/ui/card";
 import { InvoiceTemplatePicker } from "@/components/invoice-template-picker";
 import { InvoiceDocument } from "@/components/invoice-document";
+import { useInvoiceBranding } from "@/lib/use-invoice-branding";
 import {
   loadInvoiceTemplate,
   saveInvoiceTemplate,
@@ -42,6 +43,8 @@ const SAMPLE_SALE: SaleDTO = {
   trackingNumber: null,
   deliveryStatus: null,
   createdAt: new Date().toISOString(),
+  unlockedAt: null,
+  unlockReason: null,
   items: [
     {
       id: "s1",
@@ -75,6 +78,7 @@ const SAMPLE_SALE: SaleDTO = {
 // بطاقة إعدادات قالب الفاتورة — تختار القالب الافتراضي وتعرض معاينة حيّة.
 export function InvoiceTemplateSettingsCard() {
   const [template, setTemplate] = useState<InvoiceTemplate>("classic");
+  const branding = useInvoiceBranding();
 
   useEffect(() => {
     setTemplate(loadInvoiceTemplate());
@@ -95,7 +99,12 @@ export function InvoiceTemplateSettingsCard() {
       <InvoiceTemplatePicker value={template} onChange={change} />
       <p className="mb-2 mt-4 text-sm font-medium text-text">معاينة</p>
       <div className="max-h-[420px] overflow-auto rounded-lg border bg-[var(--surface-2)] p-4">
-        <InvoiceDocument sale={SAMPLE_SALE} template={template} size="a4" />
+        <InvoiceDocument
+          sale={SAMPLE_SALE}
+          template={template}
+          size="a4"
+          branding={branding}
+        />
       </div>
     </Card>
   );

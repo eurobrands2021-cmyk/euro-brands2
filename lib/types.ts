@@ -1,6 +1,7 @@
 import type {
   BranchValue,
   CategoryValue,
+  DefectReasonValue,
   DeliveryMethodValue,
   DeliveryStatusValue,
   DiscountTypeValue,
@@ -133,6 +134,8 @@ export interface SaleDTO {
   deliveryStatus: DeliveryStatusValue | null;
   createdAt: string;
   lastEditedAt?: string | null; // آخر تعديل على الفاتورة (من سجل النشاط)
+  unlockedAt: string | null; // وقت فتح القفل يدوياً (إن وُجد)
+  unlockReason: string | null; // سبب فتح القفل
   items: SaleItemDTO[];
   itemsCount?: number;
 }
@@ -245,6 +248,49 @@ export interface CustomerInput {
   phone: string;
   branch?: BranchValue | null;
   notes?: string | null;
+}
+
+// ----------------------------------------------------
+//  الديفو — المنتجات التالفة/المعيبة
+// ----------------------------------------------------
+export interface DamagedItemDTO {
+  id: string;
+  productId: string;
+  variantId: string | null;
+  productName: string;
+  brand: string;
+  size: string | null;
+  color: string | null;
+  branch: BranchValue;
+  quantity: number;
+  reasonCode: DefectReasonValue;
+  reason: string | null;
+  unitCost: number;
+  loss: number; // الكمية × تكلفة الوحدة
+  photo: string | null;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+// مدخلات تسجيل تلف — يخصم الكمية من المخزون داخل معاملة
+export interface DamagedInput {
+  variantId: string; // الصنف المُتلف (يُخصَم منه)
+  quantity: number;
+  reasonCode: DefectReasonValue;
+  reason?: string | null; // تفاصيل إضافية (مطلوبة عند «أخرى»)
+  photo?: string | null;
+  unitCost?: number | null; // تكلفة الوحدة (تُشتق من سعر الصنف إن غابت)
+  createdBy?: string | null;
+}
+
+// تقرير الديفو: القائمة + الملخّص (إجمالي الخسارة + السبب الأكثر تكراراً)
+export interface DefectReport {
+  items: DamagedItemDTO[];
+  totalLoss: number; // إجمالي الخسارة بالجنيه (Σ الكمية × التكلفة)
+  totalQuantity: number; // إجمالي عدد القطع التالفة
+  topReason: DefectReasonValue | null; // السبب الأكثر تكراراً
+  topReasonCount: number;
+  reasonBreakdown: { reason: DefectReasonValue; count: number; loss: number }[];
 }
 
 export interface CustomerUpdateInput {

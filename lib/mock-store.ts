@@ -8,6 +8,7 @@ import {
 } from "date-fns";
 import { calcDiscount, round2 } from "./sale-utils";
 import { normalizeArabic } from "./normalize";
+import { expandBrandQuery } from "./brand-map";
 import {
   BRANCHES,
   DEFAULT_PRODUCT_TYPES,
@@ -15,6 +16,7 @@ import {
   RENAMED_PRODUCT_TYPES,
   type BranchValue,
   type CategoryValue,
+  type DefectReasonValue,
   type DeliveryMethodValue,
   type DeliveryStatusValue,
   type DiscountTypeValue,
@@ -24,6 +26,7 @@ import {
   type SaleStatusValue,
 } from "./constants";
 import { ValidationError } from "./validate";
+import { buildDefectReport } from "./defect-report";
 import {
   normalizeAnswer,
   ADMIN_RECOVERY_QUESTION_KEY,
@@ -41,7 +44,10 @@ import type {
   CustomerInput,
   CustomerListResponse,
   CustomerUpdateInput,
+  DamagedInput,
+  DamagedItemDTO,
   DashboardStats,
+  DefectReport,
   ImportResult,
   ImportRow,
   LowStockResponse,
@@ -149,7 +155,25 @@ interface MSale {
   trackingNumber: string | null;
   deliveryStatus: DeliveryStatusValue | null;
   createdAt: Date;
+  unlockedAt?: Date | null;
+  unlockedBy?: string | null;
+  unlockReason?: string | null;
   items: MItem[];
+}
+
+// الديفو — سجل تلف داخل المتجر التجريبي
+interface MDamaged {
+  id: string;
+  productId: string;
+  variantId: string | null;
+  branch: BranchValue;
+  quantity: number;
+  reasonCode: DefectReasonValue;
+  reason: string | null;
+  unitCost: number;
+  photo: string | null;
+  createdBy: string | null;
+  createdAt: Date;
 }
 
 interface MBrand {
@@ -179,6 +203,7 @@ interface Store {
   activityLogs: MActivityLog[];
   customers: MCustomer[];
   accessRequests: MAccessRequest[];
+  damaged: MDamaged[];
   settings: Record<string, string>;
   seq: number;
 }
@@ -209,6 +234,7 @@ function buildStore(): Store {
     activityLogs: [],
     customers: [],
     accessRequests: [],
+    damaged: [],
     settings: {},
     seq: 0,
   };
@@ -760,6 +786,8 @@ function shapeSale(s: MSale): SaleDTO {
     trackingNumber: s.trackingNumber,
     deliveryStatus: s.deliveryStatus,
     createdAt: s.createdAt.toISOString(),
+    unlockedAt: s.unlockedAt ? s.unlockedAt.toISOString() : null,
+    unlockReason: s.unlockReason ?? null,
     items: s.items.map((it) => {
       const ref = findVariant(it.variantId);
       return {
@@ -893,8 +921,12 @@ export function mockListProducts(sp: URLSearchParams): ProductDTO[] {
           .filter(Boolean)
           .join(" ");
         const nq = normalizeArabic(search);
-        const hay = `${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""} ${variantSkus}`;
-        if (nq && !normalizeArabic(hay).includes(nq)) return false;
+        const hay = normalizeArabic(
+          `${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""} ${variantSkus}`
+        );
+        // مرادفات البراند (نايك ↔ Nike)
+        if (nq && !expandBrandQuery(nq).some((t) => hay.includes(t)))
+          return false;
       }
       if (hasVariantFilter && !p.variants.some(matchVariant)) return false;
       return true;
@@ -2552,6 +2584,117 @@ export function mockReports(sp: URLSearchParams): ReportsData {
     slowMoving,
     lowStock,
   };
+}
+
+// ----------------------------------------------------
+//  الإعدادات (وضع المعاينة) — تُخزَّن كـ JSON تحت مفتاح واحد
+// ----------------------------------------------------
+const MOCK_SETTINGS_KEY = "app.settings";
+
+export function mockGetSettings(): Record<string, unknown> {
+  const raw = store.settings[MOCK_SETTINGS_KEY];
+  if (!raw) return {};
+  try {
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
+export function mockSaveSettings(
+  value: Record<string, unknown>
+): Record<string, unknown> {
+  store.settings[MOCK_SETTINGS_KEY] = JSON.stringify(value);
+  return value;
+}
+
+// ----------------------------------------------------
+//  الديفو (وضع المعاينة) — تسجيل تلف يخصم المخزون
+// ----------------------------------------------------
+function shapeDamaged(d: MDamaged): DamagedItemDTO {
+  const ref = d.variantId ? findVariant(d.variantId) : null;
+  const product = ref?.product ?? store.products.find((p) => p.id === d.productId);
+  return {
+    id: d.id,
+    productId: d.productId,
+    variantId: d.variantId,
+    productName: product?.name ?? "—",
+    brand: product?.brand ?? "",
+    size: ref?.variant.size ?? null,
+    color: ref?.variant.color ?? null,
+    branch: d.branch,
+    quantity: d.quantity,
+    reasonCode: d.reasonCode,
+    reason: d.reason,
+    unitCost: d.unitCost,
+    loss: round2(d.unitCost * d.quantity),
+    photo: d.photo,
+    createdBy: d.createdBy,
+    createdAt: d.createdAt.toISOString(),
+  };
+}
+
+export function mockCreateDamaged(input: DamagedInput): DamagedItemDTO {
+  const ref = findVariant(input.variantId);
+  if (!ref) throw new ValidationError("الصنف غير موجود في المخزون");
+  if (input.quantity <= 0) throw new ValidationError("الكمية غير صحيحة");
+  if (ref.variant.quantity < input.quantity)
+    throw new ValidationError(
+      `الكمية غير كافية من "${ref.product.name}" مقاس ${ref.variant.size} (المتاح: ${ref.variant.quantity})`
+    );
+
+  // خصم المخزون
+  ref.variant.quantity -= input.quantity;
+
+  const unitCost =
+    input.unitCost != null && input.unitCost >= 0
+      ? input.unitCost
+      : ref.variant.price;
+
+  const row: MDamaged = {
+    id: nextId("dmg"),
+    productId: ref.product.id,
+    variantId: ref.variant.id,
+    branch: ref.variant.branch,
+    quantity: input.quantity,
+    reasonCode: input.reasonCode,
+    reason: input.reason ?? null,
+    unitCost,
+    photo: input.photo ?? null,
+    createdBy: input.createdBy ?? null,
+    createdAt: new Date(),
+  };
+  store.damaged.unshift(row);
+  return shapeDamaged(row);
+}
+
+export function mockDefectReport(sp: URLSearchParams): DefectReport {
+  const branch = sp.get("branch") as BranchValue | null;
+  const from = sp.get("from") ? new Date(sp.get("from")!) : null;
+  const to = sp.get("to") ? new Date(sp.get("to")!) : null;
+
+  let rows = [...store.damaged];
+  if (branch) rows = rows.filter((d) => d.branch === branch);
+  if (from) rows = rows.filter((d) => d.createdAt >= from);
+  if (to) rows = rows.filter((d) => d.createdAt <= to);
+
+  const items = rows
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    .map(shapeDamaged);
+  return buildDefectReport(items);
+}
+
+export function mockUnlockSale(
+  id: string,
+  reason: string,
+  by: string
+): { ok: boolean; error?: string; status?: number; sale?: SaleDTO } {
+  const s = store.sales.find((x) => x.id === id);
+  if (!s) return { ok: false, error: "الفاتورة غير موجودة", status: 404 };
+  s.unlockedAt = new Date();
+  s.unlockedBy = by;
+  s.unlockReason = reason;
+  return { ok: true, sale: shapeSale(s) };
 }
 
 // صورة بديلة (Data URI) لزر الرفع في وضع المعاينة — بدون اتصال شبكة

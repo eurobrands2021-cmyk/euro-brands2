@@ -16,9 +16,9 @@ const config: Config = {
         border: "var(--border)",
         text: "var(--text)",
         muted: "var(--muted)",
-        // Fixed brand colors
-        accent: "#6c63ff",
-        "accent-soft": "rgba(108, 99, 255, 0.12)",
+        // Accent color — driven by CSS variable (customizable in Settings)
+        accent: "var(--accent)",
+        "accent-soft": "var(--accent-soft)",
         success: "#3b9a6e",
         warning: "#c9851a",
         danger: "#d9534f",

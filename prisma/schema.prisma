@@ -66,6 +66,15 @@ enum DeliveryStatus {
   RETURNED // مرتجع
 }
 
+// أسباب التلف/العيب المعيارية (قائمة اختيار) — مع «أخرى» لسبب حر
+enum DefectReason {
+  MANUFACTURING // عيب تصنيع
+  SHIPPING_DAMAGE // تلف أثناء الشحن
+  BROKEN // مكسور
+  COLOR_FADING // بهتان اللون
+  OTHER // أخرى
+}
+
 // ----------------------------------------------------
 //  Models
 // ----------------------------------------------------
@@ -165,6 +174,11 @@ model Sale {
 
   status             SaleStatus @default(COMPLETED)
   cancellationReason String? // سبب الإلغاء
+
+  // فتح فاتورة مقفلة يدوياً (بعد تجاوزها مدة القفل) — يُسجَّل في سجل النشاط
+  unlockedAt   DateTime? // وقت فتح القفل يدوياً (إن وُجد)
+  unlockedBy   String? // من قام بفتح القفل
+  unlockReason String? // سبب فتح القفل
 
   isDelivery       Boolean         @default(false)
   orderSource      OrderSource? // مصدر الطلب
@@ -285,15 +299,21 @@ model StockTransferItem {
   @@index([transferId])
 }
 
-// تقرير الديفو — المنتجات التالفة/المعيبة (نموذج مطابق لأعمدة الجدول القائم)
+// تقرير الديفو — المنتجات التالفة/المعيبة
+// تسجيل التلف يخصم الكمية من المخزون داخل معاملة ويُدوَّن في سجل النشاط.
 model DamagedItem {
-  id        String   @id @default(cuid())
-  productId String // مرجع للمنتج
-  variantId String? // مرجع للصنف
-  branch    Branch // فرع التلف
-  quantity  Int      @default(1)
-  reason    String? // سبب التلف/العيب
-  createdAt DateTime @default(now())
+  id         String       @id @default(cuid())
+  productId  String // مرجع للمنتج
+  variantId  String? // مرجع للصنف (يُخصَم منه المخزون)
+  branch     Branch // فرع التلف
+  quantity   Int          @default(1)
+  reasonCode DefectReason @default(OTHER) // السبب المعياري من القائمة
+  reason     String? // تفاصيل إضافية/سبب حر (خاصة عند «أخرى»)
+  unitCost   Float        @default(0) // تكلفة/سعر الوحدة لحظة التسجيل (لحساب الخسارة)
+  photo      String? // صورة اختيارية للعيب
+  createdBy  String? // اسم من سجّل التلف
+  createdAt  DateTime     @default(now())
 
   @@index([createdAt])
+  @@index([reasonCode])
 }

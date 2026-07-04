@@ -6,6 +6,7 @@ import { parseProductInput, ValidationError } from "@/lib/validate";
 import { MOCK_MODE, mockListProducts, mockCreateProduct } from "@/lib/mock-store";
 import { buildVariantSku, uniquifySku } from "@/lib/sku";
 import { normalizeArabic } from "@/lib/normalize";
+import { expandBrandQuery } from "@/lib/brand-map";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,8 @@ export async function GET(req: Request) {
       ? (() => {
           const nq = normalizeArabic(search);
           if (!nq) return allProducts;
+          // توسعة العبارة لتشمل مقابل اسم البراند بالّلغة الأخرى (نايك ↔ Nike)
+          const terms = expandBrandQuery(nq);
           return allProducts.filter((p) => {
             const fields = [
               p.name,
@@ -62,8 +65,8 @@ export async function GET(req: Request) {
               p.sku ?? "",
               p.barcode ?? "",
               ...p.variants.map((v) => v.sku ?? ""),
-            ];
-            return fields.some((f) => normalizeArabic(f).includes(nq));
+            ].map((f) => normalizeArabic(f));
+            return terms.some((t) => fields.some((f) => f.includes(t)));
           });
         })()
       : allProducts;

@@ -1,13 +1,30 @@
 import type { Metadata, Viewport } from "next";
-import { Tajawal } from "next/font/google";
+import { Tajawal, Cairo, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { Toaster } from "react-hot-toast";
-import { ThemeProvider, themeInitScript } from "@/components/theme-provider";
+import { ThemeProvider } from "@/components/theme-provider";
+import { SettingsProvider } from "@/components/settings-provider";
+import { settingsInitScript } from "@/lib/settings-init";
 import "./globals.css";
 
 const tajawal = Tajawal({
   subsets: ["arabic", "latin"],
   weight: ["400", "500", "700", "800"],
   variable: "--font-tajawal",
+  display: "swap",
+});
+
+// خطوط بديلة يمكن اختيارها من الإعدادات (تُحمَّل ذاتياً وقت البناء)
+const cairo = Cairo({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-cairo",
+  display: "swap",
+});
+
+const ibmPlexArabic = IBM_Plex_Sans_Arabic({
+  subsets: ["arabic", "latin"],
+  weight: ["400", "500", "700"],
+  variable: "--font-ibm-plex-arabic",
   display: "swap",
 });
 
@@ -34,13 +51,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="ar" dir="rtl" className={tajawal.variable} suppressHydrationWarning>
+    <html
+      lang="ar"
+      dir="rtl"
+      className={`${tajawal.variable} ${cairo.variable} ${ibmPlexArabic.variable}`}
+      suppressHydrationWarning
+    >
       <head>
-        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script dangerouslySetInnerHTML={{ __html: settingsInitScript }} />
       </head>
       <body className="min-h-screen antialiased">
         <ThemeProvider>
-          {children}
+          <SettingsProvider>{children}</SettingsProvider>
           <Toaster
             position="top-center"
             toastOptions={{

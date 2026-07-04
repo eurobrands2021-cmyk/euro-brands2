@@ -12,6 +12,8 @@ import { toSaleDTO } from "@/lib/serializers";
 import { parseSaleInput, ValidationError } from "@/lib/validate";
 import { calcDiscount, round2 } from "@/lib/sale-utils";
 import { formatSaleNumber } from "@/lib/format";
+import { isInvoiceLocked } from "@/lib/invoice-lock";
+import { readServerSettings } from "@/lib/server-settings";
 import {
   MOCK_MODE,
   mockGetSale,
@@ -87,6 +89,9 @@ export async function PUT(
       return res.ok ? ok(res.sale) : fail(res.error, res.status);
     }
 
+    // مدة قفل الفواتير (يقرؤها الخادم لمنع تعديل الفواتير القديمة)
+    const { lockDays } = await readServerSettings();
+
     // دمج الكميات المكررة لنفس الصنف
     const merged = new Map<string, number>();
     for (const it of input.items) {
@@ -106,6 +111,13 @@ export async function PUT(
           ok: false as const,
           error: "لا يمكن تعديل فاتورة ملغية",
           status: 409,
+        };
+      // فاتورة مقفلة (تجاوزت مدة القفل ولم تُفتح يدوياً) — تُرفض
+      if (isInvoiceLocked(sale.createdAt, lockDays, sale.unlockedAt))
+        return {
+          ok: false as const,
+          error: `الفاتورة مقفلة (أقدم من ${lockDays} يوم) — افتح القفل أولاً لتعديلها`,
+          status: 423,
         };
 
       // 1) إرجاع كميات العناصر القديمة للمخزون

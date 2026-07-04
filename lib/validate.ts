@@ -1,6 +1,7 @@
 import {
   BRANCHES,
   CATEGORIES,
+  DEFECT_REASONS,
   DELIVERY_METHODS,
   DELIVERY_STATUSES,
   DISCOUNT_TYPES,
@@ -9,6 +10,7 @@ import {
   TRANSFER_METHODS,
   type BranchValue,
   type CategoryValue,
+  type DefectReasonValue,
   type DeliveryMethodValue,
   type DeliveryStatusValue,
   type OrderSourceValue,
@@ -21,6 +23,7 @@ import type {
   BrandInput,
   CustomerInput,
   CustomerUpdateInput,
+  DamagedInput,
   DeliveryInput,
   ImportRow,
   ProductInput,
@@ -399,6 +402,44 @@ export function parseDeliveryInput(body: any): DeliveryInput {
     deliveryAddress,
     addressNotes: asString(body?.addressNotes) || null,
     trackingNumber: asString(body?.trackingNumber) || null,
+  };
+}
+
+// التحقق من مدخلات تسجيل التلف (الديفو)
+export function parseDamagedInput(body: any): DamagedInput {
+  const variantId = asString(body?.variantId);
+  if (!variantId) throw new ValidationError("يجب اختيار الصنف التالف");
+
+  const quantity = Number(body?.quantity);
+  if (!Number.isFinite(quantity) || quantity <= 0)
+    throw new ValidationError("الكمية غير صحيحة");
+
+  const reasonCode = asString(body?.reasonCode);
+  if (!DEFECT_REASONS.includes(reasonCode as DefectReasonValue))
+    throw new ValidationError("سبب التلف غير صحيح");
+
+  const reason = asString(body?.reason) || null;
+  if (reasonCode === "OTHER" && !reason)
+    throw new ValidationError("يرجى كتابة سبب التلف عند اختيار «أخرى»");
+
+  let unitCost: number | null = null;
+  if (body?.unitCost != null && body?.unitCost !== "") {
+    const c = Number(body.unitCost);
+    if (!Number.isFinite(c) || c < 0)
+      throw new ValidationError("التكلفة غير صحيحة");
+    unitCost = c;
+  }
+
+  const photo = asString(body?.photo) || null;
+
+  return {
+    variantId,
+    quantity: Math.floor(quantity),
+    reasonCode: reasonCode as DefectReasonValue,
+    reason,
+    unitCost,
+    photo,
+    createdBy: asString(body?.createdBy) || null,
   };
 }
 

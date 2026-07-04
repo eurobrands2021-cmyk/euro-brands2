@@ -33,6 +33,8 @@ import {
   type OrderSourceValue,
 } from "@/lib/constants";
 import { formatCurrency, formatSaleNumber } from "@/lib/format";
+import { useSettings } from "@/components/settings-provider";
+import { isInvoiceLocked } from "@/lib/invoice-lock";
 import type { ProductDTO, SaleDTO } from "@/lib/types";
 
 interface EditItem {
@@ -49,6 +51,7 @@ interface EditItem {
 export default function EditSalePage() {
   const params = useParams<{ id: string }>();
   const { data, loading, error } = useFetch<SaleDTO>(`/api/sales/${params.id}`);
+  const { settings } = useSettings();
 
   if (loading) return <PageLoader />;
   if (error || !data)
@@ -61,6 +64,21 @@ export default function EditSalePage() {
     return (
       <Card className="p-6 text-center text-danger">
         لا يمكن تعديل فاتورة ملغية.
+      </Card>
+    );
+  // فاتورة مقفلة (أقدم من مدة القفل ولم تُفتح يدوياً) — تُوجَّه لصفحة العرض لفتح القفل
+  if (isInvoiceLocked(data.createdAt, settings.lockDays, data.unlockedAt))
+    return (
+      <Card className="p-6 text-center">
+        <p className="text-warning">
+          هذه الفاتورة مقفلة (أقدم من {settings.lockDays} يوم) وغير قابلة للتعديل.
+        </p>
+        <Link
+          href={`/sales/${data.id}`}
+          className="btn btn-secondary mt-4 inline-flex"
+        >
+          الرجوع لعرض الفاتورة وفتح القفل
+        </Link>
       </Card>
     );
 

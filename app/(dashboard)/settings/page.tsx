@@ -10,6 +10,11 @@ import { PageLoader } from "@/components/ui/spinner";
 import { useFetch } from "@/lib/use-fetch";
 import { AdminRecoverySetupCard } from "@/components/admin-recovery-setup";
 import { InvoiceTemplateSettingsCard } from "@/components/invoice-template-settings";
+import {
+  AppearanceSettingsCard,
+  InvoiceLockSettingsCard,
+  CompanyInfoSettingsCard,
+} from "@/components/settings-sections";
 import { formatDateTime } from "@/lib/format";
 import {
   getSession,
@@ -69,10 +74,31 @@ export default function SettingsPage() {
         </button>
       </Card>
 
+      {/* المظهر: الألوان + الخط + الوضع — للمدير فقط */}
+      {session?.role === "ADMIN" && (
+        <div className="mb-6">
+          <AppearanceSettingsCard />
+        </div>
+      )}
+
+      {/* بيانات الشركة — للمدير فقط */}
+      {session?.role === "ADMIN" && (
+        <div className="mb-6">
+          <CompanyInfoSettingsCard />
+        </div>
+      )}
+
       {/* قالب الفاتورة الافتراضي */}
       <div className="mb-6">
         <InvoiceTemplateSettingsCard />
       </div>
+
+      {/* قفل الفواتير — للمدير فقط */}
+      {session?.role === "ADMIN" && (
+        <div className="mb-6">
+          <InvoiceLockSettingsCard />
+        </div>
+      )}
 
       {/* سؤال الأمان — للمدير فقط */}
       {session?.role === "ADMIN" && <AdminRecoverySetupCard />}

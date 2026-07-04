@@ -40,6 +40,11 @@ import {
   mockDashboard,
   mockReports,
   mockUploadUrl,
+  mockGetSettings,
+  mockSaveSettings,
+  mockCreateDamaged,
+  mockDefectReport,
+  mockUnlockSale,
 } from "./mock-store";
 import {
   parseAccessRequestInput,
@@ -49,12 +54,14 @@ import {
   parseBrandInput,
   parseCustomerInput,
   parseCustomerUpdateInput,
+  parseDamagedInput,
   parseDeliveryStatus,
   parseImportRows,
   parseProductInput,
   parseProductTypeInput,
   parseSaleInput,
 } from "./validate";
+import { mergeSettings } from "./settings";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -226,6 +233,17 @@ export async function mockApi<T>(
     return res.sale as T;
   }
 
+  // /api/sales/[id]/unlock — فتح قفل فاتورة يدوياً
+  const unlockMatch = path.match(/^\/api\/sales\/([^/]+)\/unlock$/);
+  if (unlockMatch && method === "POST") {
+    const reason = String((body as { reason?: string })?.reason ?? "").trim();
+    const by = String((body as { by?: string })?.by ?? "المدير").trim() || "المدير";
+    if (!reason) throw new Error("سبب فتح القفل مطلوب");
+    const res = mockUnlockSale(decodeURIComponent(unlockMatch[1]), reason, by);
+    if (!res.ok) throw new Error(res.error);
+    return res.sale as T;
+  }
+
   // /api/delivery
   if (path === "/api/delivery" && method === "GET")
     return mockListDelivery(sp) as T;
@@ -270,6 +288,23 @@ export async function mockApi<T>(
 
   // /api/upload
   if (path === "/api/upload") return { url: mockUploadUrl() } as T;
+
+  // /api/settings — إعدادات التطبيق
+  if (path === "/api/settings") {
+    if (method === "GET") return mergeSettings(mockGetSettings()) as T;
+    if (method === "PUT") {
+      const current = mergeSettings(mockGetSettings());
+      const next = mergeSettings({ ...current, ...(body as object) });
+      mockSaveSettings(next as unknown as Record<string, unknown>);
+      return next as T;
+    }
+  }
+
+  // /api/damaged — الديفو (تقرير + تسجيل تلف يخصم المخزون)
+  if (path === "/api/damaged") {
+    if (method === "GET") return mockDefectReport(sp) as T;
+    if (method === "POST") return mockCreateDamaged(parseDamagedInput(body)) as T;
+  }
 
   throw new Error(`وضع المعاينة: مسار غير مدعوم (${method} ${path})`);
 }

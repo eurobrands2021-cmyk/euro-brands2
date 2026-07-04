@@ -23,7 +23,16 @@ function paymentLabel(sale: SaleDTO): string {
   return base;
 }
 
-const STORE_NAME = "Euro Brands";
+const DEFAULT_STORE_NAME = "Euro Brands";
+
+// بيانات العلامة على الفاتورة/الـ PDF — مستقلة تماماً عن ألوان الواجهة.
+export interface InvoiceBranding {
+  storeName?: string;
+  address?: string;
+  phone?: string;
+  logo?: string | null;
+  accent?: string; // لون تمييز المستند (PDF & Invoice)
+}
 
 // مستند الفاتورة القابل للطباعة — يعرض الفاتورة بأحد القوالب الثلاثة وبمقاس محدد.
 // التنسيق كله عبر CSS في globals.css (‎.inv-doc[data-template]/[data-size]‎)
@@ -33,13 +42,25 @@ export function InvoiceDocument({
   template = "classic",
   size = "a4",
   className,
+  branding,
 }: {
   sale: SaleDTO;
   template?: InvoiceTemplate;
   size?: InvoiceSize;
   className?: string;
+  branding?: InvoiceBranding;
 }) {
   const discount = sale.totalAmount - sale.finalAmount;
+  const storeName = branding?.storeName?.trim() || DEFAULT_STORE_NAME;
+  const logo = branding?.logo || LOGO_PATH;
+  const contact = [branding?.phone, branding?.address]
+    .map((s) => s?.trim())
+    .filter(Boolean)
+    .join(" · ");
+  // لون تمييز المستند يُطبَّق على المتغيّر المحلي --inv-accent (لا يمس الواجهة)
+  const style = branding?.accent
+    ? ({ "--inv-accent": branding.accent } as React.CSSProperties)
+    : undefined;
 
   return (
     <div
@@ -47,15 +68,18 @@ export function InvoiceDocument({
       data-template={template}
       data-size={size}
       dir="rtl"
+      style={style}
     >
       {/* الترويسة */}
       <header className="inv-header">
         <div className="inv-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={LOGO_PATH} alt={STORE_NAME} className="inv-logo" />
+          <img src={logo} alt={storeName} className="inv-logo" />
           <div className="inv-brand-text">
-            <span className="inv-store">{STORE_NAME}</span>
-            <span className="inv-tagline">فاتورة بيع</span>
+            <span className="inv-store">{storeName}</span>
+            <span className="inv-tagline">
+              {contact || "فاتورة بيع"}
+            </span>
           </div>
         </div>
         <div className="inv-meta">
@@ -182,7 +206,7 @@ export function InvoiceDocument({
         {sale.cashierName && (
           <span className="inv-cashier">الكاشير: {sale.cashierName}</span>
         )}
-        <span>شكراً لتسوقكم من {STORE_NAME} 🤍</span>
+        <span>شكراً لتسوقكم من {storeName} 🤍</span>
       </footer>
     </div>
   );

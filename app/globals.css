@@ -12,6 +12,10 @@
   --border: #e2e4ec;
   --text: #1a1d2e;
   --muted: #9295a8;
+  /* لون التمييز (قابل للتخصيص من الإعدادات) + الخط النشط */
+  --accent: #6c63ff;
+  --accent-soft: rgba(108, 99, 255, 0.12);
+  --app-font: var(--font-tajawal), "Tajawal", sans-serif;
 }
 
 .dark {
@@ -31,7 +35,7 @@
   body {
     background-color: var(--bg);
     color: var(--text);
-    font-family: var(--font-tajawal), "Tajawal", sans-serif;
+    font-family: var(--app-font);
     transition: background-color 0.2s ease, color 0.2s ease;
   }
 
@@ -66,7 +70,7 @@
 
   /* بطاقة بإطار علوي ملوّن */
   .card-accent {
-    border-top: 3px solid #6c63ff;
+    border-top: 3px solid var(--accent);
   }
   .card-success {
     border-top: 3px solid #3b9a6e;
