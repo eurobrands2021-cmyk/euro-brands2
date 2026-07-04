@@ -263,12 +263,11 @@ export interface DamagedItemDTO {
   color: string | null;
   branch: BranchValue;
   quantity: number;
-  reasonCode: DefectReasonValue;
-  reason: string | null;
+  reasonCode: DefectReasonValue; // كود السبب (عمود reason في قاعدة البيانات)
+  detail: string | null; // تفاصيل/سبب حر (عمود detail)
   unitCost: number;
   loss: number; // الكمية × تكلفة الوحدة
-  photo: string | null;
-  createdBy: string | null;
+  photoUrl: string | null; // صورة العيب (عمود photoUrl)
   createdAt: string;
 }
 
@@ -276,11 +275,11 @@ export interface DamagedItemDTO {
 export interface DamagedInput {
   variantId: string; // الصنف المُتلف (يُخصَم منه)
   quantity: number;
-  reasonCode: DefectReasonValue;
-  reason?: string | null; // تفاصيل إضافية (مطلوبة عند «أخرى»)
-  photo?: string | null;
+  reasonCode: DefectReasonValue; // يُخزَّن في عمود reason
+  detail?: string | null; // تفاصيل إضافية (مطلوبة عند «أخرى») — عمود detail
+  photoUrl?: string | null; // عمود photoUrl
   unitCost?: number | null; // تكلفة الوحدة (تُشتق من سعر الصنف إن غابت)
-  createdBy?: string | null;
+  createdBy?: string | null; // اسم من سجّل التلف (لسجل التدقيق فقط، لا يُخزَّن في الجدول)
 }
 
 // تقرير الديفو: القائمة + الملخّص (إجمالي الخسارة + السبب الأكثر تكراراً)

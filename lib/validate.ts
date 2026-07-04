@@ -418,8 +418,8 @@ export function parseDamagedInput(body: any): DamagedInput {
   if (!DEFECT_REASONS.includes(reasonCode as DefectReasonValue))
     throw new ValidationError("سبب التلف غير صحيح");
 
-  const reason = asString(body?.reason) || null;
-  if (reasonCode === "OTHER" && !reason)
+  const detail = asString(body?.detail) || null;
+  if (reasonCode === "OTHER" && !detail)
     throw new ValidationError("يرجى كتابة سبب التلف عند اختيار «أخرى»");
 
   let unitCost: number | null = null;
@@ -430,15 +430,15 @@ export function parseDamagedInput(body: any): DamagedInput {
     unitCost = c;
   }
 
-  const photo = asString(body?.photo) || null;
+  const photoUrl = asString(body?.photoUrl) || null;
 
   return {
     variantId,
     quantity: Math.floor(quantity),
     reasonCode: reasonCode as DefectReasonValue,
-    reason,
+    detail,
     unitCost,
-    photo,
+    photoUrl,
     createdBy: asString(body?.createdBy) || null,
   };
 }

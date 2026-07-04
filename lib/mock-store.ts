@@ -12,6 +12,7 @@ import { expandBrandQuery } from "./brand-map";
 import {
   BRANCHES,
   DEFAULT_PRODUCT_TYPES,
+  DEFECT_REASONS,
   LOW_STOCK_THRESHOLD,
   RENAMED_PRODUCT_TYPES,
   type BranchValue,
@@ -161,18 +162,17 @@ interface MSale {
   items: MItem[];
 }
 
-// الديفو — سجل تلف داخل المتجر التجريبي
+// الديفو — سجل تلف داخل المتجر التجريبي (أسماء الأعمدة كما في قاعدة البيانات)
 interface MDamaged {
   id: string;
   productId: string;
   variantId: string | null;
   branch: BranchValue;
   quantity: number;
-  reasonCode: DefectReasonValue;
-  reason: string | null;
+  reason: string | null; // كود السبب
+  detail: string | null; // نص حر
   unitCost: number;
-  photo: string | null;
-  createdBy: string | null;
+  photoUrl: string | null;
   createdAt: Date;
 }
 
@@ -2614,6 +2614,9 @@ export function mockSaveSettings(
 function shapeDamaged(d: MDamaged): DamagedItemDTO {
   const ref = d.variantId ? findVariant(d.variantId) : null;
   const product = ref?.product ?? store.products.find((p) => p.id === d.productId);
+  const reasonCode = DEFECT_REASONS.includes(d.reason as DefectReasonValue)
+    ? (d.reason as DefectReasonValue)
+    : "OTHER";
   return {
     id: d.id,
     productId: d.productId,
@@ -2624,12 +2627,11 @@ function shapeDamaged(d: MDamaged): DamagedItemDTO {
     color: ref?.variant.color ?? null,
     branch: d.branch,
     quantity: d.quantity,
-    reasonCode: d.reasonCode,
-    reason: d.reason,
+    reasonCode,
+    detail: d.detail ?? (reasonCode === "OTHER" ? d.reason : null),
     unitCost: d.unitCost,
     loss: round2(d.unitCost * d.quantity),
-    photo: d.photo,
-    createdBy: d.createdBy,
+    photoUrl: d.photoUrl,
     createdAt: d.createdAt.toISOString(),
   };
 }
@@ -2657,11 +2659,10 @@ export function mockCreateDamaged(input: DamagedInput): DamagedItemDTO {
     variantId: ref.variant.id,
     branch: ref.variant.branch,
     quantity: input.quantity,
-    reasonCode: input.reasonCode,
-    reason: input.reason ?? null,
+    reason: input.reasonCode, // كود السبب في عمود reason
+    detail: input.detail ?? null,
     unitCost,
-    photo: input.photo ?? null,
-    createdBy: input.createdBy ?? null,
+    photoUrl: input.photoUrl ?? null,
     createdAt: new Date(),
   };
   store.damaged.unshift(row);

@@ -13,7 +13,19 @@ import type {
   DamagedItemDTO,
   DefectReport,
 } from "@/lib/types";
-import type { BranchValue, DefectReasonValue } from "@/lib/constants";
+import {
+  DEFECT_REASONS,
+  type BranchValue,
+  type DefectReasonValue,
+} from "@/lib/constants";
+
+// عمود reason في قاعدة البيانات يحمل كود السبب؛ نتحقق أنه ضمن القائمة
+// (الصفوف القديمة قد تحمل نصاً حراً — نعيدها كـ OTHER ونعرض النص في detail).
+function toReasonCode(dbReason: string | null): DefectReasonValue {
+  return dbReason && DEFECT_REASONS.includes(dbReason as DefectReasonValue)
+    ? (dbReason as DefectReasonValue)
+    : "OTHER";
+}
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +74,7 @@ export async function GET(req: Request) {
     const items: DamagedItemDTO[] = rows.map((r) => {
       const p = pmap.get(r.productId);
       const v = r.variantId ? vmap.get(r.variantId) : null;
+      const reasonCode = toReasonCode(r.reason);
       return {
         id: r.id,
         productId: r.productId,
@@ -72,12 +85,12 @@ export async function GET(req: Request) {
         color: v?.color ?? null,
         branch: r.branch as BranchValue,
         quantity: r.quantity,
-        reasonCode: r.reasonCode as DefectReasonValue,
-        reason: r.reason,
+        reasonCode,
+        // نص حر: عمود detail، ومع الصفوف القديمة نعرض النص المخزَّن في reason
+        detail: r.detail ?? (reasonCode === "OTHER" ? r.reason : null),
         unitCost: r.unitCost,
         loss: round2(r.unitCost * r.quantity),
-        photo: r.photo,
-        createdBy: r.createdBy,
+        photoUrl: r.photoUrl,
         createdAt: r.createdAt.toISOString(),
       };
     });
@@ -121,18 +134,17 @@ export async function POST(req: Request) {
         data: { quantity: { decrement: input.quantity } },
       });
 
-      // 2) تسجيل التلف
+      // 2) تسجيل التلف — كود السبب في عمود reason، والنص الحر في detail
       const damaged = await tx.damagedItem.create({
         data: {
           productId: variant.productId,
           variantId: variant.id,
           branch: variant.branch,
           quantity: input.quantity,
-          reasonCode: input.reasonCode,
-          reason: input.reason,
+          reason: input.reasonCode,
+          detail: input.detail,
           unitCost,
-          photo: input.photo,
-          createdBy: input.createdBy,
+          photoUrl: input.photoUrl,
         },
       });
 
@@ -161,12 +173,11 @@ export async function POST(req: Request) {
       color: variant.color,
       branch: damaged.branch as BranchValue,
       quantity: damaged.quantity,
-      reasonCode: damaged.reasonCode as DefectReasonValue,
-      reason: damaged.reason,
+      reasonCode: toReasonCode(damaged.reason),
+      detail: damaged.detail,
       unitCost: damaged.unitCost,
       loss: round2(damaged.unitCost * damaged.quantity),
-      photo: damaged.photo,
-      createdBy: damaged.createdBy,
+      photoUrl: damaged.photoUrl,
       createdAt: damaged.createdAt.toISOString(),
     };
     return ok(dto, 201);

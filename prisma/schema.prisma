@@ -66,15 +66,6 @@ enum DeliveryStatus {
   RETURNED // مرتجع
 }
 
-// أسباب التلف/العيب المعيارية (قائمة اختيار) — مع «أخرى» لسبب حر
-enum DefectReason {
-  MANUFACTURING // عيب تصنيع
-  SHIPPING_DAMAGE // تلف أثناء الشحن
-  BROKEN // مكسور
-  COLOR_FADING // بهتان اللون
-  OTHER // أخرى
-}
-
 // ----------------------------------------------------
 //  Models
 // ----------------------------------------------------
@@ -301,19 +292,18 @@ model StockTransferItem {
 
 // تقرير الديفو — المنتجات التالفة/المعيبة
 // تسجيل التلف يخصم الكمية من المخزون داخل معاملة ويُدوَّن في سجل النشاط.
+// أسماء الأعمدة مطابقة تماماً لجدول قاعدة البيانات القائم.
 model DamagedItem {
-  id         String       @id @default(cuid())
-  productId  String // مرجع للمنتج
-  variantId  String? // مرجع للصنف (يُخصَم منه المخزون)
-  branch     Branch // فرع التلف
-  quantity   Int          @default(1)
-  reasonCode DefectReason @default(OTHER) // السبب المعياري من القائمة
-  reason     String? // تفاصيل إضافية/سبب حر (خاصة عند «أخرى»)
-  unitCost   Float        @default(0) // تكلفة/سعر الوحدة لحظة التسجيل (لحساب الخسارة)
-  photo      String? // صورة اختيارية للعيب
-  createdBy  String? // اسم من سجّل التلف
-  createdAt  DateTime     @default(now())
+  id        String   @id @default(cuid())
+  productId String // مرجع للمنتج
+  variantId String? // مرجع للصنف (يُخصَم منه المخزون)
+  branch    Branch // فرع التلف
+  quantity  Int      @default(1)
+  reason    String? // كود سبب التلف (أحد قيم DEFECT_REASONS)
+  detail    String? // تفاصيل إضافية/سبب حر (خاصة عند «أخرى»)
+  unitCost  Float    @default(0) // تكلفة/سعر الوحدة لحظة التسجيل (لحساب الخسارة)
+  photoUrl  String? // صورة اختيارية للعيب
+  createdAt DateTime @default(now())
 
   @@index([createdAt])
-  @@index([reasonCode])
 }

@@ -167,9 +167,9 @@ function RecordDefectCard({
         variantId: variant.id,
         quantity: qty,
         reasonCode,
-        reason: reason.trim() || null,
+        detail: reason.trim() || null,
         unitCost: cost.trim() === "" ? null : Number(cost),
-        photo,
+        photoUrl: photo,
         createdBy: getSession()?.name ?? null,
       });
       void logActivity(
@@ -484,10 +484,10 @@ function DefectReportView({ report }: { report: DefectReport | null }) {
         <div className="divide-y divide-[var(--border)]">
           {report.items.map((it) => (
             <div key={it.id} className="flex items-center gap-3 p-3">
-              {it.photo ? (
+              {it.photoUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={it.photo}
+                  src={it.photoUrl}
                   alt=""
                   className="h-12 w-12 shrink-0 rounded-md border object-cover"
                 />
@@ -506,8 +506,8 @@ function DefectReportView({ report }: { report: DefectReport | null }) {
                   {it.brand} · {BRANCH_LABELS[it.branch]} ·{" "}
                   {formatDateTime(it.createdAt)}
                 </p>
-                {it.reason && (
-                  <p className="mt-0.5 text-xs text-muted">{it.reason}</p>
+                {it.detail && (
+                  <p className="mt-0.5 text-xs text-muted">{it.detail}</p>
                 )}
               </div>
               <div className="shrink-0 text-left">
