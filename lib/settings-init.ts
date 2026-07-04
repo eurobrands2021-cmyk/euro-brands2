@@ -28,6 +28,10 @@ export const settingsInitScript = `
     };
     root.style.setProperty('--app-font', fonts[s.font] || fonts.tajawal);
 
+    // حجم الخط الأساسي (يمنع وميض تغيّر المقاس عند التحميل)
+    var sizes = { small: '14px', medium: '16px', large: '18px' };
+    root.style.setProperty('--font-size-base', sizes[s.fontSize] || sizes.medium);
+
     // الوضع الليلي/النهاري
     var explicit = localStorage.getItem('eb-theme');
     var mode;

@@ -25,6 +25,24 @@ export const FONT_STACKS: Record<FontValue, string> = {
     'var(--font-ibm-plex-arabic), "IBM Plex Sans Arabic", sans-serif',
 };
 
+// حجم الخط الأساسي — يُطبَّق على متغيّر ‎--font-size-base‎ على ‎<html>‎
+// فتتغيّر كل الأحجام النسبية (rem) في الواجهة تبعاً له.
+export const FONT_SIZES = ["small", "medium", "large"] as const;
+export type FontSizeValue = (typeof FONT_SIZES)[number];
+
+export const FONT_SIZE_LABELS: Record<FontSizeValue, string> = {
+  small: "صغير",
+  medium: "متوسط",
+  large: "كبير",
+};
+
+// القيمة الفعلية (px) لكل خيار — أساس حساب وحدات rem في المتصفح
+export const FONT_SIZE_PX: Record<FontSizeValue, string> = {
+  small: "14px",
+  medium: "16px",
+  large: "18px",
+};
+
 export const THEME_MODES = ["dark", "light", "system"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 
@@ -57,6 +75,7 @@ export interface AppSettings {
   websiteAccent: string;
   // الخط والوضع الافتراضي
   font: FontValue;
+  fontSize: FontSizeValue;
   themeMode: ThemeMode;
   // قفل الفواتير
   lockDays: LockDaysValue;
@@ -69,6 +88,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   pdfAccent: "#6c63ff",
   websiteAccent: "#6c63ff",
   font: "tajawal",
+  fontSize: "medium",
   themeMode: "dark",
   lockDays: 30,
   company: {
@@ -86,6 +106,9 @@ export function mergeSettings(partial: unknown): AppSettings {
   const font = FONTS.includes(p.font as FontValue)
     ? (p.font as FontValue)
     : DEFAULT_SETTINGS.font;
+  const fontSize = FONT_SIZES.includes(p.fontSize as FontSizeValue)
+    ? (p.fontSize as FontSizeValue)
+    : DEFAULT_SETTINGS.fontSize;
   const themeMode = THEME_MODES.includes(p.themeMode as ThemeMode)
     ? (p.themeMode as ThemeMode)
     : DEFAULT_SETTINGS.themeMode;
@@ -99,6 +122,7 @@ export function mergeSettings(partial: unknown): AppSettings {
     pdfAccent: hex(p.pdfAccent, DEFAULT_SETTINGS.pdfAccent),
     websiteAccent: hex(p.websiteAccent, DEFAULT_SETTINGS.websiteAccent),
     font,
+    fontSize,
     themeMode,
     lockDays,
     company: {
@@ -156,4 +180,5 @@ export function applyUiTheme(s: AppSettings): void {
   root.style.setProperty("--accent", s.uiAccent);
   root.style.setProperty("--accent-soft", accentSoft(s.uiAccent));
   root.style.setProperty("--app-font", FONT_STACKS[s.font]);
+  root.style.setProperty("--font-size-base", FONT_SIZE_PX[s.fontSize]);
 }

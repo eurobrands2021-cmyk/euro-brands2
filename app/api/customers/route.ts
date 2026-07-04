@@ -8,6 +8,7 @@ import {
   mockListCustomers,
   mockCreateCustomer,
 } from "@/lib/mock-store";
+import { matchesWithBrandAliases } from "@/lib/brand-map";
 import type { CustomerListResponse } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -26,14 +27,6 @@ export async function GET(req: Request) {
       100
     );
 
-    const where: Prisma.CustomerWhereInput = {};
-    if (search) {
-      where.OR = [
-        { name: { contains: search, mode: "insensitive" } },
-        { phone: { contains: search } },
-      ];
-    }
-
     const orderBy: Prisma.CustomerOrderByWithRelationInput =
       sort === "totalSpent"
         ? { totalSpent: "desc" }
@@ -41,15 +34,28 @@ export async function GET(req: Request) {
           ? { lastVisitAt: "desc" }
           : { createdAt: "desc" };
 
-    const [customers, total] = await Promise.all([
-      prisma.customer.findMany({
-        where,
-        orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      }),
-      prisma.customer.count({ where }),
-    ]);
+    let customers;
+    let total: number;
+
+    if (search) {
+      // بحث موحّد عربي↔إنجليزي: نطبّع النص ونطابق الاسم/الهاتف بعد الجلب
+      // (توحيد الهمزة/«ال» + مرادفات البراند) ثم نصفّح النتيجة في الذاكرة.
+      const all = await prisma.customer.findMany({ orderBy });
+      const matched = all.filter((c) =>
+        matchesWithBrandAliases([c.name, c.phone], search)
+      );
+      total = matched.length;
+      customers = matched.slice((page - 1) * pageSize, page * pageSize);
+    } else {
+      [customers, total] = await Promise.all([
+        prisma.customer.findMany({
+          orderBy,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        prisma.customer.count(),
+      ]);
+    }
 
     const response: CustomerListResponse = {
       customers: customers.map(toCustomerDTO),

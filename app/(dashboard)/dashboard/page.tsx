@@ -37,6 +37,7 @@ import { StatCard, Card } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/page-header";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { TableScroll } from "@/components/ui/table-scroll";
 import { BranchBarChart } from "@/components/charts/branch-bar-chart";
 import { PaymentPieChart } from "@/components/charts/payment-pie-chart";
 import { CategoryPieChart } from "@/components/charts/category-pie-chart";
@@ -849,7 +850,7 @@ function SimpleTable({
 }) {
   if (rows.length === 0) return <EmptyBlock />;
   return (
-    <div className="overflow-x-auto">
+    <TableScroll>
       <table className="w-full min-w-[420px] text-right text-sm">
         <thead>
           <tr className="border-b text-muted">
@@ -878,7 +879,7 @@ function SimpleTable({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 

@@ -16,6 +16,8 @@
   --accent: #6c63ff;
   --accent-soft: rgba(108, 99, 255, 0.12);
   --app-font: var(--font-tajawal), "Tajawal", sans-serif;
+  /* حجم الخط الأساسي — يتحكّم بمقاس كل وحدات rem في الواجهة */
+  --font-size-base: 16px;
 }
 
 .dark {
@@ -30,6 +32,8 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* الأساس الذي تُحسب منه وحدات rem — قابل للتخصيص من الإعدادات */
+    font-size: var(--font-size-base, 16px);
   }
 
   body {

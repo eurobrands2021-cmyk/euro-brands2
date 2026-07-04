@@ -7,6 +7,7 @@ import {
   Minus,
   Trash2,
   ShoppingCart,
+  ChevronDown,
   Store,
   CheckCircle2,
   Package,
@@ -189,6 +190,8 @@ function PosRegister({
   const [term, setTerm] = useState("");
   const [debounced, setDebounced] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
+  // على الموبايل: الفاتورة تُطوى كـ«درج» يُفتح عند الحاجة (سطح المكتب دائماً مفتوح)
+  const [cartOpen, setCartOpen] = useState(false);
   const [discountType, setDiscountType] = useState<DiscountTypeValue | "NONE">(
     "NONE"
   );
@@ -327,6 +330,7 @@ function PosRegister({
       ];
     });
     recordHistory(product, variant);
+    setCartOpen(true); // افتح درج الفاتورة على الموبايل عند أول إضافة
   }
 
   // إضافة منتج من سجل «آخر المنتجات المضافة»: نجلب أحدث بيانات الصنف
@@ -564,6 +568,7 @@ function PosRegister({
 
   function restoreHeld(h: HeldInvoice) {
     setCart(h.cart);
+    setCartOpen(true);
     setCustomerName(h.customerName);
     setCustomerPhone(h.customerPhone);
     setCustomerNotes(h.customerNotes);
@@ -686,8 +691,8 @@ function PosRegister({
         {/* البحث والنتائج */}
         <div className="order-1 flex-1 md:order-2">
           <Card className="p-4">
-            <div className="mb-4 flex gap-2">
-              <div className="relative flex-1">
+            <div className="mb-4 flex flex-wrap gap-2">
+              <div className="relative w-full sm:w-auto sm:flex-1">
                 <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
                 <input
                   autoFocus
@@ -803,20 +808,20 @@ function PosRegister({
               <button
                 type="button"
                 onClick={() => setQuickAddOpen(true)}
-                className="btn btn-secondary flex-shrink-0"
+                className="btn btn-secondary flex-1 flex-shrink-0 sm:flex-none"
                 title="إضافة منتج سريعة"
               >
                 <Plus className="h-4 w-4" />
-                <span className="hidden sm:inline">إضافة</span>
+                إضافة
               </button>
               <button
                 type="button"
                 onClick={() => setScannerOpen(true)}
-                className="btn btn-secondary flex-shrink-0"
+                className="btn btn-secondary flex-1 flex-shrink-0 sm:flex-none"
                 title="مسح الباركود بالكاميرا"
               >
                 <ScanLine className="h-4 w-4" />
-                <span className="hidden sm:inline">مسح</span>
+                مسح
               </button>
             </div>
 
@@ -861,18 +866,32 @@ function PosRegister({
         {/* الفاتورة الحالية */}
         <div className="order-2 w-full md:order-1 md:w-[400px] md:shrink-0">
           <Card className="p-4 md:sticky md:top-20" tone="accent">
-            <div className="mb-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setCartOpen((o) => !o)}
+              aria-expanded={cartOpen}
+              className="mb-3 flex w-full items-center justify-between gap-2 text-right md:pointer-events-none"
+            >
               <h2 className="flex items-center gap-2 text-base font-bold text-text">
                 <ShoppingCart className="h-5 w-5 text-accent" />
                 الفاتورة الحالية
               </h2>
-              {cart.length > 0 && (
-                <span className="badge bg-accent-soft text-accent nums">
-                  {formatNumber(itemsCount)} قطعة
-                </span>
-              )}
-            </div>
+              <span className="flex items-center gap-2">
+                {cart.length > 0 && (
+                  <span className="badge bg-accent-soft text-accent nums">
+                    {formatNumber(itemsCount)} قطعة
+                  </span>
+                )}
+                <ChevronDown
+                  className={cn(
+                    "h-5 w-5 shrink-0 text-muted transition-transform md:hidden",
+                    cartOpen && "rotate-180"
+                  )}
+                />
+              </span>
+            </button>
 
+            <div className={cn("md:block", cartOpen ? "block" : "hidden")}>
             {cart.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted">
                 لم تتم إضافة منتجات بعد.
@@ -1288,6 +1307,7 @@ function PosRegister({
                 <Save className="h-4 w-4" />
                 حفظ مؤقت
               </button>
+            </div>
             </div>
           </Card>
         </div>

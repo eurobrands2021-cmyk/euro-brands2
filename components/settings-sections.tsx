@@ -18,12 +18,15 @@ import { uploadImage } from "@/lib/client";
 import {
   FONTS,
   FONT_LABELS,
+  FONT_SIZES,
+  FONT_SIZE_LABELS,
   THEME_MODES,
   THEME_MODE_LABELS,
   LOCK_DAYS_OPTIONS,
   DEFAULT_SETTINGS,
   type AppSettings,
   type FontValue,
+  type FontSizeValue,
   type ThemeMode,
   type LockDaysValue,
 } from "@/lib/settings";
@@ -154,6 +157,27 @@ export function AppearanceSettingsCard() {
             />
           ))}
         </div>
+      </div>
+
+      {/* حجم الخط */}
+      <div className="mt-5">
+        <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-text">
+          <Type className="h-4 w-4 text-muted" />
+          حجم الخط
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          {FONT_SIZES.map((s) => (
+            <OptionButton
+              key={s}
+              active={settings.fontSize === s}
+              onClick={() => set({ fontSize: s as FontSizeValue })}
+              label={FONT_SIZE_LABELS[s]}
+            />
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          يؤثّر على حجم النصوص في كامل الواجهة ويُطبَّق فوراً.
+        </p>
       </div>
 
       {/* الوضع الافتراضي */}

@@ -1040,8 +1040,8 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         </>
       )}
 
-      {/* التنقّل بين الخطوات */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* التنقّل بين الخطوات — مثبّت أسفل الشاشة على الموبايل ليبقى في المتناول */}
+      <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t bg-[var(--bg)] py-3 sm:static sm:border-0 sm:bg-transparent sm:py-0">
         <div>
           {step > 1 && (
             <button

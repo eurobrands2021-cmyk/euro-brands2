@@ -8,7 +8,7 @@ import {
 } from "date-fns";
 import { calcDiscount, round2 } from "./sale-utils";
 import { normalizeArabic } from "./normalize";
-import { expandBrandQuery } from "./brand-map";
+import { expandBrandQuery, matchesWithBrandAliases } from "./brand-map";
 import {
   BRANCHES,
   DEFAULT_PRODUCT_TYPES,
@@ -1555,16 +1555,15 @@ export function mockVerifyAdminRecovery(answer: string): { ok: boolean } {
 //  عمليات العملاء
 // ----------------------------------------------------
 export function mockListCustomers(sp: URLSearchParams): CustomerListResponse {
-  const search = sp.get("search")?.trim().toLowerCase();
+  const search = sp.get("search")?.trim();
   const sort = sp.get("sort"); // totalSpent | lastVisitAt
   const page = Math.max(1, Number(sp.get("page")) || 1);
   const pageSize = Math.min(Math.max(Number(sp.get("pageSize")) || 20, 1), 100);
 
   let list = [...store.customers];
   if (search) {
-    list = list.filter(
-      (c) => c.name.toLowerCase().includes(search) || c.phone.includes(search)
-    );
+    // بحث موحّد عربي↔إنجليزي (نفس منطق الخادم)
+    list = list.filter((c) => matchesWithBrandAliases([c.name, c.phone], search));
   }
 
   if (sort === "totalSpent") list.sort((a, b) => b.totalSpent - a.totalSpent);
