@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { LogOut, UserCircle, ScrollText, Filter, X } from "lucide-react";
+import { LogOut, UserCircle, ScrollText, Filter, X, Database } from "lucide-react";
 import toast from "react-hot-toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -10,6 +10,8 @@ import { PageLoader } from "@/components/ui/spinner";
 import { useFetch } from "@/lib/use-fetch";
 import { AdminRecoverySetupCard } from "@/components/admin-recovery-setup";
 import { InvoiceTemplateSettingsCard } from "@/components/invoice-template-settings";
+import { DataManagementCard } from "@/components/data-management";
+import { cn } from "@/lib/cn";
 import {
   AppearanceSettingsCard,
   InvoiceLockSettingsCard,
@@ -28,6 +30,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
+  const [tab, setTab] = useState<"general" | "data">("general");
 
   useEffect(() => {
     setSession(getSession());
@@ -42,9 +45,45 @@ export default function SettingsPage() {
 
   if (!ready) return <PageLoader />;
 
+  const isAdmin = session?.role === "ADMIN";
+
   return (
     <div className="mx-auto max-w-3xl">
       <PageHeader title="الإعدادات" description="حسابك وسجل النشاط" />
+
+      {/* التبويبات — تبويب «إدارة البيانات» للمدير فقط */}
+      {isAdmin && (
+        <div className="mb-6 flex gap-1 rounded-lg bg-[var(--surface-2)] p-1">
+          <button
+            onClick={() => setTab("general")}
+            className={cn(
+              "flex-1 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              tab === "general"
+                ? "bg-surface text-text shadow-sm"
+                : "text-muted hover:text-text"
+            )}
+          >
+            عام
+          </button>
+          <button
+            onClick={() => setTab("data")}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              tab === "data"
+                ? "bg-surface text-text shadow-sm"
+                : "text-muted hover:text-text"
+            )}
+          >
+            <Database className="h-4 w-4" />
+            إدارة البيانات
+          </button>
+        </div>
+      )}
+
+      {isAdmin && tab === "data" ? (
+        <DataManagementCard />
+      ) : (
+      <>
 
       {/* بطاقة المستخدم الحالي */}
       <Card className="mb-6 flex flex-wrap items-center justify-between gap-4 p-5">
@@ -108,6 +147,8 @@ export default function SettingsPage() {
         <div className="mt-6">
           <ActivityViewer />
         </div>
+      )}
+      </>
       )}
     </div>
   );

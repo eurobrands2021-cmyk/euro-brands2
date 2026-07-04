@@ -87,12 +87,15 @@ model Product {
   variants  ProductVariant[]
   saleItems SaleItem[]
 
+  archivedAt DateTime? // وقت الأرشفة (حذف مؤجّل بعد 72 ساعة) — إدارة البيانات
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([category])
   @@index([brand])
   @@index([productTypeId])
+  @@index([archivedAt])
 }
 
 // سجل البراندات لكل فئة (لقوائم الاختيار والفلاتر)
@@ -181,6 +184,8 @@ model Sale {
 
   items SaleItem[]
 
+  archivedAt DateTime? // وقت الأرشفة (حذف مؤجّل بعد 72 ساعة) — إدارة البيانات
+
   createdAt DateTime @default(now())
 
   @@index([branch])
@@ -188,6 +193,7 @@ model Sale {
   @@index([status])
   @@index([isDelivery])
   @@index([deliveryStatus])
+  @@index([archivedAt])
 }
 
 model SaleItem {
@@ -220,11 +226,14 @@ model Customer {
   branch      Branch? // الفرع الذي يتردد عليه غالباً
   notes       String?
 
+  archivedAt DateTime? // وقت الأرشفة (حذف مؤجّل بعد 72 ساعة) — إدارة البيانات
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([totalSpent])
   @@index([lastVisitAt])
+  @@index([archivedAt])
 }
 
 // طلبات دخول الكاشير (تدفّق «نسيت كلمة المرور») — يراها المدير ويوافق/يرفض
@@ -253,10 +262,14 @@ model ActivityLog {
   userRole  String // ADMIN / CASHIER
   action    String // وصف الإجراء بالعربية
   details   String? // تفاصيل إضافية (اختياري)
+
+  archivedAt DateTime? // وقت الأرشفة (حذف مؤجّل بعد 72 ساعة) — إدارة البيانات
+
   createdAt DateTime @default(now())
 
   @@index([createdAt])
   @@index([userName])
+  @@index([archivedAt])
 }
 
 // تحويلات المخزون بين الفرعين (نموذج لجدول قائم في قاعدة البيانات)
