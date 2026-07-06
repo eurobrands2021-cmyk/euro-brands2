@@ -1,0 +1,21 @@
+{
+  "name": "Euro Brands — نظام إدارة المخزون والمبيعات",
+  "short_name": "Euro Brands",
+  "description": "نظام إدارة المخزون والمبيعات لمتجر Euro Brands — يعمل دون اتصال لنقطة البيع.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "dir": "rtl",
+  "lang": "ar",
+  "background_color": "#1c1e26",
+  "theme_color": "#6c63ff",
+  "icons": [
+    {
+      "src": "/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

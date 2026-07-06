@@ -48,6 +48,9 @@ function receiptText(sale: SaleDTO): string {
     ...(sale.remainingAmount > 0
       ? [`المتبقي: ${formatCurrency(sale.remainingAmount)}`]
       : []),
+    ...(sale.changeAmount != null && sale.changeAmount > 0
+      ? [`الباقي للعميل: ${formatCurrency(sale.changeAmount)}`]
+      : []),
     ...(sale.customerName ? [`العميل: ${sale.customerName}`] : []),
     "شكراً لتسوقكم من Euro Brands",
   ];
@@ -184,6 +187,12 @@ export function ReceiptModal({
             <div className="flex justify-between font-bold text-warning">
               <span>المتبقي</span>
               <span className="nums">{formatCurrency(sale.remainingAmount)}</span>
+            </div>
+          )}
+          {sale.changeAmount != null && sale.changeAmount > 0 && (
+            <div className="flex justify-between font-bold text-success">
+              <span>الباقي للعميل</span>
+              <span className="nums">{formatCurrency(sale.changeAmount)}</span>
             </div>
           )}
           {sale.invoiceNotes && (

@@ -16,6 +16,7 @@ import {
   Check,
   Printer,
   Tag,
+  Bell,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Card } from "@/components/ui/card";
@@ -58,6 +59,7 @@ interface VariantRow {
   color: string;
   quantity: string;
   minQuantity: string;
+  alertOnLowStock: boolean;
   price: string;
   sku: string;
   skuManual: boolean;
@@ -80,6 +82,7 @@ function emptyRow(branch: BranchValue = "HADAYEK"): VariantRow {
     color: "",
     quantity: "0",
     minQuantity: "5",
+    alertOnLowStock: false,
     price: "0",
     sku: "",
     skuManual: false,
@@ -131,6 +134,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
           color: v.color ?? "",
           quantity: String(v.quantity),
           minQuantity: String(v.minQuantity ?? 5),
+          alertOnLowStock: v.alertOnLowStock ?? false,
           price: String(v.price),
           sku: v.sku ?? "",
           skuManual: v.skuManual,
@@ -431,6 +435,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         color: r.color.trim() || null,
         quantity: Math.max(0, Math.floor(Number(r.quantity) || 0)),
         minQuantity: Math.max(0, Math.floor(Number(r.minQuantity) || 0)),
+        alertOnLowStock: r.alertOnLowStock,
         price: Math.max(0, Number(r.price) || 0),
         sku: r.sku.trim() || null,
         skuManual: r.skuManual,
@@ -707,7 +712,10 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
             {variants.map((row) => (
               <div
                 key={row.clientId}
-                className="grid grid-cols-2 gap-3 rounded-lg border p-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_1.3fr_auto] sm:h-9 sm:items-center sm:gap-2 sm:border-0 sm:p-0"
+                className="rounded-lg border p-3 sm:p-2.5"
+              >
+              <div
+                className="grid grid-cols-2 gap-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_1.3fr_auto] sm:h-9 sm:items-center sm:gap-2"
               >
                 <VariantField label="الفرع">
                   <select
@@ -836,6 +844,28 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                   <Trash2 className="h-4 w-4" />
                   <span className="sm:hidden">حذف الصف</span>
                 </button>
+              </div>
+
+              {/* تفعيل تنبيه الجرس عند بلوغ الحد الأدنى لهذا الصنف */}
+              <label
+                className={cn(
+                  "mt-2.5 flex cursor-pointer select-none items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors sm:mt-2",
+                  row.alertOnLowStock
+                    ? "border-accent bg-accent-soft text-accent"
+                    : "border-[var(--border)] text-muted hover:text-text"
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={row.alertOnLowStock}
+                  onChange={(e) =>
+                    updateRow(row.clientId, { alertOnLowStock: e.target.checked })
+                  }
+                  className="h-4 w-4 accent-[var(--accent)]"
+                />
+                <Bell className="h-3.5 w-3.5 shrink-0" />
+                تنبيهني عند الحد الأدنى
+              </label>
               </div>
             ))}
           </div>

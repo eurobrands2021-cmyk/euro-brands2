@@ -147,6 +147,7 @@ export async function POST(req: Request) {
           branch: v.branch as Branch,
           quantity: v.quantity,
           minQuantity: v.minQuantity,
+          alertOnLowStock: v.alertOnLowStock ?? false,
           price: v.price,
           sku,
           skuManual: !!explicit && v.skuManual !== false,

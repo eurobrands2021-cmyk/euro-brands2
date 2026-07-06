@@ -32,6 +32,7 @@ const SAMPLE_SALE: SaleDTO = {
   invoiceNotes: null,
   paidAmount: 1305,
   remainingAmount: 0,
+  changeAmount: null,
   cashierName: "الكاشير",
   status: "COMPLETED",
   cancellationReason: null,

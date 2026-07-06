@@ -32,6 +32,12 @@ export const metadata: Metadata = {
   title: "Euro Brands — نظام إدارة المخزون والمبيعات",
   description:
     "نظام داخلي لإدارة المخزون والمبيعات لمتجر Euro Brands بفرعيه في المعادي.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    title: "Euro Brands",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 // عرض ملائم للهواتف مع إبقاء إمكانية التكبير اليدوي متاحة

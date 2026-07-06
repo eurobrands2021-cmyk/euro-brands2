@@ -133,6 +133,7 @@ model ProductVariant {
   color       String? // لون الصنف (اختياري)
   quantity    Int    @default(0)
   minQuantity Int    @default(5) // الحد الأدنى للتنبيه بقلة المخزون
+  alertOnLowStock Boolean @default(false) // تفعيل جرس التنبيه عند بلوغ الحد الأدنى لهذا الصنف
   branch      Branch
   price       Float // سعر البيع لكل صنف بالجنيه المصري
   sku         String? @unique // كود الصنف (يولَّد تلقائياً أو يُدخَل يدوياً)
@@ -164,6 +165,7 @@ model Sale {
   invoiceNotes    String? // ملاحظات على الفاتورة (مستقلة عن ملاحظات العميل)
   paidAmount      Float         @default(0) // المبلغ المدفوع
   remainingAmount Float         @default(0) // المبلغ المتبقي
+  changeAmount    Float? // الباقي للعميل عند الدفع نقداً (دفع العميل − إجمالي الفاتورة)
   cashierName     String? // اسم الكاشير الذي أنشأ الفاتورة
 
   status             SaleStatus @default(COMPLETED)

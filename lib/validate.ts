@@ -105,6 +105,7 @@ export function parseProductInput(body: any): ProductInput {
       branch: branch as BranchValue,
       quantity: Math.floor(quantity),
       minQuantity,
+      alertOnLowStock: v?.alertOnLowStock === true,
       price,
       sku,
       skuManual,
@@ -257,6 +258,15 @@ export function parseSaleInput(body: any): SaleInput {
     paidAmount = pa;
   }
 
+  // الباقي النقدي للعميل (حاسبة الباقي في POS) — اختياري
+  let changeAmount: number | null = null;
+  if (body?.changeAmount != null && body?.changeAmount !== "") {
+    const ca = Number(body.changeAmount);
+    if (!Number.isFinite(ca) || ca < 0)
+      throw new ValidationError("قيمة الباقي غير صحيحة");
+    changeAmount = ca;
+  }
+
   // التوصيل (اختياري)
   let delivery: DeliveryInput | null = null;
   if (body?.delivery && typeof body.delivery === "object") {
@@ -285,6 +295,7 @@ export function parseSaleInput(body: any): SaleInput {
     transferMethod,
     invoiceNotes: asString(body?.invoiceNotes) || null,
     paidAmount,
+    changeAmount,
     cashierName: asString(body?.cashierName) || null,
     delivery,
     saveAsNewCustomer,

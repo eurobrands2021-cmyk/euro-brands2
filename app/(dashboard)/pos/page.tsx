@@ -38,6 +38,11 @@ import {
 import { isCompleteEgyPhone } from "@/lib/input-validators";
 import { extractSkuFromScan } from "@/lib/public-url";
 import { normalizeArabic } from "@/lib/normalize";
+import { addPendingSale } from "@/lib/offline-db";
+import {
+  OFFLINE_QUEUE_CHANGED_EVENT,
+  OFFLINE_SYNCED_EVENT,
+} from "@/components/offline-provider";
 import { cn } from "@/lib/cn";
 import { calcDiscount, round2 } from "@/lib/sale-utils";
 import {
@@ -101,6 +106,7 @@ interface HeldInvoice {
   transferMethod: TransferMethodValue | "";
   partialOn: boolean;
   paidInput: string;
+  cashReceived?: string;
   deliveryOn?: boolean;
   orderSource?: OrderSourceValue | "";
   deliveryMethod?: DeliveryMethodValue | "";
@@ -210,6 +216,7 @@ function PosRegister({
   );
   const [partialOn, setPartialOn] = useState(false);
   const [paidInput, setPaidInput] = useState("");
+  const [cashReceived, setCashReceived] = useState(""); // دفع العميل — حاسبة الباقي
   const [deliveryOn, setDeliveryOn] = useState(false);
   const [orderSource, setOrderSource] = useState<OrderSourceValue | "">("");
   const [deliveryMethod, setDeliveryMethod] = useState<
@@ -235,6 +242,14 @@ function PosRegister({
   }, [term]);
 
   useEffect(() => setHighlight(0), [debounced]);
+
+  // بعد مزامنة الطابور (عودة الاتصال) أعِد جلب المنتجات لتحديث الكميات
+  useEffect(() => {
+    const onSynced = () => refetch();
+    window.addEventListener(OFFLINE_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(OFFLINE_SYNCED_EVENT, onSynced);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // تحميل/حفظ الفواتير المعلّقة في localStorage (لكل فرع)
   useEffect(() => {
@@ -485,6 +500,7 @@ function PosRegister({
     setTransferMethod("");
     setPartialOn(false);
     setPaidInput("");
+    setCashReceived("");
     setDeliveryOn(false);
     setOrderSource("");
     setDeliveryMethod("");
@@ -512,6 +528,11 @@ function PosRegister({
     ? Math.min(Math.max(Number(paidInput) || 0, 0), finalAmount)
     : finalAmount;
   const remainingAmount = round2(finalAmount - paidAmount);
+
+  // حاسبة الباقي النقدي (مستقلة عن الدفع الجزئي)
+  const cashReceivedNum = Number(cashReceived) || 0;
+  const changeDue = round2(cashReceivedNum - finalAmount);
+  const cashCalcActive = !partialOn && cashReceived.trim() !== "";
 
   function onSearchKey(e: React.KeyboardEvent<HTMLInputElement>) {
     // Escape يُخفي القائمة المنسدلة (النتائج أو سجل آخر المنتجات)
@@ -554,6 +575,7 @@ function PosRegister({
       transferMethod,
       partialOn,
       paidInput,
+      cashReceived,
       deliveryOn,
       orderSource,
       deliveryMethod,
@@ -579,6 +601,7 @@ function PosRegister({
     setTransferMethod(h.transferMethod);
     setPartialOn(h.partialOn);
     setPaidInput(h.paidInput);
+    setCashReceived(h.cashReceived ?? "");
     setDeliveryOn(!!h.deliveryOn);
     setOrderSource((h.orderSource as OrderSourceValue | "") ?? "");
     setDeliveryMethod(h.deliveryMethod ?? "");
@@ -605,39 +628,76 @@ function PosRegister({
       if (!deliveryMethod) return toast.error("اختر طريقة التوصيل");
       if (!deliveryAddress.trim()) return toast.error("أدخل عنوان التوصيل");
     }
+
+    const payload = {
+      branch,
+      items: cart.map((i) => ({
+        variantId: i.variantId,
+        quantity: i.quantity,
+      })),
+      discountType: discountType === "NONE" ? null : discountType,
+      discountValue: Number(discountValue) || 0,
+      customerName: customerName || null,
+      customerPhone: customerPhone || null,
+      customerNotes: customerNotes || null,
+      invoiceNotes: invoiceNotes || null,
+      paymentMethod,
+      transferMethod: paymentMethod === "TRANSFER" ? transferMethod : null,
+      paidAmount: partialOn
+        ? paidAmount
+        : cashCalcActive
+          ? cashReceivedNum
+          : null,
+      changeAmount: cashCalcActive && changeDue > 0 ? changeDue : null,
+      cashierName: getSession()?.name ?? null,
+      saveAsNewCustomer: !customerLookup && customerNotFound && saveAsNewCustomer,
+      delivery:
+        deliveryOn && orderSource && deliveryMethod
+          ? {
+              orderSource, // قيمة enum (PHONE/FACEBOOK/...)
+              deliveryMethod,
+              deliveryAddress: deliveryAddress.trim(),
+              addressNotes: addressNotes.trim() || null,
+              trackingNumber:
+                deliveryMethod === "BOSTA"
+                  ? trackingNumber.trim() || null
+                  : null,
+            }
+          : null,
+    };
+
+    // وضع عدم الاتصال: تحقّق من المخزون المخبّأ ثم أضف الفاتورة لطابور المزامنة
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      const blocked = cart.find(
+        (i) => i.available <= 0 || i.quantity > i.available
+      );
+      if (blocked) return toast.error("المنتج غير متوفر في المخزون");
+      setSubmitting(true);
+      try {
+        await addPendingSale({
+          id: `pos-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          payload,
+          branch,
+          itemsCount,
+          total: round2(finalAmount),
+          createdAt: new Date().toISOString(),
+        });
+        window.dispatchEvent(new Event(OFFLINE_QUEUE_CHANGED_EVENT));
+        toast.success(
+          "تم حفظ الفاتورة محلياً — ستتم مزامنتها عند عودة الاتصال"
+        );
+        resetSale();
+      } catch (e) {
+        toast.error("تعذّر حفظ الفاتورة محلياً");
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const sale = await apiPost<SaleDTO>("/api/sales", {
-        branch,
-        items: cart.map((i) => ({
-          variantId: i.variantId,
-          quantity: i.quantity,
-        })),
-        discountType: discountType === "NONE" ? null : discountType,
-        discountValue: Number(discountValue) || 0,
-        customerName: customerName || null,
-        customerPhone: customerPhone || null,
-        customerNotes: customerNotes || null,
-        invoiceNotes: invoiceNotes || null,
-        paymentMethod,
-        transferMethod: paymentMethod === "TRANSFER" ? transferMethod : null,
-        paidAmount: partialOn ? paidAmount : null,
-        cashierName: getSession()?.name ?? null,
-        saveAsNewCustomer: !customerLookup && customerNotFound && saveAsNewCustomer,
-        delivery:
-          deliveryOn && orderSource && deliveryMethod
-            ? {
-                orderSource, // قيمة enum (PHONE/FACEBOOK/...)
-                deliveryMethod,
-                deliveryAddress: deliveryAddress.trim(),
-                addressNotes: addressNotes.trim() || null,
-                trackingNumber:
-                  deliveryMethod === "BOSTA"
-                    ? trackingNumber.trim() || null
-                    : null,
-              }
-            : null,
-      });
+      const sale = await apiPost<SaleDTO>("/api/sales", payload);
       setReceipt(sale);
       void logActivity(
         ACTIVITY_ACTIONS.CREATE_SALE,
@@ -1260,6 +1320,35 @@ function PosRegister({
               )}
             </div>
 
+            {/* حاسبة الباقي النقدي — كم دفع العميل وكم الباقي له */}
+            {!partialOn && (
+              <div className="mt-4">
+                <label className="label">دفع العميل (حاسبة الباقي)</label>
+                <NumberInput
+                  decimal
+                  className="input nums"
+                  placeholder="المبلغ الذي دفعه العميل نقداً"
+                  value={cashReceived}
+                  onChange={setCashReceived}
+                />
+                {cashCalcActive && (
+                  <div
+                    className={cn(
+                      "mt-2 flex items-center justify-between rounded-lg border px-3 py-2.5 text-base font-extrabold transition-colors",
+                      changeDue >= 0
+                        ? "border-success/40 bg-[rgba(59,154,110,0.1)] text-success"
+                        : "border-danger/40 bg-[rgba(217,83,79,0.1)] text-danger"
+                    )}
+                  >
+                    <span>{changeDue >= 0 ? "الباقي" : "ناقص"}</span>
+                    <span className="nums">
+                      {formatCurrency(Math.abs(changeDue))}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* الإجماليات */}
             <div className="mt-4 space-y-1.5 border-t pt-4 text-sm">
               <div className="flex justify-between text-muted">
@@ -1423,6 +1512,20 @@ function SearchResult({
   cart: CartItem[];
   onAdd: (p: ProductDTO, v: ProductDTO["variants"][0]) => void;
 }) {
+  // نعرض المقاسات المتاحة فقط (كمية > 0) في منتقي الصنف
+  const availableVariants = product.variants.filter((v) => v.quantity > 0);
+  const priceSource = availableVariants.length
+    ? availableVariants
+    : product.variants;
+  const prices = priceSource.map((v) => v.price);
+  const minPrice = prices.length ? Math.min(...prices) : 0;
+  const maxPrice = prices.length ? Math.max(...prices) : 0;
+  const priceLabel =
+    minPrice === maxPrice
+      ? formatCurrency(minPrice)
+      : `${formatCurrency(minPrice)} – ${formatCurrency(maxPrice)}`;
+  const allOut = availableVariants.length === 0;
+
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-center gap-3">
@@ -1440,48 +1543,53 @@ function SearchResult({
             </div>
           )}
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-bold text-text">{product.name}</p>
-          <p className="text-xs text-muted">
+          <p className="truncate text-xs text-muted">
             {product.brand}
             {product.sku ? ` · ${product.sku}` : ""}
           </p>
         </div>
+        <span className="shrink-0 text-sm font-bold text-accent nums">
+          {priceLabel}
+        </span>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-2">
-        {product.variants.map((v) => {
-          const inCart = cart.find((c) => c.variantId === v.id)?.quantity ?? 0;
-          const out = v.quantity <= 0;
-          const maxed = inCart >= v.quantity;
-          return (
-            <button
-              key={v.id}
-              disabled={out || maxed}
-              onClick={() => onAdd(product, v)}
-              title={out ? "نفذت الكمية" : `المتاح: ${v.quantity}`}
-              className={cn(
-                "inline-flex min-h-[44px] min-w-[3.5rem] items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
-                out
-                  ? "cursor-not-allowed text-muted line-through opacity-60"
-                  : "hover:border-accent hover:bg-accent-soft hover:text-accent active:bg-accent-soft",
-                inCart > 0 && !out && "border-accent bg-accent-soft text-accent"
-              )}
-            >
-              <span className="nums">
-                {v.size}
-                {v.color ? ` / ${v.color}` : ""}
-              </span>
-              <span className="mr-1 text-xs text-muted nums">
-                ({out ? "نفذ" : v.quantity})
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="mt-2 text-xs text-muted nums">
-        {formatCurrency(product.variants[0]?.price ?? 0)}
-      </p>
+      {allOut ? (
+        <p className="mt-3 rounded-lg bg-[rgba(217,83,79,0.1)] px-3 py-2 text-center text-xs font-medium text-danger">
+          نفذ المخزون
+        </p>
+      ) : (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {availableVariants.map((v) => {
+            const inCart = cart.find((c) => c.variantId === v.id)?.quantity ?? 0;
+            const maxed = inCart >= v.quantity;
+            return (
+              <button
+                key={v.id}
+                disabled={maxed}
+                onClick={() => onAdd(product, v)}
+                title={maxed ? "أضفت كل الكمية المتاحة" : `المتاح: ${v.quantity}`}
+                className={cn(
+                  "inline-flex min-h-[44px] min-w-[3.5rem] items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                  maxed
+                    ? "cursor-not-allowed text-muted opacity-50"
+                    : "hover:border-accent hover:bg-accent-soft hover:text-accent active:bg-accent-soft",
+                  inCart > 0 && "border-accent bg-accent-soft text-accent"
+                )}
+              >
+                <span className="nums">
+                  {v.size}
+                  {v.color ? ` / ${v.color}` : ""}
+                </span>
+                <span className="mr-1 text-xs text-muted nums">
+                  ({v.quantity})
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

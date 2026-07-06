@@ -43,6 +43,26 @@ export const FONT_SIZE_PX: Record<FontSizeValue, string> = {
   large: "18px",
 };
 
+// ----------------------------------------------------
+//  أطقم ألوان جاهزة (Presets) — كل طقم يضبط لون الواجهة والـ PDF معاً
+// ----------------------------------------------------
+export interface ThemePreset {
+  id: string;
+  label: string;
+  color: string; // لون التمييز (يُطبَّق على uiAccent و pdfAccent معاً)
+}
+
+export const THEME_PRESETS: ThemePreset[] = [
+  { id: "purple", label: "بنفسجي", color: "#6c63ff" },
+  { id: "gold", label: "ذهبي فاخر", color: "#b8860b" },
+  { id: "royal", label: "أزرق ملكي", color: "#1e40af" },
+  { id: "emerald", label: "أخضر زمردي", color: "#059669" },
+  { id: "crimson", label: "أحمر ناري", color: "#dc2626" },
+  { id: "slate", label: "رمادي فضي", color: "#475569" },
+  { id: "rose", label: "وردي راقي", color: "#e11d48" },
+  { id: "amber", label: "برتقالي دافئ", color: "#d97706" },
+];
+
 export const THEME_MODES = ["dark", "light", "system"] as const;
 export type ThemeMode = (typeof THEME_MODES)[number];
 

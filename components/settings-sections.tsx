@@ -22,6 +22,7 @@ import {
   FONT_SIZE_LABELS,
   THEME_MODES,
   THEME_MODE_LABELS,
+  THEME_PRESETS,
   LOCK_DAYS_OPTIONS,
   DEFAULT_SETTINGS,
   type AppSettings,
@@ -103,8 +104,58 @@ export function AppearanceSettingsCard() {
         الألوان والمظهر
       </h2>
       <p className="mb-4 text-sm text-muted">
-        كل نظام لون مستقل تماماً عن الآخر.
+        اختر طقم ألوان جاهز أو خصّص كل نظام لون على حدة.
       </p>
+
+      {/* أطقم ألوان جاهزة — كل طقم يضبط لون الواجهة والـ PDF معاً */}
+      <div className="mb-5">
+        <p className="mb-2 flex items-center gap-1.5 text-sm font-bold text-text">
+          <Palette className="h-4 w-4 text-muted" />
+          أطقم جاهزة
+        </p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {THEME_PRESETS.map((preset) => {
+            const active =
+              settings.uiAccent.toLowerCase() === preset.color &&
+              settings.pdfAccent.toLowerCase() === preset.color;
+            return (
+              <button
+                key={preset.id}
+                type="button"
+                onClick={() =>
+                  set({ uiAccent: preset.color, pdfAccent: preset.color })
+                }
+                aria-pressed={active}
+                className={cn(
+                  "flex items-center gap-2.5 rounded-lg border p-2.5 text-right text-sm transition-colors",
+                  active
+                    ? "border-accent bg-accent-soft"
+                    : "border-[var(--border)] hover:bg-[var(--surface-2)]"
+                )}
+              >
+                <span
+                  className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full ring-1 ring-inset ring-black/10"
+                  style={{ backgroundColor: preset.color }}
+                >
+                  {active && <Check className="h-4 w-4 text-white" />}
+                </span>
+                <span
+                  className={cn(
+                    "min-w-0 flex-1 truncate font-medium",
+                    active ? "text-accent" : "text-text"
+                  )}
+                >
+                  {preset.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-muted">
+          يغيّر لون الواجهة ولون الفواتير/الـ PDF في آنٍ واحد. يمكنك التخصيص
+          يدوياً بالأسفل.
+        </p>
+      </div>
 
       {/* 3 أنظمة ألوان مستقلة */}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

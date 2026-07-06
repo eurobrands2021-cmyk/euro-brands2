@@ -156,6 +156,10 @@ export async function POST(req: Request) {
               : Math.min(Math.max(input.paidAmount, 0), finalAmount);
           const remainingAmount = round2(finalAmount - paidAmount);
 
+          // الباقي النقدي للعميل (حاسبة الباقي — مستقلة عن الدفع الجزئي)
+          const changeAmount =
+            input.changeAmount == null ? null : round2(Math.max(input.changeAmount, 0));
+
           // خصم الكميات من مخزون الفرع
           for (const [variantId, qty] of merged.entries()) {
             await tx.productVariant.update({
@@ -215,6 +219,7 @@ export async function POST(req: Request) {
               invoiceNotes: input.invoiceNotes ?? null,
               paidAmount: round2(paidAmount),
               remainingAmount,
+              changeAmount,
               cashierName: input.cashierName ?? null,
               isDelivery: !!input.delivery,
               orderSource:

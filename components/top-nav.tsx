@@ -33,6 +33,8 @@ import type { LowStockResponse } from "@/lib/types";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { AccessRequestsBell } from "./access-requests-bell";
+import { LowStockBell } from "./low-stock-bell";
+import { OfflineIndicator } from "./offline-indicator";
 
 interface NavItem {
   href: string;
@@ -231,6 +233,8 @@ export function TopNav() {
               </span>
             </div>
           )}
+          <OfflineIndicator />
+          {role === "ADMIN" && <LowStockBell />}
           {role === "ADMIN" && <AccessRequestsBell />}
           <ThemeToggle />
           {session && (

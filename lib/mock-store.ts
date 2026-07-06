@@ -79,6 +79,7 @@ interface MVariant {
   color: string | null;
   quantity: number;
   minQuantity: number;
+  alertOnLowStock: boolean;
   branch: BranchValue;
   price: number;
   sku: string | null;
@@ -145,6 +146,7 @@ interface MSale {
   invoiceNotes: string | null;
   paidAmount: number;
   remainingAmount: number;
+  changeAmount: number | null;
   cashierName: string | null;
   status: SaleStatusValue;
   cancellationReason: string | null;
@@ -275,6 +277,7 @@ function buildStore(): Store {
           color: null,
           quantity,
           minQuantity: 5,
+          alertOnLowStock: false,
           branch,
           price,
           sku,
@@ -578,6 +581,7 @@ function buildStore(): Store {
       invoiceNotes: null,
       paidAmount,
       remainingAmount: round2(finalAmount - paidAmount),
+      changeAmount: null,
       cashierName: cashiers[Math.floor(rng() * cashiers.length)],
       status: "COMPLETED",
       cancellationReason: null,
@@ -705,6 +709,7 @@ function shapeVariant(v: MVariant): VariantDTO {
     color: v.color,
     quantity: v.quantity,
     minQuantity: v.minQuantity,
+    alertOnLowStock: v.alertOnLowStock ?? false,
     branch: v.branch,
     price: v.price,
     sku: v.sku,
@@ -775,6 +780,7 @@ function shapeSale(s: MSale): SaleDTO {
     invoiceNotes: s.invoiceNotes,
     paidAmount: s.paidAmount,
     remainingAmount: s.remainingAmount,
+    changeAmount: s.changeAmount ?? null,
     cashierName: s.cashierName,
     status: s.status,
     cancellationReason: s.cancellationReason,
@@ -1032,6 +1038,7 @@ export function mockLowStock(): LowStockResponse {
         color: v.color,
         quantity: v.quantity,
         minQuantity: v.minQuantity,
+        alertOnLowStock: v.alertOnLowStock ?? false,
       }))
   );
   items.sort((a, b) => a.quantity - a.minQuantity - (b.quantity - b.minQuantity));
@@ -1081,6 +1088,7 @@ export function mockCreateProduct(input: ProductInput): ProductDTO {
         branch: v.branch,
         quantity: v.quantity,
         minQuantity: v.minQuantity,
+        alertOnLowStock: v.alertOnLowStock ?? false,
         price: v.price,
         sku,
         skuManual,
@@ -1136,6 +1144,7 @@ export function mockUpdateProduct(
       existing.branch = vi.branch;
       existing.quantity = vi.quantity;
       existing.minQuantity = vi.minQuantity;
+      existing.alertOnLowStock = vi.alertOnLowStock ?? false;
       existing.price = vi.price;
       const explicit = vi.sku?.trim();
       if (explicit) {
@@ -1181,6 +1190,7 @@ export function mockUpdateProduct(
         branch: vi.branch,
         quantity: vi.quantity,
         minQuantity: vi.minQuantity,
+        alertOnLowStock: vi.alertOnLowStock ?? false,
         price: vi.price,
         sku,
         skuManual: !!explicit && vi.skuManual !== false,
@@ -1329,6 +1339,7 @@ export function mockImportInventory(rows: ImportRow[]): ImportResult {
         branch: row.branch,
         quantity: row.quantity,
         minQuantity: 5,
+        alertOnLowStock: false,
         price: row.price,
         sku,
         skuManual: !!row.sku,
@@ -1751,6 +1762,8 @@ export function mockCreateSale(input: SaleInput): SaleDTO {
     invoiceNotes: input.invoiceNotes ?? null,
     paidAmount: round2(paidAmount),
     remainingAmount: round2(finalAmount - paidAmount),
+    changeAmount:
+      input.changeAmount == null ? null : round2(Math.max(input.changeAmount, 0)),
     cashierName: input.cashierName ?? null,
     status: "COMPLETED",
     cancellationReason: null,

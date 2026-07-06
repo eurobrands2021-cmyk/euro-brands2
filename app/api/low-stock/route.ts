@@ -25,6 +25,7 @@ export async function GET() {
         color: v.color ?? null,
         quantity: v.quantity,
         minQuantity: v.minQuantity,
+        alertOnLowStock: v.alertOnLowStock ?? false,
       }))
       .sort(
         (a, b) => a.quantity - a.minQuantity - (b.quantity - b.minQuantity)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -49,6 +49,7 @@ interface Filters {
   size: string;
 }
 type SortKey = "newest" | "mostSold" | "lowestQty";
+type StatusFilter = "all" | "low" | "out";
 
 const EMPTY_FILTERS: Filters = {
   search: "",
@@ -68,6 +69,7 @@ export default function InventoryPage() {
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [draftsOnly, setDraftsOnly] = useState(false);
+  const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
   const [view, setView] = useState<"grid" | "list">("grid");
   const [toDelete, setToDelete] = useState<ProductDTO | null>(null);
@@ -102,9 +104,37 @@ export default function InventoryPage() {
     [products]
   );
 
-  const filtered = useMemo(() => {
+  // هل يظهر هذا الصنف ضمن فلاتر الفرع/المقاس الحالية؟
+  const variantInScope = useCallback(
+    (v: ProductDTO["variants"][number]) =>
+      (!filters.branch || v.branch === filters.branch) &&
+      (!filters.size || v.size === filters.size),
+    [filters.branch, filters.size]
+  );
+
+  // منخفض المخزون = صنف مُفعَّل له التنبيه وبلغ الحد الأدنى (وما زال متوفراً)
+  const isLow = useCallback(
+    (p: ProductDTO) =>
+      p.variants.some(
+        (v) =>
+          variantInScope(v) &&
+          v.alertOnLowStock &&
+          v.quantity > 0 &&
+          v.quantity <= v.minQuantity
+      ),
+    [variantInScope]
+  );
+  // نفذ المخزون = صنف كميته صفر
+  const isOut = useCallback(
+    (p: ProductDTO) =>
+      p.variants.some((v) => variantInScope(v) && v.quantity === 0),
+    [variantInScope]
+  );
+
+  // مجموعة أساسية بكل الفلاتر عدا فلتر الحالة (لحساب أعداد التبويبات)
+  const base = useMemo(() => {
     const q = filters.search.trim();
-    const result = products.filter((p) => {
+    return products.filter((p) => {
       if (draftsOnly && !p.isDraft) return false;
       if (
         q &&
@@ -116,28 +146,40 @@ export default function InventoryPage() {
         return false;
       if (filters.category && p.category !== filters.category) return false;
       if (filters.brand && p.brand !== filters.brand) return false;
-      const variantMatch = p.variants.some(
-        (v) =>
-          (!filters.branch || v.branch === filters.branch) &&
-          (!filters.size || v.size === filters.size)
-      );
+      const variantMatch = p.variants.some(variantInScope);
       if ((filters.branch || filters.size) && !variantMatch) return false;
       return true;
     });
+  }, [products, filters, draftsOnly, variantInScope]);
+
+  const statusCounts = useMemo(
+    () => ({
+      all: base.length,
+      low: base.filter(isLow).length,
+      out: base.filter(isOut).length,
+    }),
+    [base, isLow, isOut]
+  );
+
+  const filtered = useMemo(() => {
+    const result = base.filter((p) =>
+      status === "low" ? isLow(p) : status === "out" ? isOut(p) : true
+    );
 
     if (sort === "mostSold")
       result.sort((a, b) => (b.soldCount ?? 0) - (a.soldCount ?? 0));
     else if (sort === "lowestQty")
       result.sort((a, b) => a.totalQuantity - b.totalQuantity);
     return result;
-  }, [products, filters, draftsOnly, sort]);
+  }, [base, status, isLow, isOut, sort]);
 
   const draftsCount = useMemo(
     () => products.filter((p) => p.isDraft).length,
     [products]
   );
 
-  const hasActiveFilters = Object.values(filters).some(Boolean) || draftsOnly;
+  const hasActiveFilters =
+    Object.values(filters).some(Boolean) || draftsOnly || status !== "all";
 
   async function handleDelete() {
     if (!toDelete) return;
@@ -331,6 +373,7 @@ export default function InventoryPage() {
                 onClick={() => {
                   setFilters(EMPTY_FILTERS);
                   setDraftsOnly(false);
+                  setStatus("all");
                 }}
               >
                 <X className="h-4 w-4" />
@@ -363,6 +406,45 @@ export default function InventoryPage() {
           </div>
         </div>
       </Card>
+
+      {/* تبويبات حالة المخزون */}
+      <div className="mb-5 flex flex-wrap gap-2">
+        {(
+          [
+            { key: "all", label: "الكل", count: statusCounts.all },
+            { key: "low", label: "منخفض المخزون", count: statusCounts.low },
+            { key: "out", label: "نفذ المخزون", count: statusCounts.out },
+          ] as const
+        ).map((t) => {
+          const active = status === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => setStatus(t.key)}
+              className={cn(
+                "flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-colors",
+                active
+                  ? t.key === "out"
+                    ? "border-danger bg-[rgba(217,83,79,0.12)] text-danger"
+                    : t.key === "low"
+                      ? "border-warning bg-[rgba(201,133,26,0.14)] text-warning"
+                      : "border-accent bg-accent-soft text-accent"
+                  : "border-[var(--border)] text-muted hover:text-text"
+              )}
+            >
+              {t.label}
+              <span
+                className={cn(
+                  "flex h-5 min-w-[20px] items-center justify-center rounded-full px-1 text-[11px] font-bold nums",
+                  active ? "bg-white/25" : "bg-[var(--surface-2)] text-muted"
+                )}
+              >
+                {formatNumber(t.count)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
 
       {loading && <PageLoader />}
       {error && (

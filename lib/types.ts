@@ -20,6 +20,7 @@ export interface VariantDTO {
   color: string | null;
   quantity: number;
   minQuantity: number;
+  alertOnLowStock: boolean;
   branch: BranchValue;
   price: number;
   sku: string | null;
@@ -80,6 +81,7 @@ export interface LowStockItem {
   color: string | null;
   quantity: number;
   minQuantity: number;
+  alertOnLowStock: boolean; // هل فُعِّل التنبيه لهذا الصنف (يُستخدم لجرس الإشعارات)
 }
 
 export interface LowStockResponse {
@@ -122,6 +124,7 @@ export interface SaleDTO {
   invoiceNotes: string | null;
   paidAmount: number;
   remainingAmount: number;
+  changeAmount: number | null; // الباقي للعميل عند الدفع نقداً (اختياري)
   cashierName: string | null;
   status: SaleStatusValue;
   cancellationReason: string | null;
@@ -155,6 +158,7 @@ export interface VariantInput {
   color: string | null;
   quantity: number;
   minQuantity: number;
+  alertOnLowStock?: boolean; // تفعيل جرس التنبيه عند بلوغ الحد الأدنى لهذا الصنف
   branch: BranchValue;
   price: number;
   sku: string | null; // إن غاب أو فضل null يُولَّد تلقائياً، وإن جاء معتمداً يُعتَبر يدوي
@@ -220,6 +224,7 @@ export interface SaleInput {
   transferMethod?: TransferMethodValue | null;
   invoiceNotes?: string | null;
   paidAmount?: number | null; // المبلغ المدفوع الآن (للدفع الجزئي)
+  changeAmount?: number | null; // الباقي النقدي للعميل (حاسبة الباقي في POS)
   cashierName?: string | null; // اسم الكاشير (من الجلسة)
   delivery?: DeliveryInput | null; // بيانات التوصيل (اختيارية)
   saveAsNewCustomer?: boolean; // احفظ رقم/اسم العميل كعميل جديد إن لم يكن مسجلاً
