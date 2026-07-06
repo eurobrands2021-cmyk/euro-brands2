@@ -18,6 +18,7 @@ import {
   Pencil,
   FileText,
   Lightbulb,
+  X,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
@@ -49,23 +50,65 @@ function SectionCard({
   title,
   icon,
   tone,
+  action,
   children,
 }: {
   title: string;
   icon: React.ReactNode;
   tone?: "accent" | "warning" | "success";
+  action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <Card className="p-5" tone={tone}>
-      <h2 className="mb-4 flex items-center gap-2 text-base font-bold text-text">
-        {icon}
-        {title}
-      </h2>
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-base font-bold text-text">
+          {icon}
+          {title}
+        </h2>
+        {action}
+      </div>
       {children}
     </Card>
   );
 }
+
+// زر إخفاء تنبيه واحد
+function DismissButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className="btn btn-ghost h-8 w-8 shrink-0 !px-0 text-muted hover:text-danger"
+      aria-label="إخفاء التنبيه"
+      title="إخفاء التنبيه"
+    >
+      <X className="h-4 w-4" />
+    </button>
+  );
+}
+
+// تخزين التنبيهات المُخفاة محلياً (لا حاجة لقاعدة البيانات)
+const DISMISSED_KEY = "dismissed_insights";
+
+function loadDismissed(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(DISMISSED_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr)
+      ? arr.filter((x): x is string => typeof x === "string")
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+// مفاتيح ثابتة لكل نوع تنبيه (تبقى ثابتة بين التحديثات)
+const alertKey = {
+  low: (id: string) => `low:${id}`,
+  dead: (id: string) => `dead:${id}`,
+  drop: (branch: string) => `drop:${branch}`,
+};
 
 function Skeleton() {
   return (
@@ -93,6 +136,41 @@ export default function InsightsPage() {
   const [data, setData] = useState<InsightsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  // حمّل التنبيهات المُخفاة من التخزين المحلي عند أول تحميل
+  useEffect(() => {
+    setDismissed(new Set(loadDismissed()));
+  }, []);
+
+  const persistDismissed = useCallback((next: Set<string>) => {
+    setDismissed(next);
+    try {
+      window.localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+    } catch {
+      /* تجاهل امتلاء التخزين */
+    }
+  }, []);
+
+  const dismissOne = useCallback(
+    (key: string) => {
+      setDismissed((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        try {
+          window.localStorage.setItem(DISMISSED_KEY, JSON.stringify([...next]));
+        } catch {
+          /* تجاهل */
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const restoreAll = useCallback(() => {
+    persistDismissed(new Set());
+  }, [persistDismissed]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,10 +191,28 @@ export default function InsightsPage() {
     load();
   }, [load]);
 
+  // القوائم الظاهرة فعلياً بعد استبعاد المُخفاة (مع الحدود القصوى للعرض)
+  const shownBranchDrops = (data?.alerts.branchDrops ?? []).filter(
+    (b) => !dismissed.has(alertKey.drop(b.branch))
+  );
+  const shownLowStock = (data?.alerts.lowStock ?? [])
+    .slice(0, 12)
+    .filter((it) => !dismissed.has(alertKey.low(it.id)));
+  const shownDeadStock = (data?.alerts.deadStock ?? [])
+    .slice(0, 8)
+    .filter((p) => !dismissed.has(alertKey.dead(p.id)));
+
   const alertsCount =
-    (data?.alerts.lowStock.length ?? 0) +
-    (data?.alerts.deadStock.length ?? 0) +
-    (data?.alerts.branchDrops.length ?? 0);
+    shownBranchDrops.length + shownLowStock.length + shownDeadStock.length;
+
+  // إخفاء كل التنبيهات الظاهرة حالياً دفعةً واحدة
+  const dismissAll = () => {
+    const next = new Set(dismissed);
+    shownBranchDrops.forEach((b) => next.add(alertKey.drop(b.branch)));
+    shownLowStock.forEach((it) => next.add(alertKey.low(it.id)));
+    shownDeadStock.forEach((p) => next.add(alertKey.dead(p.id)));
+    persistDismissed(next);
+  };
 
   return (
     <div>
@@ -158,12 +254,35 @@ export default function InsightsPage() {
             tone="warning"
             title={`تنبيهات فورية${alertsCount ? ` (${alertsCount})` : ""}`}
             icon={<AlertTriangle className="h-5 w-5 text-warning" />}
+            action={
+              (alertsCount > 0 || dismissed.size > 0) && (
+                <div className="flex items-center gap-3">
+                  {dismissed.size > 0 && (
+                    <button
+                      onClick={restoreAll}
+                      className="text-xs font-medium text-accent hover:underline"
+                    >
+                      استعادة التنبيهات
+                    </button>
+                  )}
+                  {alertsCount > 0 && (
+                    <button
+                      onClick={dismissAll}
+                      className="btn btn-ghost h-8 shrink-0 gap-1 px-2 text-xs"
+                    >
+                      <X className="h-4 w-4" />
+                      مسح الكل
+                    </button>
+                  )}
+                </div>
+              )
+            }
           >
             {alertsCount === 0 ? (
               <p className="text-sm text-muted">لا توجد تنبيهات حرجة حالياً. 👌</p>
             ) : (
               <div className="space-y-2">
-                {data.alerts.branchDrops.map((b) => (
+                {shownBranchDrops.map((b) => (
                   <div
                     key={b.branch}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-danger/30 bg-[rgba(217,83,79,0.06)] p-3"
@@ -178,15 +297,20 @@ export default function InsightsPage() {
                         عن الأسبوع الماضي
                       </span>
                     </div>
-                    <QuickAction
-                      href="/dashboard"
-                      icon={<FileText className="h-4 w-4" />}
-                      label="طباعة تقرير"
-                    />
+                    <div className="flex shrink-0 items-center gap-1">
+                      <QuickAction
+                        href="/dashboard"
+                        icon={<FileText className="h-4 w-4" />}
+                        label="طباعة تقرير"
+                      />
+                      <DismissButton
+                        onClick={() => dismissOne(alertKey.drop(b.branch))}
+                      />
+                    </div>
                   </div>
                 ))}
 
-                {data.alerts.lowStock.slice(0, 12).map((it) => (
+                {shownLowStock.map((it) => (
                   <div
                     key={it.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
@@ -207,15 +331,20 @@ export default function InsightsPage() {
                         </span>
                       </div>
                     </div>
-                    <QuickAction
-                      href={`/inventory/${it.productId}/edit`}
-                      icon={<Pencil className="h-4 w-4" />}
-                      label="تعديل المخزون"
-                    />
+                    <div className="flex shrink-0 items-center gap-1">
+                      <QuickAction
+                        href={`/inventory/${it.productId}/edit`}
+                        icon={<Pencil className="h-4 w-4" />}
+                        label="تعديل المخزون"
+                      />
+                      <DismissButton
+                        onClick={() => dismissOne(alertKey.low(it.id))}
+                      />
+                    </div>
                   </div>
                 ))}
 
-                {data.alerts.deadStock.slice(0, 8).map((p) => (
+                {shownDeadStock.map((p) => (
                   <div
                     key={p.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-3"
@@ -230,11 +359,16 @@ export default function InsightsPage() {
                         بلا مبيعات منذ 14 يوماً · المخزون {formatNumber(p.quantity)}
                       </p>
                     </div>
-                    <QuickAction
-                      href={`/inventory/${p.id}/edit`}
-                      icon={<Tag className="h-4 w-4" />}
-                      label="عمل خصم"
-                    />
+                    <div className="flex shrink-0 items-center gap-1">
+                      <QuickAction
+                        href={`/inventory/${p.id}/edit`}
+                        icon={<Tag className="h-4 w-4" />}
+                        label="عمل خصم"
+                      />
+                      <DismissButton
+                        onClick={() => dismissOne(alertKey.dead(p.id))}
+                      />
+                    </div>
                   </div>
                 ))}
               </div>
