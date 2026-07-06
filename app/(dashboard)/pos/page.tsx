@@ -126,8 +126,16 @@ interface SearchHistoryItem {
   variantId: string;
 }
 
+// آخر 5 منتجات ظهرت في نتائج البحث (بحث عنها المستخدم ولو لم يضفها للسلة)
+interface ViewedProductItem {
+  id: string;
+  name: string;
+  brand: string;
+}
+
 const BRANCH_KEY = "eb-pos-branch";
 const SEARCH_HISTORY_KEY = "pos_search_history";
+const VIEWED_HISTORY_KEY = "pos_search_viewed";
 const SEARCH_HISTORY_MAX = 5;
 
 export default function PosPage() {
@@ -233,8 +241,11 @@ function PosRegister({
   const [searchFocused, setSearchFocused] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [history, setHistory] = useState<SearchHistoryItem[]>([]);
+  const [viewed, setViewed] = useState<ViewedProductItem[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // آخر عبارة بحث سُجِّلت في «آخر المنتجات التي بحثت عنها» (لتفادي التكرار)
+  const lastViewedQuery = useRef("");
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(term.trim()), 250);
@@ -264,13 +275,19 @@ function PosRegister({
     localStorage.setItem(heldKey, JSON.stringify(held));
   }, [held, heldKey]);
 
-  // تحميل سجل آخر المنتجات المضافة (مشترك بين الفروع)
+  // تحميل سجل آخر المنتجات المضافة + آخر المنتجات المبحوث عنها (مشترك بين الفروع)
   useEffect(() => {
     try {
       const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
       setHistory(raw ? JSON.parse(raw) : []);
     } catch {
       setHistory([]);
+    }
+    try {
+      const raw = localStorage.getItem(VIEWED_HISTORY_KEY);
+      setViewed(raw ? JSON.parse(raw) : []);
+    } catch {
+      setViewed([]);
     }
   }, []);
 
@@ -308,9 +325,39 @@ function PosRegister({
   const dropdownItems = results.slice(0, 8);
   const dropdownOpen =
     searchFocused && debounced.length >= 2 && dropdownItems.length > 0 && !loading;
-  // سجل آخر المنتجات: يظهر عند تركيز حقل البحث وهو فارغ ووجود سجل
+
+  // سجّل المنتجات التي ظهرت في نتائج بحث المستخدم (بحث عنها ولو لم يضفها للسلة).
+  // يُحفَظ آخر 5 منتجات، الأحدث أولاً، دون تكرار — مرة واحدة لكل عبارة بحث.
+  useEffect(() => {
+    if (loading) return;
+    const q = debounced.trim();
+    if (!q || results.length === 0) return;
+    if (lastViewedQuery.current === q) return;
+    lastViewedQuery.current = q;
+    setViewed((prev) => {
+      const incoming: ViewedProductItem[] = results.map((p) => ({
+        id: p.id,
+        name: p.name,
+        brand: p.brand,
+      }));
+      const next = [
+        ...incoming,
+        ...prev.filter((v) => !incoming.some((i) => i.id === v.id)),
+      ].slice(0, SEARCH_HISTORY_MAX);
+      try {
+        localStorage.setItem(VIEWED_HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        /* تجاهل */
+      }
+      return next;
+    });
+  }, [results, debounced, loading]);
+
+  // القوائم المنسدلة تظهر عند تركيز حقل البحث وهو فارغ ووجود سجل
   const historyOpen =
-    searchFocused && term.trim() === "" && history.length > 0;
+    searchFocused &&
+    term.trim() === "" &&
+    (viewed.length > 0 || history.length > 0);
 
   // ---- عمليات السلة ----
   function addVariant(product: ProductDTO, variant: ProductDTO["variants"][0]) {
@@ -832,36 +879,70 @@ function PosRegister({
                   </div>
                 )}
 
-                {/* سجل آخر المنتجات المضافة (يظهر عند تركيز الحقل وهو فارغ) */}
+                {/* السجلات (تظهر عند تركيز الحقل وهو فارغ):
+                    1) آخر المنتجات التي بحثت عنها  2) آخر المنتجات المضافة */}
                 {historyOpen && (
-                  <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-lg border bg-surface shadow-card">
-                    <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
-                      آخر المنتجات المضافة
-                    </div>
-                    {history.map((h) => (
-                      <button
-                        key={h.variantId}
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          void addFromHistory(h);
-                        }}
-                        className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right last:border-0 hover:bg-accent-soft"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-medium text-text">
-                            {h.name}
-                          </p>
-                          <p className="text-xs text-muted">
-                            {h.brand} · مقاس {h.size}
-                            {h.color ? ` / ${h.color}` : ""}
-                          </p>
+                  <div className="absolute z-20 mt-1 max-h-[60vh] w-full overflow-y-auto rounded-lg border bg-surface shadow-card">
+                    {viewed.length > 0 && (
+                      <>
+                        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
+                          آخر المنتجات التي بحثت عنها
                         </div>
-                        <span className="shrink-0 text-sm font-bold text-accent nums">
-                          {formatCurrency(h.price)}
-                        </span>
-                      </button>
-                    ))}
+                        {viewed.map((v) => (
+                          <button
+                            key={`viewed-${v.id}`}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setTerm(v.name);
+                            }}
+                            className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right last:border-0 hover:bg-accent-soft"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-text">
+                                {v.name}
+                              </p>
+                              <p className="truncate text-xs text-muted">
+                                {v.brand}
+                              </p>
+                            </div>
+                            <Search className="h-4 w-4 shrink-0 text-muted" />
+                          </button>
+                        ))}
+                      </>
+                    )}
+
+                    {history.length > 0 && (
+                      <>
+                        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
+                          آخر المنتجات المضافة
+                        </div>
+                        {history.map((h) => (
+                          <button
+                            key={h.variantId}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              void addFromHistory(h);
+                            }}
+                            className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right last:border-0 hover:bg-accent-soft"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium text-text">
+                                {h.name}
+                              </p>
+                              <p className="text-xs text-muted">
+                                {h.brand} · مقاس {h.size}
+                                {h.color ? ` / ${h.color}` : ""}
+                              </p>
+                            </div>
+                            <span className="shrink-0 text-sm font-bold text-accent nums">
+                              {formatCurrency(h.price)}
+                            </span>
+                          </button>
+                        ))}
+                      </>
+                    )}
                   </div>
                 )}
               </div>
