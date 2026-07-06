@@ -27,6 +27,7 @@ import {
   mockSetupAdminRecovery,
   mockVerifyAdminRecovery,
   mockListCustomers,
+  mockListVipCustomers,
   mockGetCustomer,
   mockCreateCustomer,
   mockUpdateCustomer,
@@ -192,6 +193,10 @@ export async function mockApi<T>(
     if (!removed) throw new Error("النوع غير موجود");
     return { id: ptMatch[1] } as T;
   }
+
+  // /api/customers/vip — كبار العملاء (قبل مطابقة المعرّف)
+  if (path === "/api/customers/vip" && method === "GET")
+    return mockListVipCustomers(sp) as T;
 
   // /api/customers
   if (path === "/api/customers") {

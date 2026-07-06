@@ -394,31 +394,41 @@ function PosRegister({
     }
   }
 
-  async function lookupCustomer() {
-    if (!isCompleteEgyPhone(customerPhone))
-      return toast.error("أدخل رقم هاتف مكتمل أولاً");
+  // ملء اسم العميل تلقائياً عند اكتمال رقم الهاتف (11 رقماً) — دون نقر إضافي
+  useEffect(() => {
+    if (!isCompleteEgyPhone(customerPhone)) return;
+    let cancelled = false;
     setCustomerLookupLoading(true);
-    setCustomerLookup(null);
-    setCustomerNotFound(false);
-    try {
-      const res = await apiGet<CustomerListResponse>(
-        `/api/customers?search=${encodeURIComponent(customerPhone)}&pageSize=5`
-      );
-      const exact = res.customers.find((c) => c.phone === customerPhone);
-      if (exact) {
-        setCustomerLookup(exact);
-        setCustomerName(exact.name);
-        setSaveAsNewCustomer(false);
-        toast.success("تم العثور على العميل");
-      } else {
-        setCustomerNotFound(true);
-      }
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "تعذّر البحث عن العميل");
-    } finally {
-      setCustomerLookupLoading(false);
-    }
-  }
+    apiGet<CustomerListResponse>(
+      `/api/customers?phone=${encodeURIComponent(customerPhone)}`
+    )
+      .then((res) => {
+        if (cancelled) return;
+        const exact =
+          res.customers.find((c) => c.phone === customerPhone) ??
+          res.customers[0] ??
+          null;
+        if (exact) {
+          setCustomerLookup(exact);
+          setCustomerName(exact.name);
+          setCustomerNotFound(false);
+          setSaveAsNewCustomer(false);
+        } else {
+          setCustomerLookup(null);
+          setCustomerNotFound(true);
+        }
+      })
+      .catch(() => {
+        /* تجاهل فشل الجلب المؤقّت */
+      })
+      .finally(() => {
+        if (!cancelled) setCustomerLookupLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerPhone]);
 
   // مسح الباركود: بحث فوري بنفس رقم الباركود، وإضافة تلقائية للسلة إن كان
   // هناك صنف مطابق واحد فقط في هذا الفرع، وإلا تُعرض النتائج للاختيار.
@@ -973,48 +983,36 @@ function PosRegister({
                 بيانات العميل (اختياري)
               </summary>
               <div className="space-y-2 border-t p-3">
+                {/* الهاتف أولاً — يملأ الاسم تلقائياً عند اكتمال 11 رقماً */}
+                <PhoneInput
+                  value={customerPhone}
+                  onChange={handlePhoneChange}
+                />
+                {customerLookupLoading && (
+                  <p className="flex items-center gap-1.5 text-xs text-muted">
+                    <Spinner className="h-3.5 w-3.5" />
+                    جارٍ البحث عن العميل…
+                  </p>
+                )}
                 <TextOnlyInput
                   className="input"
                   placeholder="اسم العميل"
                   value={customerName}
                   onChange={setCustomerName}
                 />
-                <div className="flex items-start gap-2">
-                  <PhoneInput
-                    className="flex-1"
-                    value={customerPhone}
-                    onChange={handlePhoneChange}
-                  />
-                  <button
-                    type="button"
-                    onClick={lookupCustomer}
-                    disabled={
-                      customerLookupLoading || !isCompleteEgyPhone(customerPhone)
-                    }
-                    className="btn btn-secondary h-11 shrink-0 text-xs"
-                    title="بحث عن عميل"
-                  >
-                    {customerLookupLoading ? (
-                      <Spinner className="h-4 w-4" />
-                    ) : (
-                      <Search className="h-4 w-4" />
-                    )}
-                    بحث عن عميل
-                  </button>
-                </div>
 
                 {customerLookup && (
                   <div className="rounded-lg border border-accent/30 bg-accent-soft p-3">
                     <p className="text-xs font-bold text-accent">عميل مسجّل</p>
                     <div className="mt-2 grid grid-cols-3 gap-2 text-center text-xs">
                       <div>
-                        <p className="text-muted">الزيارات</p>
+                        <p className="text-muted">عدد الزيارات</p>
                         <p className="mt-0.5 font-bold text-text nums">
                           {formatNumber(customerLookup.visitCount)}
                         </p>
                       </div>
                       <div>
-                        <p className="text-muted">الإنفاق</p>
+                        <p className="text-muted">إجمالي الإنفاق</p>
                         <p className="mt-0.5 font-bold text-text nums">
                           {formatCurrency(customerLookup.totalSpent)}
                         </p>
@@ -1032,8 +1030,9 @@ function PosRegister({
                 )}
 
                 {customerNotFound && (
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs text-muted">
+                  <div className="rounded-lg border border-warning/40 bg-[rgba(201,133,26,0.1)] p-3">
+                    <p className="text-xs font-bold text-warning">عميل جديد</p>
+                    <p className="mt-0.5 text-xs text-muted">
                       لا يوجد عميل مسجّل بهذا الرقم.
                     </p>
                     <label className="mt-2 flex cursor-pointer items-center gap-2 text-sm font-medium text-text">
@@ -1041,7 +1040,7 @@ function PosRegister({
                         type="checkbox"
                         checked={saveAsNewCustomer}
                         onChange={(e) => setSaveAsNewCustomer(e.target.checked)}
-                        className="h-4 w-4 accent-[#6c63ff]"
+                        className="h-4 w-4 accent-[var(--accent)]"
                       />
                       حفظ كعميل جديد
                     </label>

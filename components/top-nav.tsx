@@ -16,6 +16,7 @@ import {
   X,
   LogOut,
   Users,
+  Crown,
   AlertTriangle,
   MoreHorizontal,
   ChevronDown,
@@ -73,6 +74,7 @@ const MAIN_ITEMS: NavItem[] = [
 const MORE_ITEMS: NavItem[] = [
   { href: "/defects", label: "الديفو (التالف)", icon: AlertTriangle, roles: ["ADMIN"] },
   { href: "/customers", label: "العملاء", icon: Users, roles: ["ADMIN"] },
+  { href: "/customers/vip", label: "كبار العملاء", icon: Crown, roles: ["ADMIN"] },
   {
     href: "/settings",
     label: "الإعدادات",

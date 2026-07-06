@@ -60,6 +60,7 @@ import type {
   SaleDTO,
   SaleInput,
   VariantDTO,
+  VipCustomerDTO,
 } from "./types";
 import { buildVariantSku, uniquifySku } from "./sku";
 
@@ -1580,6 +1581,18 @@ export function mockVerifyAdminRecovery(answer: string): { ok: boolean } {
 //  عمليات العملاء
 // ----------------------------------------------------
 export function mockListCustomers(sp: URLSearchParams): CustomerListResponse {
+  // مطابقة تامة برقم الهاتف (للملء التلقائي في POS)
+  const phone = sp.get("phone")?.trim();
+  if (phone) {
+    const c = store.customers.find((x) => x.phone === phone);
+    return {
+      customers: c ? [shapeCustomer(c)] : [],
+      total: c ? 1 : 0,
+      page: 1,
+      pageSize: 1,
+    };
+  }
+
   const search = sp.get("search")?.trim();
   const sort = sp.get("sort"); // totalSpent | lastVisitAt
   const page = Math.max(1, Number(sp.get("page")) || 1);
@@ -1603,6 +1616,95 @@ export function mockListCustomers(sp: URLSearchParams): CustomerListResponse {
   const customers = list.slice(start, start + pageSize).map(shapeCustomer);
 
   return { customers, total, page, pageSize };
+}
+
+// كبار العملاء (VIP) — يعكس كل فلاتر /api/customers/vip على بيانات المحاكاة
+export function mockListVipCustomers(sp: URLSearchParams): VipCustomerDTO[] {
+  const LIMIT = 50;
+  const filter = sp.get("filter") ?? "spenders";
+  const branch = sp.get("branch");
+  const category = sp.get("category") ?? "CLOTHES";
+  const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+
+  const toDto = (c: MCustomer): VipCustomerDTO => ({
+    id: c.id,
+    name: c.name,
+    phone: c.phone,
+    visitCount: c.visitCount,
+    totalSpent: c.totalSpent,
+    avgSale: c.visitCount > 0 ? round2(c.totalSpent / c.visitCount) : 0,
+    lastVisitAt: c.lastVisitAt ? c.lastVisitAt.toISOString() : null,
+    branch: c.branch,
+  });
+
+  let list = [...store.customers];
+
+  switch (filter) {
+    case "frequent":
+      list.sort(
+        (a, b) => b.visitCount - a.visitCount || b.totalSpent - a.totalSpent
+      );
+      break;
+    case "branch":
+      list = list
+        .filter((c) => !branch || c.branch === branch)
+        .sort((a, b) => b.totalSpent - a.totalSpent);
+      break;
+    case "atrisk":
+      list = list
+        .filter((c) => c.lastVisitAt && c.lastVisitAt.getTime() < cutoff)
+        .sort((a, b) => b.totalSpent - a.totalSpent);
+      break;
+    case "new":
+      list = list
+        .filter((c) => c.createdAt.getTime() >= cutoff)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      break;
+    case "avg":
+      list = list
+        .filter((c) => c.visitCount > 0)
+        .sort(
+          (a, b) => b.totalSpent / b.visitCount - a.totalSpent / a.visitCount
+        );
+      break;
+    case "category": {
+      // الفئة الأكثر شراءً لكل عميل عبر هاتف الفاتورة
+      const byPhone = new Map<string, Map<string, number>>();
+      for (const s of store.sales) {
+        if (s.status === "CANCELLED") continue;
+        const phone = s.customerPhone;
+        if (!phone) continue;
+        for (const it of s.items) {
+          const prod = store.products.find((p) => p.id === it.productId);
+          if (!prod) continue;
+          const m = byPhone.get(phone) ?? new Map<string, number>();
+          m.set(prod.category, (m.get(prod.category) ?? 0) + it.quantity);
+          byPhone.set(phone, m);
+        }
+      }
+      const phones = new Set<string>();
+      for (const [phone, m] of byPhone) {
+        let bestCat: string | null = null;
+        let best = -1;
+        for (const [cat, q] of m) {
+          if (q > best) {
+            best = q;
+            bestCat = cat;
+          }
+        }
+        if (bestCat === category) phones.add(phone);
+      }
+      list = list
+        .filter((c) => phones.has(c.phone))
+        .sort((a, b) => b.totalSpent - a.totalSpent);
+      break;
+    }
+    case "spenders":
+    default:
+      list.sort((a, b) => b.totalSpent - a.totalSpent);
+  }
+
+  return list.slice(0, LIMIT).map(toDto);
 }
 
 export function mockGetCustomer(

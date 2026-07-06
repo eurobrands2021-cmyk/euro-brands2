@@ -19,6 +19,19 @@ export async function GET(req: Request) {
     const { searchParams } = new URL(req.url);
     if (MOCK_MODE) return ok(mockListCustomers(searchParams));
 
+    // بحث مطابق تماماً برقم الهاتف (يُستخدم لملء اسم العميل تلقائياً في POS)
+    const phone = searchParams.get("phone")?.trim();
+    if (phone) {
+      const c = await prisma.customer.findUnique({ where: { phone } });
+      const response: CustomerListResponse = {
+        customers: c ? [toCustomerDTO(c)] : [],
+        total: c ? 1 : 0,
+        page: 1,
+        pageSize: 1,
+      };
+      return ok(response);
+    }
+
     const search = searchParams.get("search")?.trim();
     const sort = searchParams.get("sort"); // totalSpent | lastVisitAt
     const page = Math.max(1, Number(searchParams.get("page")) || 1);

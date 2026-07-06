@@ -248,6 +248,30 @@ export interface CustomerDetailDTO extends CustomerDTO {
   sales: SaleDTO[]; // تاريخ المشتريات الكامل
 }
 
+// كبار العملاء (VIP) — عميل مع متوسط الفاتورة المحسوب
+export interface VipCustomerDTO {
+  id: string;
+  name: string;
+  phone: string;
+  visitCount: number;
+  totalSpent: number;
+  avgSale: number; // totalSpent / visitCount
+  lastVisitAt: string | null;
+  branch: BranchValue | null;
+}
+
+// خيارات فلترة صفحة كبار العملاء
+export const VIP_FILTERS = [
+  "spenders", // الأكثر إنفاقاً
+  "frequent", // الأكثر تكراراً
+  "branch", // حسب الفرع
+  "atrisk", // في خطر (آخر زيارة > 30 يوم)
+  "new", // عملاء جدد (آخر 30 يوم)
+  "avg", // متوسط الفاتورة
+  "category", // المفضّل فئة
+] as const;
+export type VipFilter = (typeof VIP_FILTERS)[number];
+
 export interface CustomerInput {
   name: string;
   phone: string;
