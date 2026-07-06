@@ -115,28 +115,16 @@ interface HeldInvoice {
   trackingNumber?: string;
 }
 
-// آخر 5 منتجات أُضيفت للسلة (تظهر عند تركيز حقل البحث وهو فارغ)
-interface SearchHistoryItem {
-  id: string;
-  name: string;
-  brand: string;
-  size: string;
-  color: string | null;
-  price: number;
-  variantId: string;
-}
-
-// آخر 5 منتجات ظهرت في نتائج البحث (بحث عنها المستخدم ولو لم يضفها للسلة)
-interface ViewedProductItem {
-  id: string;
-  name: string;
-  brand: string;
-}
-
 const BRANCH_KEY = "eb-pos-branch";
-const SEARCH_HISTORY_KEY = "pos_search_history";
-const VIEWED_HISTORY_KEY = "pos_search_viewed";
-const SEARCH_HISTORY_MAX = 5;
+// تخبئة «الأكثر مبيعاً» لمدة ساعة لتفادي الجلب عند كل تركيز على حقل البحث
+const BESTSELLERS_KEY = "pos_bestsellers";
+const BESTSELLERS_TTL_MS = 60 * 60 * 1000; // ساعة واحدة
+
+interface BestsellersCache {
+  branch: string;
+  ts: number;
+  items: ProductDTO[];
+}
 
 export default function PosPage() {
   const [branch, setBranch] = useState<BranchValue | null>(null);
@@ -240,12 +228,9 @@ function PosRegister({
   const [heldOpen, setHeldOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [highlight, setHighlight] = useState(0);
-  const [history, setHistory] = useState<SearchHistoryItem[]>([]);
-  const [viewed, setViewed] = useState<ViewedProductItem[]>([]);
+  const [bestsellers, setBestsellers] = useState<ProductDTO[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // آخر عبارة بحث سُجِّلت في «آخر المنتجات التي بحثت عنها» (لتفادي التكرار)
-  const lastViewedQuery = useRef("");
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(term.trim()), 250);
@@ -275,46 +260,50 @@ function PosRegister({
     localStorage.setItem(heldKey, JSON.stringify(held));
   }, [held, heldKey]);
 
-  // تحميل سجل آخر المنتجات المضافة + آخر المنتجات المبحوث عنها (مشترك بين الفروع)
+  // «الأكثر مبيعاً» — تُعرَض عند تركيز حقل البحث وهو فارغ. تُخبَّأ محلياً لمدة
+  // ساعة لكل فرع لتفادي الجلب عند كل تركيز.
   useEffect(() => {
+    // 1) من التخبئة إن كانت طازجة ولنفس الفرع
     try {
-      const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
-      setHistory(raw ? JSON.parse(raw) : []);
-    } catch {
-      setHistory([]);
-    }
-    try {
-      const raw = localStorage.getItem(VIEWED_HISTORY_KEY);
-      setViewed(raw ? JSON.parse(raw) : []);
-    } catch {
-      setViewed([]);
-    }
-  }, []);
-
-  // يسجّل منتجاً في سجل «آخر المنتجات المضافة» عند كل إضافة ناجحة للسلة
-  function recordHistory(product: ProductDTO, variant: VariantDTO) {
-    const entry: SearchHistoryItem = {
-      id: product.id,
-      name: product.name,
-      brand: product.brand,
-      size: variant.size,
-      color: variant.color ?? null,
-      price: variant.price,
-      variantId: variant.id,
-    };
-    setHistory((prev) => {
-      const next = [
-        entry,
-        ...prev.filter((h) => h.variantId !== entry.variantId),
-      ].slice(0, SEARCH_HISTORY_MAX);
-      try {
-        localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
-      } catch {
-        /* تجاهل */
+      const raw = localStorage.getItem(BESTSELLERS_KEY);
+      if (raw) {
+        const cache = JSON.parse(raw) as BestsellersCache;
+        if (
+          cache &&
+          cache.branch === branch &&
+          Array.isArray(cache.items) &&
+          Date.now() - cache.ts < BESTSELLERS_TTL_MS
+        ) {
+          setBestsellers(cache.items);
+          return;
+        }
       }
-      return next;
-    });
-  }
+    } catch {
+      /* تجاهل تخبئة تالفة */
+    }
+
+    // 2) جلب من الخادم ثم تخبئة النتيجة
+    let cancelled = false;
+    apiGet<ProductDTO[]>(
+      `/api/products?sort=bestselling&limit=5&branch=${branch}`
+    )
+      .then((items) => {
+        if (cancelled) return;
+        setBestsellers(items);
+        try {
+          const cache: BestsellersCache = { branch, ts: Date.now(), items };
+          localStorage.setItem(BESTSELLERS_KEY, JSON.stringify(cache));
+        } catch {
+          /* تجاهل امتلاء التخزين */
+        }
+      })
+      .catch(() => {
+        /* تجاهل فشل الجلب — تبقى القائمة فارغة */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [branch]);
 
   const normalizedSearch = normalizeArabic(debounced);
   const url = `/api/products?branch=${branch}${
@@ -326,38 +315,9 @@ function PosRegister({
   const dropdownOpen =
     searchFocused && debounced.length >= 2 && dropdownItems.length > 0 && !loading;
 
-  // سجّل المنتجات التي ظهرت في نتائج بحث المستخدم (بحث عنها ولو لم يضفها للسلة).
-  // يُحفَظ آخر 5 منتجات، الأحدث أولاً، دون تكرار — مرة واحدة لكل عبارة بحث.
-  useEffect(() => {
-    if (loading) return;
-    const q = debounced.trim();
-    if (!q || results.length === 0) return;
-    if (lastViewedQuery.current === q) return;
-    lastViewedQuery.current = q;
-    setViewed((prev) => {
-      const incoming: ViewedProductItem[] = results.map((p) => ({
-        id: p.id,
-        name: p.name,
-        brand: p.brand,
-      }));
-      const next = [
-        ...incoming,
-        ...prev.filter((v) => !incoming.some((i) => i.id === v.id)),
-      ].slice(0, SEARCH_HISTORY_MAX);
-      try {
-        localStorage.setItem(VIEWED_HISTORY_KEY, JSON.stringify(next));
-      } catch {
-        /* تجاهل */
-      }
-      return next;
-    });
-  }, [results, debounced, loading]);
-
-  // القوائم المنسدلة تظهر عند تركيز حقل البحث وهو فارغ ووجود سجل
-  const historyOpen =
-    searchFocused &&
-    term.trim() === "" &&
-    (viewed.length > 0 || history.length > 0);
+  // قائمة «الأكثر مبيعاً» تظهر عند تركيز حقل البحث وهو فارغ ووجود منتجات
+  const bestsellersOpen =
+    searchFocused && term.trim() === "" && bestsellers.length > 0;
 
   // ---- عمليات السلة ----
   function addVariant(product: ProductDTO, variant: ProductDTO["variants"][0]) {
@@ -391,49 +351,7 @@ function PosRegister({
         },
       ];
     });
-    recordHistory(product, variant);
     setCartOpen(true); // افتح درج الفاتورة على الموبايل عند أول إضافة
-  }
-
-  // إضافة منتج من سجل «آخر المنتجات المضافة»: نجلب أحدث بيانات الصنف
-  // (الكمية المتاحة) قبل الإضافة، ونحذف العنصر من السجل إن لم يعد موجوداً.
-  async function addFromHistory(item: SearchHistoryItem) {
-    setSearchFocused(false);
-    try {
-      const results = await apiGet<ProductDTO[]>(
-        `/api/products?branch=${branch}&search=${encodeURIComponent(
-          normalizeArabic(item.name)
-        )}`
-      );
-      let found: { product: ProductDTO; variant: VariantDTO } | null = null;
-      for (const p of results) {
-        const v = p.variants.find((x) => x.id === item.variantId);
-        if (v) {
-          found = { product: p, variant: v };
-          break;
-        }
-      }
-      if (!found) {
-        toast.error("المنتج لم يعد متاحاً");
-        setHistory((prev) => {
-          const next = prev.filter((h) => h.variantId !== item.variantId);
-          try {
-            localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(next));
-          } catch {
-            /* تجاهل */
-          }
-          return next;
-        });
-        return;
-      }
-      if (found.variant.quantity <= 0) {
-        toast.error("نفدت كمية هذا المنتج");
-        return;
-      }
-      addVariant(found.product, found.variant);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "تعذّر إضافة المنتج");
-    }
   }
 
   // إضافة منتج مسودة أُنشئ للتو من نافذة الإضافة السريعة
@@ -879,70 +797,22 @@ function PosRegister({
                   </div>
                 )}
 
-                {/* السجلات (تظهر عند تركيز الحقل وهو فارغ):
-                    1) آخر المنتجات التي بحثت عنها  2) آخر المنتجات المضافة */}
-                {historyOpen && (
-                  <div className="absolute z-20 mt-1 max-h-[60vh] w-full overflow-y-auto rounded-lg border bg-surface shadow-card">
-                    {viewed.length > 0 && (
-                      <>
-                        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
-                          آخر المنتجات التي بحثت عنها
-                        </div>
-                        {viewed.map((v) => (
-                          <button
-                            key={`viewed-${v.id}`}
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setTerm(v.name);
-                            }}
-                            className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right last:border-0 hover:bg-accent-soft"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-text">
-                                {v.name}
-                              </p>
-                              <p className="truncate text-xs text-muted">
-                                {v.brand}
-                              </p>
-                            </div>
-                            <Search className="h-4 w-4 shrink-0 text-muted" />
-                          </button>
-                        ))}
-                      </>
-                    )}
-
-                    {history.length > 0 && (
-                      <>
-                        <div className="border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
-                          آخر المنتجات المضافة
-                        </div>
-                        {history.map((h) => (
-                          <button
-                            key={h.variantId}
-                            type="button"
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              void addFromHistory(h);
-                            }}
-                            className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right last:border-0 hover:bg-accent-soft"
-                          >
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-text">
-                                {h.name}
-                              </p>
-                              <p className="text-xs text-muted">
-                                {h.brand} · مقاس {h.size}
-                                {h.color ? ` / ${h.color}` : ""}
-                              </p>
-                            </div>
-                            <span className="shrink-0 text-sm font-bold text-accent nums">
-                              {formatCurrency(h.price)}
-                            </span>
-                          </button>
-                        ))}
-                      </>
-                    )}
+                {/* «الأكثر مبيعاً» — تظهر عند تركيز حقل البحث وهو فارغ */}
+                {bestsellersOpen && (
+                  <div className="absolute z-20 mt-1 max-h-[70vh] w-full overflow-y-auto rounded-lg border bg-surface shadow-card">
+                    <div className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--surface-2)] px-3 py-1.5 text-[11px] font-bold text-muted">
+                      الأكثر مبيعاً
+                    </div>
+                    <div className="space-y-2 p-2">
+                      {bestsellers.map((p) => (
+                        <SearchResult
+                          key={`bs-${p.id}`}
+                          product={p}
+                          cart={cart}
+                          onAdd={addVariant}
+                        />
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>

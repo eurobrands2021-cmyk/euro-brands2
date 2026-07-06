@@ -911,38 +911,52 @@ export function mockListProducts(sp: URLSearchParams): ProductDTO[] {
   const brand = sp.get("brand");
   const size = sp.get("size");
   const withSales = sp.get("withSales") === "1";
+  const bestselling = sp.get("sort") === "bestselling";
+  const limitRaw = Number(sp.get("limit"));
+  const limit =
+    Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : null;
   const hasVariantFilter = !!(branch || size);
-  const soldMap = withSales ? soldCountByProduct() : null;
+  const soldMap = withSales || bestselling ? soldCountByProduct() : null;
 
   const matchVariant = (v: MVariant) =>
     (!branch || v.branch === branch) && (!size || v.size === size);
 
-  return store.products
-    .filter((p) => {
-      if (category && p.category !== category) return false;
-      if (brand && p.brand !== brand) return false;
-      if (search) {
-        const variantSkus = p.variants
-          .map((v) => v.sku ?? "")
-          .filter(Boolean)
-          .join(" ");
-        const nq = normalizeArabic(search);
-        const hay = normalizeArabic(
-          `${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""} ${variantSkus}`
+  const filtered = store.products.filter((p) => {
+    if (category && p.category !== category) return false;
+    if (brand && p.brand !== brand) return false;
+    if (search) {
+      const variantSkus = p.variants
+        .map((v) => v.sku ?? "")
+        .filter(Boolean)
+        .join(" ");
+      const nq = normalizeArabic(search);
+      const hay = normalizeArabic(
+        `${p.name} ${p.brand} ${p.sku ?? ""} ${p.barcode ?? ""} ${variantSkus}`
+      );
+      // مرادفات البراند (نايك ↔ Nike)
+      if (nq && !expandBrandQuery(nq).some((t) => hay.includes(t))) return false;
+    }
+    if (hasVariantFilter && !p.variants.some(matchVariant)) return false;
+    return true;
+  });
+
+  // «الأكثر مبيعاً»: المنتجات المباعة فقط مرتبة تنازلياً حسب الكمية المباعة
+  let ordered =
+    bestselling && soldMap
+      ? filtered
+          .filter((p) => (soldMap.get(p.id) ?? 0) > 0)
+          .sort((a, b) => (soldMap.get(b.id) ?? 0) - (soldMap.get(a.id) ?? 0))
+      : [...filtered].sort(
+          (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
         );
-        // مرادفات البراند (نايك ↔ Nike)
-        if (nq && !expandBrandQuery(nq).some((t) => hay.includes(t)))
-          return false;
-      }
-      if (hasVariantFilter && !p.variants.some(matchVariant)) return false;
-      return true;
-    })
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map((p) => {
-      const dto = shapeProduct(p, hasVariantFilter ? matchVariant : undefined);
-      if (soldMap) dto.soldCount = soldMap.get(p.id) ?? 0;
-      return dto;
-    });
+
+  if (limit) ordered = ordered.slice(0, limit);
+
+  return ordered.map((p) => {
+    const dto = shapeProduct(p, hasVariantFilter ? matchVariant : undefined);
+    if (soldMap) dto.soldCount = soldMap.get(p.id) ?? 0;
+    return dto;
+  });
 }
 
 export function mockGetProduct(id: string): ProductDTO | null {

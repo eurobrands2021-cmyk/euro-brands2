@@ -21,6 +21,11 @@ export async function GET(req: Request) {
     const brand = searchParams.get("brand");
     const size = searchParams.get("size");
     const withSales = searchParams.get("withSales") === "1";
+    const sort = searchParams.get("sort");
+    const bestselling = sort === "bestselling";
+    const limitRaw = Number(searchParams.get("limit"));
+    const limit =
+      Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : null;
 
     const where: Prisma.ProductWhereInput = {};
 
@@ -72,7 +77,7 @@ export async function GET(req: Request) {
       : allProducts;
 
     let soldMap: Map<string, number> | null = null;
-    if (withSales) {
+    if (withSales || bestselling) {
       const grouped = await prisma.saleItem.groupBy({
         by: ["productId"],
         _sum: { quantity: true },
@@ -80,8 +85,18 @@ export async function GET(req: Request) {
       soldMap = new Map(grouped.map((g) => [g.productId, g._sum.quantity ?? 0]));
     }
 
+    // ترتيب «الأكثر مبيعاً»: حسب إجمالي الكمية المباعة تنازلياً (المنتجات التي بيعت فقط)
+    let output = products;
+    if (bestselling && soldMap) {
+      const sold = soldMap;
+      output = [...products]
+        .filter((p) => (sold.get(p.id) ?? 0) > 0)
+        .sort((a, b) => (sold.get(b.id) ?? 0) - (sold.get(a.id) ?? 0));
+    }
+    if (limit) output = output.slice(0, limit);
+
     return ok(
-      products.map((p) =>
+      output.map((p) =>
         toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
       )
     );
