@@ -17,6 +17,8 @@ import {
   Printer,
   Tag,
   Bell,
+  Zap,
+  LayoutList,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { Card } from "@/components/ui/card";
@@ -24,7 +26,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { NumberInput, TextOnlyInput } from "@/components/ui/inputs";
 import { AddBrandModal } from "@/components/add-brand-modal";
 import { AddProductTypeModal } from "@/components/add-product-type-modal";
-import { QrCode as QrCanvas, Barcode128 } from "@/components/code-visuals";
+import { MarkdownField } from "@/components/markdown-field";
+import { QrImage, Barcode128 } from "@/components/code-visuals";
 import {
   TicketPrintModal,
   type TicketItem,
@@ -67,6 +70,10 @@ interface VariantRow {
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const DRAFT_KEY = "eb-product-draft";
+const MODE_KEY = "product_add_mode";
+
+// وضع الإضافة: «عادية» = المعالج الكامل بثلاث خطوات، «سريعة» = فورم مضغوط بحقل واحد.
+type AddMode = "normal" | "quick";
 
 const STEPS = [
   { n: 1, label: "المعلومات الأساسية" },
@@ -112,6 +119,27 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [step, setStep] = useState(1);
+  // وضع الإضافة (للمنتجات الجديدة فقط). الافتراضي «عادية»، ويُحفَظ الاختيار في localStorage.
+  const [mode, setMode] = useState<AddMode>("normal");
+  useEffect(() => {
+    if (isEdit) return;
+    try {
+      const saved = localStorage.getItem(MODE_KEY);
+      if (saved === "quick" || saved === "normal") setMode(saved);
+    } catch {
+      /* تجاهل */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function changeMode(next: AddMode) {
+    setMode(next);
+    try {
+      localStorage.setItem(MODE_KEY, next);
+    } catch {
+      /* تجاهل */
+    }
+  }
+
   const [name, setName] = useState(initial?.name ?? "");
   const [brand, setBrand] = useState(initial?.brand ?? "");
   const [category, setCategory] = useState<CategoryValue>(
@@ -318,10 +346,6 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
     return null;
   }
 
-  function previewSku(row: VariantRow): string {
-    return rowSku(row) ?? "—";
-  }
-
   function copyToOtherBranch() {
     setVariants((rows) => {
       const additions: VariantRow[] = [];
@@ -409,39 +433,23 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
     if (typeof window !== "undefined") window.scrollTo({ top: 0 });
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!validateStep1()) {
-      setStep(1);
-      return;
-    }
-    if (!validateStep2()) {
-      setStep(2);
-      return;
-    }
-
-    const payload: ProductInput = {
-      name: name.trim(),
-      brand: brand.trim(),
-      category,
-      description: description.trim() || null,
-      barcode: barcode.trim() || null,
-      images,
-      productTypeId: productTypeId || null,
-      variants: variants.map((r) => ({
-        id: r.id,
-        branch: r.branch,
-        size: r.size,
-        color: r.color.trim() || null,
-        quantity: Math.max(0, Math.floor(Number(r.quantity) || 0)),
-        minQuantity: Math.max(0, Math.floor(Number(r.minQuantity) || 0)),
-        alertOnLowStock: r.alertOnLowStock,
-        price: Math.max(0, Number(r.price) || 0),
-        sku: r.sku.trim() || null,
-        skuManual: r.skuManual,
-      })),
+  function toVariantInput(r: VariantRow) {
+    return {
+      id: r.id,
+      branch: r.branch,
+      size: r.size,
+      color: r.color.trim() || null,
+      quantity: Math.max(0, Math.floor(Number(r.quantity) || 0)),
+      minQuantity: Math.max(0, Math.floor(Number(r.minQuantity) || 0)),
+      alertOnLowStock: r.alertOnLowStock,
+      price: Math.max(0, Number(r.price) || 0),
+      sku: r.sku.trim() || null,
+      skuManual: r.skuManual,
     };
+  }
 
+  // حفظ الحمولة على الخادم (مشترك بين الوضع العادي والسريع).
+  async function persist(payload: ProductInput) {
     setSaving(true);
     try {
       if (isEdit) {
@@ -461,6 +469,51 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validateStep1()) {
+      setStep(1);
+      return;
+    }
+    if (!validateStep2()) {
+      setStep(2);
+      return;
+    }
+
+    await persist({
+      name: name.trim(),
+      brand: brand.trim(),
+      category,
+      description: description.trim() || null,
+      barcode: barcode.trim() || null,
+      images,
+      productTypeId: productTypeId || null,
+      variants: variants.map(toVariantInput),
+    });
+  }
+
+  // إضافة سريعة: حقول أساسية + صنف واحد، تُحفَظ فوراً بلا خطوات.
+  async function handleQuickSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!validateStep1()) return;
+    const v = variants[0];
+    if (!v || !v.size) {
+      toast.error("يجب اختيار المقاس");
+      return;
+    }
+
+    await persist({
+      name: name.trim(),
+      brand: brand.trim(),
+      category,
+      description: description.trim() || null,
+      barcode: barcode.trim() || null,
+      images,
+      productTypeId: productTypeId || null,
+      variants: [toVariantInput(v)],
+    });
   }
 
   // ------ تجميع عناصر التيكيت للطباعة ------
@@ -510,13 +563,55 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
     });
   }
 
+  const quickMode = !isEdit && mode === "quick";
+
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form
+      onSubmit={quickMode ? handleQuickSubmit : handleSubmit}
+      className="space-y-4"
+    >
+      {/* اختيار وضع الإضافة (للمنتجات الجديدة فقط) */}
+      {!isEdit && <ModeSwitch mode={mode} onChange={changeMode} />}
+
+      {quickMode && (
+        <QuickAddForm
+          name={name}
+          setName={setName}
+          brand={brand}
+          setBrand={setBrand}
+          category={category}
+          onCategoryChange={(c) => {
+            setCategory(c);
+            setBrand("");
+            setVariants((rows) =>
+              rows.map((r) => (r.skuManual ? r : { ...r, sku: "" }))
+            );
+          }}
+          brandOptions={brandOptions}
+          onAddBrand={() => setBrandModalOpen(true)}
+          productTypeId={productTypeId}
+          setProductTypeId={setProductTypeId}
+          typeOptions={typeOptions}
+          typePlaceholder={typePlaceholder}
+          typesLoading={typesLoading}
+          typesError={!!typesError}
+          onAddType={() => setTypeModalOpen(true)}
+          sizeOptions={sizeOptions}
+          row={variants[0]}
+          autoPreview={variants[0] ? rowSku(variants[0]) : null}
+          onPatchRow={(patch) =>
+            variants[0] && updateRow(variants[0].clientId, patch)
+          }
+          saving={saving}
+          onCancel={() => router.push("/inventory")}
+        />
+      )}
+
       {/* مؤشر الخطوات */}
-      <Stepper current={step} onStep={setStep} />
+      {!quickMode && <Stepper current={step} onStep={setStep} />}
 
       {/* الخطوة 1: المعلومات الأساسية */}
-      {step === 1 && (
+      {!quickMode && step === 1 && (
         <Card className="p-4">
           <h2 className="mb-3 text-base font-bold text-text">
             المعلومات الأساسية
@@ -644,12 +739,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
 
             <div className="sm:col-span-2">
               <label className="label">الوصف</label>
-              <textarea
-                className="input min-h-[80px] resize-y"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="وصف اختياري للمنتج..."
-              />
+              <MarkdownField value={description} onChange={setDescription} />
             </div>
           </div>
         </Card>
@@ -698,14 +788,13 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
           </div>
 
           <div className="space-y-2">
-            <div className="hidden gap-2 px-1 text-xs font-medium text-muted sm:grid sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_1.3fr_auto]">
+            <div className="hidden gap-2 px-1 text-xs font-medium text-muted sm:grid sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_auto]">
               <span>الفرع</span>
               <span>المقاس</span>
               <span>اللون</span>
               <span>الكمية</span>
               <span>الحد الأدنى</span>
               <span>السعر</span>
-              <span>كود SKU</span>
               <span></span>
             </div>
 
@@ -715,7 +804,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                 className="rounded-lg border p-3 sm:p-2.5"
               >
               <div
-                className="grid grid-cols-2 gap-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_1.3fr_auto] sm:h-9 sm:items-center sm:gap-2"
+                className="grid grid-cols-2 gap-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_auto] sm:h-9 sm:items-center sm:gap-2"
               >
                 <VariantField label="الفرع">
                   <select
@@ -798,36 +887,6 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                   />
                 </VariantField>
 
-                <VariantField label="كود الصنف (SKU)">
-                  <div className="flex gap-1">
-                    <input
-                      className={`input nums sm:h-9 sm:py-1 ${row.skuManual ? "" : "text-muted"}`}
-                      value={row.sku}
-                      placeholder={
-                        row.skuManual ? "" : previewSku(row) || "تلقائي عند الحفظ"
-                      }
-                      onChange={(e) =>
-                        updateRow(row.clientId, {
-                          sku: e.target.value,
-                          skuManual: e.target.value.trim().length > 0,
-                        })
-                      }
-                    />
-                    {row.skuManual && (
-                      <button
-                        type="button"
-                        className="btn btn-ghost h-[38px] flex-shrink-0 !px-2 text-muted sm:h-9"
-                        onClick={() =>
-                          updateRow(row.clientId, { sku: "", skuManual: false })
-                        }
-                        title="إعادة للتوليد التلقائي"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </VariantField>
-
                 <button
                   type="button"
                   onClick={() =>
@@ -845,6 +904,13 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                   <span className="sm:hidden">حذف الصف</span>
                 </button>
               </div>
+
+              {/* التحكم في كود SKU: توليد تلقائي أو إدخال يدوي */}
+              <SkuControl
+                row={row}
+                autoPreview={rowSku(row)}
+                onPatch={(patch) => updateRow(row.clientId, patch)}
+              />
 
               {/* تفعيل تنبيه الجرس عند بلوغ الحد الأدنى لهذا الصنف */}
               <label
@@ -1038,22 +1104,22 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                     </div>
 
                     {sku ? (
-                      <div className="flex items-center gap-3">
-                        <div className="shrink-0 rounded-md bg-white p-1.5">
-                          <QrCanvas value={publicProductUrl(sku)} size={64} />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex items-center gap-1 text-[11px] text-muted">
-                            <Tag className="h-3 w-3" />
-                            <span className="truncate nums">{sku}</span>
+                      <div className="rounded-lg border bg-white p-2.5">
+                        <div className="flex items-center gap-3">
+                          <div className="shrink-0">
+                            <QrImage value={publicProductUrl(sku)} size={120} />
                           </div>
-                          <div className="rounded-md bg-white p-1.5">
+                          <div className="flex min-w-0 flex-1 flex-col items-center gap-1.5">
                             <Barcode128
                               value={sku}
-                              height={34}
-                              width={1.2}
-                              fontSize={10}
+                              height={44}
+                              width={1.3}
+                              fontSize={11}
                             />
+                            <div className="flex max-w-full items-center gap-1 text-[11px] text-black/70">
+                              <Tag className="h-3 w-3 shrink-0" />
+                              <span className="truncate nums">{sku}</span>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -1071,6 +1137,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
       )}
 
       {/* التنقّل بين الخطوات — مثبّت أسفل الشاشة على الموبايل ليبقى في المتناول */}
+      {!quickMode && (
       <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t bg-[var(--bg)] py-3 sm:static sm:border-0 sm:bg-transparent sm:py-0">
         <div>
           {step > 1 && (
@@ -1123,6 +1190,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
           )}
         </div>
       </div>
+      )}
 
       <AddBrandModal
         open={brandModalOpen}
@@ -1210,6 +1278,406 @@ function Stepper({
             </div>
           );
         })}
+      </div>
+    </Card>
+  );
+}
+
+// مبدّل وضع الإضافة: «عادية» (المعالج الكامل) أو «سريعة» (فورم مضغوط).
+function ModeSwitch({
+  mode,
+  onChange,
+}: {
+  mode: AddMode;
+  onChange: (m: AddMode) => void;
+}) {
+  const options: {
+    value: AddMode;
+    label: string;
+    hint: string;
+    icon: typeof Zap;
+  }[] = [
+    {
+      value: "normal",
+      label: "إضافة عادية",
+      hint: "معالج كامل بثلاث خطوات",
+      icon: LayoutList,
+    },
+    {
+      value: "quick",
+      label: "إضافة سريعة",
+      hint: "فورم واحد مختصر",
+      icon: Zap,
+    },
+  ];
+  return (
+    <Card className="p-2">
+      <div className="grid grid-cols-2 gap-2">
+        {options.map((o) => {
+          const active = mode === o.value;
+          const Icon = o.icon;
+          return (
+            <button
+              key={o.value}
+              type="button"
+              onClick={() => onChange(o.value)}
+              className={cn(
+                "flex items-center gap-2.5 rounded-lg border p-2.5 text-right transition-colors",
+                active
+                  ? "border-accent bg-accent-soft"
+                  : "border-[var(--border)] hover:bg-[var(--surface-2)]"
+              )}
+            >
+              <span
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                  active
+                    ? "bg-accent text-white"
+                    : "bg-[var(--surface-2)] text-muted"
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <span
+                  className={cn(
+                    "block text-sm font-bold",
+                    active ? "text-accent" : "text-text"
+                  )}
+                >
+                  {o.label}
+                </span>
+                <span className="block truncate text-[11px] text-muted">
+                  {o.hint}
+                </span>
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Card>
+  );
+}
+
+// التحكم في كود SKU لصنف واحد: تبديل بين التوليد التلقائي والإدخال اليدوي،
+// مع عرض القيمة الحالية بوضوح في الوضعين وزر إعادة توليد في الوضع التلقائي.
+function SkuControl({
+  row,
+  autoPreview,
+  onPatch,
+}: {
+  row: VariantRow;
+  autoPreview: string | null;
+  onPatch: (patch: Partial<VariantRow>) => void;
+}) {
+  const auto = !row.skuManual;
+  return (
+    <div className="mt-2.5 rounded-lg border p-2.5 sm:mt-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1 text-xs font-medium text-muted">
+          <Tag className="h-3.5 w-3.5" />
+          كود SKU
+        </span>
+        <div className="inline-flex rounded-md border p-0.5 text-[11px]">
+          <button
+            type="button"
+            onClick={() => onPatch({ sku: "", skuManual: false })}
+            className={cn(
+              "rounded px-2 py-1 font-medium transition-colors",
+              auto ? "bg-accent text-white" : "text-muted hover:text-text"
+            )}
+          >
+            توليد تلقائي {auto ? "✓" : ""}
+          </button>
+          <button
+            type="button"
+            onClick={() => onPatch({ skuManual: true })}
+            className={cn(
+              "rounded px-2 py-1 font-medium transition-colors",
+              !auto ? "bg-accent text-white" : "text-muted hover:text-text"
+            )}
+          >
+            إدخال يدوي {!auto ? "✓" : ""}
+          </button>
+        </div>
+
+        {auto ? (
+          <div className="flex flex-1 basis-full items-center gap-1.5 sm:basis-0">
+            <div className="input nums flex min-w-0 flex-1 items-center truncate text-muted">
+              {autoPreview ?? "يُولَّد تلقائياً عند الحفظ"}
+            </div>
+            <button
+              type="button"
+              className="btn btn-secondary h-9 shrink-0 whitespace-nowrap text-xs"
+              onClick={() => {
+                onPatch({ sku: "" });
+                toast("🔄 سيُعاد توليد الكود من القيم الحالية عند الحفظ");
+              }}
+              title="إعادة توليد الكود التلقائي"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              إعادة توليد
+            </button>
+          </div>
+        ) : (
+          <input
+            className="input nums flex-1 basis-full sm:basis-0"
+            value={row.sku}
+            placeholder="أدخل كود الصنف يدوياً"
+            onChange={(e) =>
+              onPatch({ sku: e.target.value, skuManual: true })
+            }
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// فورم «الإضافة السريعة»: حقول أساسية + صنف واحد، يُحفَظ فوراً بلا خطوات.
+function QuickAddForm({
+  name,
+  setName,
+  brand,
+  setBrand,
+  category,
+  onCategoryChange,
+  brandOptions,
+  onAddBrand,
+  productTypeId,
+  setProductTypeId,
+  typeOptions,
+  typePlaceholder,
+  typesLoading,
+  typesError,
+  onAddType,
+  sizeOptions,
+  row,
+  autoPreview,
+  onPatchRow,
+  saving,
+  onCancel,
+}: {
+  name: string;
+  setName: (v: string) => void;
+  brand: string;
+  setBrand: (v: string) => void;
+  category: CategoryValue;
+  onCategoryChange: (c: CategoryValue) => void;
+  brandOptions: string[];
+  onAddBrand: () => void;
+  productTypeId: string;
+  setProductTypeId: (v: string) => void;
+  typeOptions: ProductTypeDTO[];
+  typePlaceholder: string;
+  typesLoading: boolean;
+  typesError: boolean;
+  onAddType: () => void;
+  sizeOptions: readonly string[];
+  row: VariantRow | undefined;
+  autoPreview: string | null;
+  onPatchRow: (patch: Partial<VariantRow>) => void;
+  saving: boolean;
+  onCancel: () => void;
+}) {
+  return (
+    <Card className="p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Zap className="h-4 w-4 text-accent" />
+        <h2 className="text-base font-bold text-text">إضافة سريعة</h2>
+        <span className="text-xs text-muted">
+          — الحقول الأساسية وصنف واحد، يُحفَظ فوراً.
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="sm:col-span-2">
+          <label className="label">اسم المنتج *</label>
+          <TextOnlyInput
+            className="input"
+            value={name}
+            onChange={setName}
+            placeholder="مثال: تيشيرت قطن كلاسيك"
+          />
+        </div>
+
+        <div>
+          <label className="label">الفئة *</label>
+          <select
+            className="input"
+            value={category}
+            onChange={(e) => onCategoryChange(e.target.value as CategoryValue)}
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c} value={c}>
+                {CATEGORY_LABELS[c]}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="label">البراند *</label>
+          <div className="flex gap-2">
+            <select
+              className="input"
+              value={brand}
+              onChange={(e) => setBrand(e.target.value)}
+            >
+              <option value="">اختر البراند</option>
+              {brandOptions.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+              {brand && !brandOptions.includes(brand) && (
+                <option value={brand}>{brand}</option>
+              )}
+            </select>
+            <button
+              type="button"
+              onClick={onAddBrand}
+              className="btn btn-secondary flex-shrink-0"
+              title="إضافة براند جديد"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="sm:col-span-2">
+          <label className="label">نوع المنتج</label>
+          <div className="flex gap-2">
+            <select
+              className="input"
+              value={productTypeId}
+              onChange={(e) => setProductTypeId(e.target.value)}
+              disabled={typesLoading || typesError}
+            >
+              <option value="">{typePlaceholder}</option>
+              {typeOptions.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name} ({t.code})
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              onClick={onAddType}
+              className="btn btn-secondary flex-shrink-0"
+              title="إضافة نوع جديد"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* صنف واحد */}
+      {row && (
+        <div className="mt-4 rounded-lg border p-3">
+          <h3 className="mb-2.5 text-sm font-bold text-text">الصنف</h3>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div>
+              <label className="label">الفرع</label>
+              <select
+                className="input"
+                value={row.branch}
+                onChange={(e) =>
+                  onPatchRow({
+                    branch: e.target.value as BranchValue,
+                    ...(row.skuManual ? {} : { sku: "" }),
+                  })
+                }
+              >
+                {BRANCHES.map((b) => (
+                  <option key={b} value={b}>
+                    {BRANCH_LABELS[b]}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="label">المقاس *</label>
+              <select
+                className="input"
+                value={row.size}
+                onChange={(e) =>
+                  onPatchRow({
+                    size: e.target.value,
+                    ...(row.skuManual ? {} : { sku: "" }),
+                  })
+                }
+              >
+                <option value="">المقاس</option>
+                {sizeOptions.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+                {row.size && !sizeOptions.includes(row.size) && (
+                  <option value={row.size}>{row.size}</option>
+                )}
+              </select>
+            </div>
+
+            <div>
+              <label className="label">اللون</label>
+              <input
+                className="input"
+                value={row.color}
+                onChange={(e) =>
+                  onPatchRow({
+                    color: e.target.value,
+                    ...(row.skuManual ? {} : { sku: "" }),
+                  })
+                }
+                placeholder="أحمر / أسود…"
+              />
+            </div>
+
+            <div>
+              <label className="label">الكمية</label>
+              <NumberInput
+                className="input nums"
+                value={row.quantity}
+                onChange={(v) => onPatchRow({ quantity: v })}
+              />
+            </div>
+
+            <div>
+              <label className="label">السعر (ج.م) *</label>
+              <NumberInput
+                decimal
+                className="input nums"
+                value={row.price}
+                onChange={(v) => onPatchRow({ price: v })}
+              />
+            </div>
+          </div>
+
+          <SkuControl row={row} autoPreview={autoPreview} onPatch={onPatchRow} />
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={onCancel}
+          disabled={saving}
+        >
+          إلغاء
+        </button>
+        <button type="submit" className="btn btn-primary" disabled={saving}>
+          {saving ? (
+            <Spinner className="h-4 w-4" />
+          ) : (
+            <Save className="h-4 w-4" />
+          )}
+          حفظ المنتج
+        </button>
       </div>
     </Card>
   );
