@@ -15,7 +15,7 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 type CustomerRow = {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   visitCount: number;
   totalSpent: number;
   lastVisitAt: Date | null;

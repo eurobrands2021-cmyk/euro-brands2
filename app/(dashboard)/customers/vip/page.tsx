@@ -193,7 +193,7 @@ export default function VipCustomersPage() {
                         {c.name}
                       </Link>
                     </td>
-                    <td className="px-3 py-3 text-muted nums">{c.phone}</td>
+                    <td className="px-3 py-3 text-muted nums">{c.phone || "—"}</td>
                     <td className="px-3 py-3 text-text nums">
                       {formatNumber(c.visitCount)}
                     </td>
@@ -240,7 +240,7 @@ export default function VipCustomersPage() {
                       <span className="truncate">{c.name}</span>
                       {vipIds.has(c.id) && <VipBadge />}
                     </p>
-                    <p className="mt-0.5 text-xs text-muted nums">{c.phone}</p>
+                    <p className="mt-0.5 text-xs text-muted nums">{c.phone || "—"}</p>
                   </div>
                   {c.branch && <BranchBadge branch={c.branch} />}
                 </div>

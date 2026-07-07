@@ -35,7 +35,7 @@ import {
   PhoneInput,
   TextOnlyInput,
 } from "@/components/ui/inputs";
-import { isCompleteEgyPhone } from "@/lib/input-validators";
+import { isCompleteEgyPhone, digitsOnly } from "@/lib/input-validators";
 import { extractSkuFromScan } from "@/lib/public-url";
 import { normalizeArabic } from "@/lib/normalize";
 import { addPendingSale } from "@/lib/offline-db";
@@ -396,16 +396,18 @@ function PosRegister({
 
   // ملء اسم العميل تلقائياً عند اكتمال رقم الهاتف (11 رقماً) — دون نقر إضافي
   useEffect(() => {
-    if (!isCompleteEgyPhone(customerPhone)) return;
+    // نطبّع الرقم لأرقام فقط (11 رقماً = بادئة + 8) قبل البحث والمطابقة
+    const digits = digitsOnly(customerPhone);
+    if (!isCompleteEgyPhone(digits)) return;
     let cancelled = false;
     setCustomerLookupLoading(true);
     apiGet<CustomerListResponse>(
-      `/api/customers?phone=${encodeURIComponent(customerPhone)}`
+      `/api/customers?phone=${encodeURIComponent(digits)}`
     )
       .then((res) => {
         if (cancelled) return;
         const exact =
-          res.customers.find((c) => c.phone === customerPhone) ??
+          res.customers.find((c) => c.phone === digits) ??
           res.customers[0] ??
           null;
         if (exact) {

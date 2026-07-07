@@ -188,7 +188,7 @@ interface MBrand {
 interface MCustomer {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   totalSpent: number;
   visitCount: number;
   lastVisitAt: Date | null;
@@ -838,19 +838,24 @@ function upsertCustomerOnSale(input: {
   finalAmount: number;
   saveAsNewCustomer: boolean;
 }) {
-  if (!input.phone) return;
-  const existing = store.customers.find((c) => c.phone === input.phone);
+  // يكفي وجود الاسم أو الهاتف
+  if (!input.phone && !input.name) return;
+
+  const existing = input.phone
+    ? store.customers.find((c) => c.phone === input.phone)
+    : undefined;
   if (existing) {
     existing.totalSpent = round2(existing.totalSpent + input.finalAmount);
     existing.visitCount += 1;
     existing.lastVisitAt = new Date();
     existing.updatedAt = new Date();
-  } else if (input.saveAsNewCustomer) {
+  } else if (input.saveAsNewCustomer && (input.phone || input.name)) {
     const now = new Date();
     store.customers.unshift({
       id: nextId("cust"),
+      // هاتف فقط → اسم افتراضي «عميل»
       name: input.name || "عميل",
-      phone: input.phone,
+      phone: input.phone || null,
       totalSpent: round2(input.finalAmount),
       visitCount: 1,
       lastVisitAt: now,
@@ -1695,7 +1700,7 @@ export function mockListVipCustomers(sp: URLSearchParams): VipCustomerDTO[] {
         if (bestCat === category) phones.add(phone);
       }
       list = list
-        .filter((c) => phones.has(c.phone))
+        .filter((c) => c.phone != null && phones.has(c.phone))
         .sort((a, b) => b.totalSpent - a.totalSpent);
       break;
     }
@@ -1720,7 +1725,7 @@ export function mockGetCustomer(
 }
 
 export function mockCreateCustomer(input: CustomerInput): CustomerDTO {
-  if (store.customers.some((c) => c.phone === input.phone))
+  if (input.phone && store.customers.some((c) => c.phone === input.phone))
     throw new ValidationError("يوجد عميل مسجّل بهذا الرقم بالفعل");
   const now = new Date();
   const c: MCustomer = {

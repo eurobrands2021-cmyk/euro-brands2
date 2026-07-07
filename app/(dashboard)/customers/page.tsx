@@ -115,7 +115,7 @@ export default function CustomersPage() {
                         {c.name}
                       </Link>
                     </td>
-                    <td className="px-3 py-3 text-muted nums">{c.phone}</td>
+                    <td className="px-3 py-3 text-muted nums">{c.phone || "—"}</td>
                     <td className="px-3 py-3 text-text nums">
                       {formatNumber(c.visitCount)}
                     </td>
@@ -149,7 +149,7 @@ export default function CustomersPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="font-bold text-text">{c.name}</p>
-                    <p className="mt-0.5 text-xs text-muted nums">{c.phone}</p>
+                    <p className="mt-0.5 text-xs text-muted nums">{c.phone || "—"}</p>
                   </div>
                   {c.branch && <BranchBadge branch={c.branch} />}
                 </div>

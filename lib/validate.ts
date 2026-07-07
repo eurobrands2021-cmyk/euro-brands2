@@ -305,9 +305,14 @@ export function parseSaleInput(body: any): SaleInput {
 // التحقق من مدخلات العميل (إنشاء)
 export function parseCustomerInput(body: any): CustomerInput {
   const name = asString(body?.name);
-  const phone = digitsOnly(asString(body?.phone));
-  if (!name) throw new ValidationError("اسم العميل مطلوب");
-  if (!isCompleteEgyPhone(phone))
+  const rawPhone = digitsOnly(asString(body?.phone));
+
+  // يكفي إدخال أحدهما: الاسم أو الهاتف
+  if (!name && !rawPhone)
+    throw new ValidationError("أدخل اسم العميل أو رقم هاتفه على الأقل");
+
+  // لو أُدخل هاتف فيجب أن يكون كاملاً وصحيحاً (11 رقماً ببادئة مصرية)
+  if (rawPhone && !isCompleteEgyPhone(rawPhone))
     throw new ValidationError("رقم الهاتف غير صحيح — يجب أن يكون 11 رقماً");
 
   const branch = asString(body?.branch) || null;
@@ -315,8 +320,10 @@ export function parseCustomerInput(body: any): CustomerInput {
     throw new ValidationError("الفرع غير صحيح");
 
   return {
-    name,
-    phone,
+    // هاتف فقط دون اسم → اسم افتراضي «عميل»
+    name: name || "عميل",
+    // اسم فقط دون هاتف → الهاتف null
+    phone: rawPhone || null,
     branch: (branch as BranchValue | null) ?? null,
     notes: asString(body?.notes) || null,
   };

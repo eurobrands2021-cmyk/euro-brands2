@@ -4,6 +4,7 @@ import { forwardRef, useId, useMemo } from "react";
 import {
   EGY_PHONE_PREFIXES,
   composeEgyPhone,
+  digitsOnly,
   egyPhoneLabel,
   isNumericKeyAllowed,
   isTextOnlyKeyAllowed,
@@ -169,6 +170,19 @@ export function PhoneInput({
           maxLength={8}
           disabled={disabled}
           onChange={(rest8) => onChange(composeEgyPhone(prefix, rest8))}
+          onPaste={(e) => {
+            // لصق رقم كامل (11 رقماً ببادئة مصرية) في خانة الأرقام → أعد
+            // تقسيمه لبادئة + 8 أرقام بدل قصّه، حتى يُملأ الاسم تلقائياً.
+            const digits = digitsOnly(e.clipboardData.getData("text"));
+            if (
+              digits.length >= 11 &&
+              EGY_PHONE_PREFIXES.some((p) => digits.startsWith(p.prefix))
+            ) {
+              e.preventDefault();
+              const parsed = splitEgyPhone(digits);
+              onChange(composeEgyPhone(parsed.prefix, parsed.rest));
+            }
+          }}
         />
       </div>
       {showHint && (

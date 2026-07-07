@@ -298,7 +298,7 @@ export async function collectExport(
       ],
       rows: customers.map((c) => [
         c.name,
-        c.phone,
+        c.phone ?? "",
         c.totalSpent,
         c.visitCount,
         fmtDate(c.lastVisitAt),

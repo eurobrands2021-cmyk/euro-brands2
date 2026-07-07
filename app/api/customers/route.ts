@@ -90,10 +90,14 @@ export async function POST(req: Request) {
 
     if (MOCK_MODE) return ok(mockCreateCustomer(input), 201);
 
-    const existing = await prisma.customer.findUnique({
-      where: { phone: input.phone },
-    });
-    if (existing) throw new ValidationError("يوجد عميل مسجّل بهذا الرقم بالفعل");
+    // فحص التكرار على الهاتف فقط عند وجوده (العملاء بلا هاتف مسموح بتكرارهم)
+    if (input.phone) {
+      const existing = await prisma.customer.findUnique({
+        where: { phone: input.phone },
+      });
+      if (existing)
+        throw new ValidationError("يوجد عميل مسجّل بهذا الرقم بالفعل");
+    }
 
     const created = await prisma.customer.create({
       data: {

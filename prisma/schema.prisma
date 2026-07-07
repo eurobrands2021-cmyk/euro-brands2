@@ -221,7 +221,7 @@ model SaleItem {
 model Customer {
   id          String    @id @default(cuid())
   name        String
-  phone       String    @unique
+  phone       String?   @unique // اختياري — يُحفظ العميل بالاسم أو الهاتف (أحدهما يكفي)
   totalSpent  Float     @default(0)
   visitCount  Int       @default(0)
   lastVisitAt DateTime?

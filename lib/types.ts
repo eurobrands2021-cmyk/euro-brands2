@@ -234,7 +234,7 @@ export interface SaleInput {
 export interface CustomerDTO {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   totalSpent: number;
   visitCount: number;
   lastVisitAt: string | null;
@@ -252,7 +252,7 @@ export interface CustomerDetailDTO extends CustomerDTO {
 export interface VipCustomerDTO {
   id: string;
   name: string;
-  phone: string;
+  phone: string | null;
   visitCount: number;
   totalSpent: number;
   avgSale: number; // totalSpent / visitCount
@@ -274,7 +274,7 @@ export type VipFilter = (typeof VIP_FILTERS)[number];
 
 export interface CustomerInput {
   name: string;
-  phone: string;
+  phone: string | null;
   branch?: BranchValue | null;
   notes?: string | null;
 }

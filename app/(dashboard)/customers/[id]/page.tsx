@@ -107,7 +107,7 @@ export default function CustomerDetailPage() {
             )}
             <p className="mt-1 flex items-center gap-1.5 text-sm text-muted nums">
               <Phone className="h-4 w-4" />
-              {data.phone}
+              {data.phone || "بدون رقم"}
             </p>
           </div>
 

@@ -175,7 +175,7 @@ export async function POST(req: Request) {
           });
           const saleNumber = (last?.saleNumber ?? 0) + 1;
 
-          // تحديث/إنشاء العميل تلقائياً برقم هاتفه (إن وُجد)
+          // تحديث/إنشاء العميل تلقائياً — يكفي وجود الاسم أو الهاتف
           if (input.customerPhone) {
             const existingCustomer = await tx.customer.findUnique({
               where: { phone: input.customerPhone },
@@ -189,10 +189,11 @@ export async function POST(req: Request) {
                   lastVisitAt: new Date(),
                 },
               });
-            } else if (input.saveAsNewCustomer && input.customerName) {
+            } else if (input.saveAsNewCustomer) {
+              // هاتف موجود دون اسم → اسم افتراضي «عميل»
               await tx.customer.create({
                 data: {
-                  name: input.customerName,
+                  name: input.customerName || "عميل",
                   phone: input.customerPhone,
                   branch: input.branch as Branch,
                   totalSpent: finalAmount,
@@ -201,6 +202,18 @@ export async function POST(req: Request) {
                 },
               });
             }
+          } else if (input.saveAsNewCustomer && input.customerName) {
+            // اسم فقط دون هاتف → عميل بلا رقم
+            await tx.customer.create({
+              data: {
+                name: input.customerName,
+                phone: null,
+                branch: input.branch as Branch,
+                totalSpent: finalAmount,
+                visitCount: 1,
+                lastVisitAt: new Date(),
+              },
+            });
           }
 
           return tx.sale.create({
