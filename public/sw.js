@@ -1,21 +1,34 @@
 /* عامل خدمة Euro Brands — دعم وضع عدم الاتصال لنقطة البيع.
  *
  * الاستراتيجية:
- *  - أصول ثابتة وصور المنتجات: Cache-first (تُخبَّأ عند أول جلب).
+ *  - قشرة التطبيق (HTML) + الأصول الثابتة (JS/CSS/صور/خطوط): تُخبَّأ عند أول
+ *    جلب ناجح وتُخدَم من التخبئة عند عدم الاتصال (Cache-first للأصول المُجزّأة
+ *    غير المتغيّرة تحت /_next/static، وNetwork-first للتنقّل بين الصفحات).
  *  - GET /api/products: Network-first مع الرجوع للتخبئة عند انقطاع الشبكة،
  *    فتعمل نقطة البيع بالأسعار والكميات المخبّأة عند عدم الاتصال.
  *  - POST /api/sales: إن فشلت الشبكة تُخزَّن الفاتورة في IndexedDB (نفس
  *    طابور العميل) وتُعاد استجابة 202 {queued:true} حتى تُزامَن لاحقاً.
+ *  - أي تنقّل يفشل دون وجود نسخة مخبّأة: تُخدَم صفحة offline.html بدل شاشة
+ *    فارغة، فلا تصبح الصفحة بيضاء أبداً عند انقطاع الاتصال.
  */
 
-const CACHE_VERSION = "eb-cache-v1";
-const API_CACHE = "eb-api-v1";
+const CACHE_VERSION = "eb-cache-v2";
+const API_CACHE = "eb-api-v2";
+const OFFLINE_URL = "/offline.html";
 const OFFLINE_DB = "eb-offline";
 const OFFLINE_DB_VERSION = 1;
 const PENDING_STORE = "pendingSales";
 
-// أصول التطبيق الأساسية التي نحاول تخبئتها عند التثبيت (تجاهل الفشل بأمان).
-const APP_SHELL = ["/", "/pos", "/manifest.json", "/logo.svg"];
+// أصول قشرة التطبيق التي نحاول تخبئتها عند التثبيت (تجاهل الفشل بأمان).
+// الأصول المُجزّأة (JS/CSS) تُخبَّأ لحظياً عند أول جلب لأن أسماءها ديناميكية.
+const APP_SHELL = [
+  "/",
+  "/pos",
+  "/login",
+  OFFLINE_URL,
+  "/manifest.json",
+  "/logo.svg",
+];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
@@ -86,12 +99,40 @@ function isProductsApi(url) {
 function isSalesApi(url) {
   return url.pathname === "/api/sales";
 }
+// الأصول الثابتة المُجزّأة من Next لا تتغيّر (أسماؤها تحمل بصمة) — Cache-first.
+function isImmutableAsset(url, request) {
+  if (url.pathname.startsWith("/_next/static/")) return true;
+  if (url.pathname.startsWith("/_next/image")) return true;
+  const dest = request.destination;
+  return (
+    dest === "image" ||
+    dest === "style" ||
+    dest === "script" ||
+    dest === "font"
+  );
+}
+
+// خبّئ الاستجابة بأمان: فقط الاستجابات الناجحة وغير المُعاد توجيهها.
+async function cachePut(cacheName, request, response) {
+  if (!response || !response.ok || response.redirected) return;
+  try {
+    const cache = await caches.open(cacheName);
+    await cache.put(request, response.clone());
+  } catch {
+    /* تجاهل أخطاء التخبئة (استجابات غير قابلة للتخزين) */
+  }
+}
 
 self.addEventListener("fetch", (event) => {
   const { request } = event;
-  const url = new URL(request.url);
+  let url;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return;
+  }
 
-  // نتعامل فقط مع طلبات نفس الأصل
+  // نتعامل فقط مع طلبات GET/POST من نفس الأصل
   if (url.origin !== self.location.origin) return;
 
   // GET /api/products — Network-first ثم التخبئة
@@ -100,13 +141,16 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         try {
           const res = await fetch(request);
-          const cache = await caches.open(API_CACHE);
-          cache.put(request, res.clone());
+          await cachePut(API_CACHE, request, res);
           return res;
         } catch (err) {
           const cached = await caches.match(request);
           if (cached) return cached;
-          throw err;
+          // لا نسخة مخبّأة — أعِد استجابة فارغة صالحة بدل رمي الخطأ
+          return new Response(JSON.stringify([]), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          });
         }
       })()
     );
@@ -123,13 +167,10 @@ self.addEventListener("fetch", (event) => {
           try {
             const payload = await request.clone().json();
             const id = await queueSale(payload);
-            return new Response(
-              JSON.stringify({ queued: true, id }),
-              {
-                status: 202,
-                headers: { "Content-Type": "application/json" },
-              }
-            );
+            return new Response(JSON.stringify({ queued: true, id }), {
+              status: 202,
+              headers: { "Content-Type": "application/json" },
+            });
           } catch (e) {
             return new Response(
               JSON.stringify({ error: "تعذّر حفظ الفاتورة دون اتصال" }),
@@ -142,18 +183,24 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // طلبات التنقّل (فتح صفحة) — Network-first ثم الصفحة المخبّأة ثم "/"
+  // بقية الطلبات نتعامل معها كـ GET فقط
+  if (request.method !== "GET") return;
+
+  // طلبات التنقّل (فتح صفحة) — Network-first ثم الصفحة المخبّأة ثم القشرة
+  // ثم صفحة عدم الاتصال (كي لا تصبح الصفحة بيضاء أبداً).
   if (request.mode === "navigate") {
     event.respondWith(
       (async () => {
         try {
           const res = await fetch(request);
-          const cache = await caches.open(CACHE_VERSION);
-          cache.put(request, res.clone());
+          await cachePut(CACHE_VERSION, request, res);
           return res;
         } catch (err) {
           const cached =
-            (await caches.match(request)) || (await caches.match("/"));
+            (await caches.match(request, { ignoreSearch: true })) ||
+            (await caches.match("/pos")) ||
+            (await caches.match("/")) ||
+            (await caches.match(OFFLINE_URL));
           return cached || Response.error();
         }
       })()
@@ -161,22 +208,15 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // الصور والأصول الثابتة — Cache-first
-  const dest = request.destination;
-  if (
-    request.method === "GET" &&
-    (dest === "image" || dest === "style" || dest === "script" || dest === "font")
-  ) {
+  // الأصول الثابتة المُجزّأة — Cache-first (لا تتغيّر)
+  if (isImmutableAsset(url, request)) {
     event.respondWith(
       (async () => {
         const cached = await caches.match(request);
         if (cached) return cached;
         try {
           const res = await fetch(request);
-          if (res.ok) {
-            const cache = await caches.open(CACHE_VERSION);
-            cache.put(request, res.clone());
-          }
+          await cachePut(CACHE_VERSION, request, res);
           return res;
         } catch (err) {
           return cached || Response.error();

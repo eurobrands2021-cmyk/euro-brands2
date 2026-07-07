@@ -3,11 +3,23 @@
 // والتشكيل، ويقلّص الفراغات، ويحوّل الحروف اللاتينية للأحرف الصغيرة.
 // النتيجة: "اديداس" يطابق "أديداس"، و"الاديداس" يطابق "أديداس".
 
+// تحويل الأرقام العربية-الهندية (٠-٩) والفارسية (۰-۹) إلى أرقام غربية (0-9).
+// يُستخدم في التطبيع والبحث كي يطابق البحث برقم الهاتف بأي شكل للأرقام.
+export function toWesternDigits(input: string | null | undefined): string {
+  if (!input) return "";
+  return input
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[۰-۹]/g, (d) => String("۰۱۲۳۴۵۶۷۸۹".indexOf(d)));
+}
+
 export function normalizeArabic(input: string | null | undefined): string {
   if (!input) return "";
 
+  // توحيد الأرقام العربية/الفارسية إلى غربية (حتى يطابق البحث الرقمي)
+  let s = toWesternDigits(input);
+
   // الحروف اللاتينية للأحرف الصغيرة (لا يؤثر على العربية)
-  let s = input.toLowerCase();
+  s = s.toLowerCase();
 
   // إزالة التطويل (ـ)
   s = s.replace(/ـ/g, "");

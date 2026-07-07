@@ -3,6 +3,7 @@ import { Tajawal, Cairo, IBM_Plex_Sans_Arabic } from "next/font/google";
 import { Toaster } from "react-hot-toast";
 import { ThemeProvider } from "@/components/theme-provider";
 import { SettingsProvider } from "@/components/settings-provider";
+import { NumeralNormalizer } from "@/components/numeral-normalizer";
 import { settingsInitScript } from "@/lib/settings-init";
 import "./globals.css";
 
@@ -68,6 +69,7 @@ export default function RootLayout({
       </head>
       <body className="min-h-screen antialiased">
         <ThemeProvider>
+          <NumeralNormalizer />
           <SettingsProvider>{children}</SettingsProvider>
           <Toaster
             position="top-center"

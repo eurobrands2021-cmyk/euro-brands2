@@ -160,8 +160,8 @@ export default function VipCustomersPage() {
       {!loading && !error && customers.length === 0 && (
         <EmptyState
           icon={<Users className="h-7 w-7" />}
-          title="لا يوجد عملاء مطابقون"
-          description="جرّب فلتراً آخر — تظهر هنا نتائج أعلى 50 عميلاً حسب الفلتر."
+          title="لا يوجد عملاء بعد"
+          description="ستظهر هنا بعد تسجيل أول عملية بيع — يُضاف العملاء تلقائياً من نقطة البيع."
         />
       )}
 

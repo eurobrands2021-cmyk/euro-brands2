@@ -89,7 +89,8 @@ export function isNumericKeyAllowed(
 ): boolean {
   if (ALLOWED_NAV_KEYS.has(e.key)) return true;
   if (e.ctrlKey || e.metaKey) return true;
-  if (/^[0-9]$/.test(e.key)) return true;
+  // أرقام غربية أو عربية-هندية أو فارسية (تُحوَّل لغربية في sanitizeNumber)
+  if (/^[0-9٠-٩۰-۹]$/.test(e.key)) return true;
   if (decimal && e.key === ".") {
     const target = e.currentTarget;
     return !target.value.includes(".");
