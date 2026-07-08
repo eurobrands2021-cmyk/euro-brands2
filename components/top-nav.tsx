@@ -160,11 +160,6 @@ export function TopNav() {
                 >
                   <item.icon className="h-4 w-4 shrink-0" />
                   <span className="hidden lg:inline">{item.label}</span>
-                  {item.href === "/" && lowStock > 0 && (
-                    <span className="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white nums">
-                      {lowStock}
-                    </span>
-                  )}
                 </Link>
               );
             })}

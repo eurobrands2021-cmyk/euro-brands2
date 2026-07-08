@@ -47,10 +47,15 @@ export function QuickAddProductModal({
   const [quantity, setQuantity] = useState("1");
   const [saving, setSaving] = useState(false);
 
-  const { data: brandsData } = useFetch<BrandDTO[]>(
+  const { data: brandsData, refetch: refetchBrands } = useFetch<BrandDTO[]>(
     `/api/brands?category=${category}`
   );
   const brandOptions = (brandsData ?? []).map((b) => b.name);
+
+  // إضافة براند جديد مباشرةً من القائمة
+  const [addingBrand, setAddingBrand] = useState(false);
+  const [newBrand, setNewBrand] = useState("");
+  const [savingBrand, setSavingBrand] = useState(false);
 
   const { data: typesData, loading: typesLoading } =
     useFetch<ProductTypeDTO[]>("/api/product-types");
@@ -67,6 +72,8 @@ export function QuickAddProductModal({
       setColor("");
       setPrice("");
       setQuantity("1");
+      setAddingBrand(false);
+      setNewBrand("");
     }
   }, [open]);
 
@@ -75,6 +82,39 @@ export function QuickAddProductModal({
     setCategory(c);
     setBrand("");
     setProductTypeId("");
+    setAddingBrand(false);
+    setNewBrand("");
+  }
+
+  // اختيار خيار «إضافة براند جديد» من القائمة
+  function onBrandSelect(value: string) {
+    if (value === "__add_brand__") {
+      setAddingBrand(true);
+      setBrand("");
+    } else {
+      setBrand(value);
+    }
+  }
+
+  async function saveNewBrand() {
+    const trimmed = newBrand.trim();
+    if (!trimmed) return toast.error("اسم البراند مطلوب");
+    setSavingBrand(true);
+    try {
+      const created = await apiPost<BrandDTO>("/api/brands", {
+        name: trimmed,
+        category,
+      });
+      await refetchBrands();
+      setBrand(created.name);
+      setAddingBrand(false);
+      setNewBrand("");
+      toast.success("تمت إضافة البراند");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر إضافة البراند");
+    } finally {
+      setSavingBrand(false);
+    }
   }
 
   async function submit() {
@@ -183,8 +223,8 @@ export function QuickAddProductModal({
           <label className="label">البراند *</label>
           <select
             className="input"
-            value={brand}
-            onChange={(e) => setBrand(e.target.value)}
+            value={addingBrand ? "__add_brand__" : brand}
+            onChange={(e) => onBrandSelect(e.target.value)}
           >
             <option value="">اختر البراند</option>
             {brandOptions.map((b) => (
@@ -192,11 +232,44 @@ export function QuickAddProductModal({
                 {b}
               </option>
             ))}
+            <option value="__add_brand__">+ إضافة براند جديد</option>
           </select>
-          {brandOptions.length === 0 && (
-            <p className="mt-1 text-xs text-muted">
-              لا توجد براندات لهذه الفئة — أضِفها من المخزون.
-            </p>
+          {addingBrand && (
+            <div className="mt-2 flex gap-2">
+              <TextOnlyInput
+                autoFocus
+                className="input"
+                value={newBrand}
+                onChange={setNewBrand}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    saveNewBrand();
+                  }
+                }}
+                placeholder="اسم البراند الجديد"
+              />
+              <button
+                type="button"
+                className="btn btn-primary flex-shrink-0"
+                onClick={saveNewBrand}
+                disabled={savingBrand}
+              >
+                {savingBrand && <Spinner className="h-4 w-4" />}
+                حفظ
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary flex-shrink-0"
+                onClick={() => {
+                  setAddingBrand(false);
+                  setNewBrand("");
+                }}
+                disabled={savingBrand}
+              >
+                إلغاء
+              </button>
+            </div>
           )}
         </div>
 
