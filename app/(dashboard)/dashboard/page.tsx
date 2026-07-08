@@ -38,10 +38,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { TableScroll } from "@/components/ui/table-scroll";
-import { BranchBarChart } from "@/components/charts/branch-bar-chart";
-import { PaymentPieChart } from "@/components/charts/payment-pie-chart";
-import { CategoryPieChart } from "@/components/charts/category-pie-chart";
-import { SalesLineChart } from "@/components/charts/sales-line-chart";
+import { ChartSkeleton } from "@/components/ui/skeleton";
 import type { DashboardStats } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -53,6 +50,27 @@ import {
   INVENTORY_KEYS,
   type ReportTab,
 } from "@/lib/report-sections";
+import dynamic from "next/dynamic";
+
+// تحميل كسول للرسوم البيانية (recharts ثقيلة) — تُنقل خارج الحزمة الأولية
+// وتُعرض عند الحاجة فقط، مع هيكل تحميل بدل الدوّارة.
+const chartLoading = () => <ChartSkeleton />;
+const BranchBarChart = dynamic(
+  () => import("@/components/charts/branch-bar-chart").then((m) => m.BranchBarChart),
+  { ssr: false, loading: chartLoading }
+);
+const PaymentPieChart = dynamic(
+  () => import("@/components/charts/payment-pie-chart").then((m) => m.PaymentPieChart),
+  { ssr: false, loading: chartLoading }
+);
+const CategoryPieChart = dynamic(
+  () => import("@/components/charts/category-pie-chart").then((m) => m.CategoryPieChart),
+  { ssr: false, loading: chartLoading }
+);
+const SalesLineChart = dynamic(
+  () => import("@/components/charts/sales-line-chart").then((m) => m.SalesLineChart),
+  { ssr: false, loading: chartLoading }
+);
 
 export default function DashboardPage() {
   const [range, setRange] = useState<DateRange | null>(null);
