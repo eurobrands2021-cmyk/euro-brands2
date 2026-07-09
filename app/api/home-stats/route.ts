@@ -1,6 +1,6 @@
 import { startOfDay, endOfDay, subDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_NONE } from "@/lib/api";
 import { round2 } from "@/lib/sale-utils";
 import { MOCK_MODE, mockHomeStats } from "@/lib/mock-store";
 import type { HomeStats } from "@/lib/types";
@@ -42,7 +42,7 @@ export async function GET() {
         count: yesterday._count,
       },
     };
-    return ok(res);
+    return ok(res, 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

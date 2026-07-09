@@ -1,6 +1,6 @@
 import { Prisma, type Branch, type Category } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_NONE } from "@/lib/api";
 import { round2 } from "@/lib/sale-utils";
 import { MOCK_MODE, mockListVipCustomers } from "@/lib/mock-store";
 import { BRANCHES, CATEGORIES } from "@/lib/constants";
@@ -156,7 +156,7 @@ export async function GET(req: Request) {
         });
     }
 
-    return ok(rows.map(toVipDTO));
+    return ok(rows.map(toVipDTO), 200, CACHE_NONE);
   } catch (error) {
     // فهرس/جدول العملاء قد يكون فارغاً — أعِد قائمة فارغة بدل خطأ
     if (

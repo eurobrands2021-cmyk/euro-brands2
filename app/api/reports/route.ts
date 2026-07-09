@@ -6,7 +6,8 @@ import {
   format,
 } from "date-fns";
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_LISTING } from "@/lib/api";
+import { cached } from "@/lib/cache";
 import { round2 } from "@/lib/sale-utils";
 import {
   BRANCHES,
@@ -24,6 +25,10 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     if (MOCK_MODE) return ok(mockReports(searchParams));
+
+    // تقارير تفصيلية ثقيلة الحساب — نخزّنها مؤقتاً لدقيقة لكل فترة.
+    const cacheKey = `reports:${searchParams.get("from") ?? ""}:${searchParams.get("to") ?? ""}`;
+    const reportsData = await cached<ReportsData>(cacheKey, 60_000, async () => {
     const now = new Date();
     const from = searchParams.get("from")
       ? new Date(searchParams.get("from")!)
@@ -202,7 +207,10 @@ export async function GET(req: Request) {
       })),
     };
 
-    return ok(result);
+    return result;
+    });
+
+    return ok(reportsData, 200, CACHE_LISTING);
   } catch (error) {
     return handleServerError(error);
   }

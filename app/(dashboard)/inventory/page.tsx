@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   Plus,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { useVirtualWindow } from "@/lib/use-virtual-window";
 import { apiDelete, apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { ImportInventoryModal } from "@/components/import-inventory-modal";
@@ -89,6 +92,9 @@ export default function InventoryPage() {
 
   const products = data ?? [];
 
+  // البحث النصي يُؤجَّل 300ms حتى لا تُعاد التصفية وإعادة العرض مع كل ضغطة مفتاح.
+  const debouncedSearch = useDebouncedValue(filters.search, 300);
+
   const brandOptions = useMemo(() => {
     const list = (brandsData ?? [])
       .filter((b) => !filters.category || b.category === filters.category)
@@ -133,7 +139,7 @@ export default function InventoryPage() {
 
   // مجموعة أساسية بكل الفلاتر عدا فلتر الحالة (لحساب أعداد التبويبات)
   const base = useMemo(() => {
-    const q = filters.search.trim();
+    const q = debouncedSearch.trim();
     return products.filter((p) => {
       if (draftsOnly && !p.isDraft) return false;
       if (
@@ -150,7 +156,16 @@ export default function InventoryPage() {
       if ((filters.branch || filters.size) && !variantMatch) return false;
       return true;
     });
-  }, [products, filters, draftsOnly, variantInScope]);
+  }, [
+    products,
+    debouncedSearch,
+    filters.category,
+    filters.brand,
+    filters.branch,
+    filters.size,
+    draftsOnly,
+    variantInScope,
+  ]);
 
   const statusCounts = useMemo(
     () => ({
@@ -197,7 +212,13 @@ export default function InventoryPage() {
     }
   }
 
-  async function handleDuplicate(product: ProductDTO) {
+  // مثبَّتة المرجع (useCallback) حتى تستفيد بطاقات القائمة من React.memo
+  // فلا يُعاد عرضها جميعاً عند تغيّر البحث/الفلاتر.
+  const openDelete = useCallback((product: ProductDTO) => {
+    setToDelete(product);
+  }, []);
+
+  const handleDuplicate = useCallback(async (product: ProductDTO) => {
     setDuplicatingId(product.id);
     try {
       const payload: ProductInput = {
@@ -226,7 +247,18 @@ export default function InventoryPage() {
     } finally {
       setDuplicatingId(null);
     }
-  }
+  }, [router]);
+
+  // نافذة افتراضية لعرض القائمة (list view) عند تجاوز 50 منتجاً.
+  const listVirtualize = view === "list" && filtered.length > 50;
+  const listVirtual = useVirtualWindow({
+    count: filtered.length,
+    rowHeight: 72,
+    enabled: listVirtualize,
+  });
+  const visibleListItems = listVirtualize
+    ? filtered.slice(listVirtual.start, listVirtual.end)
+    : filtered;
 
   return (
     <div>
@@ -485,25 +517,38 @@ export default function InventoryPage() {
               product={product}
               branchFilter={filters.branch as BranchValue | ""}
               duplicating={duplicatingId === product.id}
-              onDelete={() => setToDelete(product)}
-              onDuplicate={() => handleDuplicate(product)}
+              onDelete={openDelete}
+              onDuplicate={handleDuplicate}
             />
           ))}
         </div>
       )}
 
       {!loading && filtered.length > 0 && view === "list" && (
-        <Card className="divide-y divide-[var(--border)]">
-          {filtered.map((product) => (
-            <ProductListRow
-              key={product.id}
-              product={product}
-              branchFilter={filters.branch as BranchValue | ""}
-              duplicating={duplicatingId === product.id}
-              onDelete={() => setToDelete(product)}
-              onDuplicate={() => handleDuplicate(product)}
-            />
-          ))}
+        <Card className="p-0">
+          <div
+            ref={listVirtual.scrollRef}
+            className={cn(listVirtualize && "max-h-[70vh] overflow-y-auto")}
+          >
+            <div
+              className="divide-y divide-[var(--border)]"
+              style={{
+                paddingTop: listVirtual.padTop,
+                paddingBottom: listVirtual.padBottom,
+              }}
+            >
+              {visibleListItems.map((product) => (
+                <ProductListRow
+                  key={product.id}
+                  product={product}
+                  branchFilter={filters.branch as BranchValue | ""}
+                  duplicating={duplicatingId === product.id}
+                  onDelete={openDelete}
+                  onDuplicate={handleDuplicate}
+                />
+              ))}
+            </div>
+          </div>
         </Card>
       )}
 
@@ -542,7 +587,7 @@ function branchQty(product: ProductDTO, branch: BranchValue) {
     .reduce((s, v) => s + v.quantity, 0);
 }
 
-function ProductCard({
+const ProductCard = memo(function ProductCard({
   product,
   branchFilter,
   duplicating,
@@ -552,8 +597,8 @@ function ProductCard({
   product: ProductDTO;
   branchFilter: BranchValue | "";
   duplicating: boolean;
-  onDelete: () => void;
-  onDuplicate: () => void;
+  onDelete: (product: ProductDTO) => void;
+  onDuplicate: (product: ProductDTO) => void;
 }) {
   const variants = branchFilter
     ? product.variants.filter((v) => v.branch === branchFilter)
@@ -565,11 +610,13 @@ function ProductCard({
     <Card className="flex flex-col overflow-hidden">
       <div className="relative aspect-[4/3] w-full bg-[var(--surface-2)]">
         {image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={image}
             alt={product.name}
-            className="h-full w-full object-cover"
+            fill
+            sizes="(max-width: 640px) 100vw, (max-width: 1280px) 50vw, 25vw"
+            loading="lazy"
+            className="object-cover"
           />
         ) : (
           <div className="flex h-full items-center justify-center text-muted">
@@ -617,7 +664,7 @@ function ProductCard({
           </Link>
           <PrintQrButton product={product} className="h-10 w-10" />
           <button
-            onClick={onDuplicate}
+            onClick={() => onDuplicate(product)}
             disabled={duplicating}
             className="btn btn-ghost h-10 w-10 !px-0 text-accent hover:bg-accent-soft"
             aria-label="نسخ"
@@ -630,7 +677,7 @@ function ProductCard({
             )}
           </button>
           <button
-            onClick={onDelete}
+            onClick={() => onDelete(product)}
             className="btn btn-ghost h-10 w-10 !px-0 text-danger hover:bg-[rgba(217,83,79,0.12)]"
             aria-label="حذف"
           >
@@ -640,9 +687,9 @@ function ProductCard({
       </div>
     </Card>
   );
-}
+});
 
-function ProductListRow({
+const ProductListRow = memo(function ProductListRow({
   product,
   branchFilter,
   duplicating,
@@ -652,8 +699,8 @@ function ProductListRow({
   product: ProductDTO;
   branchFilter: BranchValue | "";
   duplicating: boolean;
-  onDelete: () => void;
-  onDuplicate: () => void;
+  onDelete: (product: ProductDTO) => void;
+  onDuplicate: (product: ProductDTO) => void;
 }) {
   const variants = branchFilter
     ? product.variants.filter((v) => v.branch === branchFilter)
@@ -663,10 +710,16 @@ function ProductListRow({
 
   return (
     <div className="flex items-center gap-3 p-3">
-      <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
+      <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
         {image ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={image} alt="" className="h-full w-full object-cover" />
+          <Image
+            src={image}
+            alt=""
+            fill
+            sizes="48px"
+            loading="lazy"
+            className="object-cover"
+          />
         ) : (
           <div className="flex h-full items-center justify-center text-muted">
             <Package className="h-5 w-5" />
@@ -707,7 +760,7 @@ function ProductListRow({
         </Link>
         <PrintQrButton product={product} className="h-9 w-9" />
         <button
-          onClick={onDuplicate}
+          onClick={() => onDuplicate(product)}
           disabled={duplicating}
           className="btn btn-ghost h-9 w-9 !px-0 text-accent"
           aria-label="نسخ"
@@ -719,7 +772,7 @@ function ProductListRow({
           )}
         </button>
         <button
-          onClick={onDelete}
+          onClick={() => onDelete(product)}
           className="btn btn-ghost h-9 w-9 !px-0 text-danger"
           aria-label="حذف"
         >
@@ -728,4 +781,4 @@ function ProductListRow({
       </div>
     </div>
   );
-}
+});

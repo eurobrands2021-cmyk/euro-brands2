@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Image from "next/image";
 import {
   Search,
   Plus,
@@ -763,13 +764,15 @@ function PosRegister({
                         )}
                         onClick={() => addFirstAvailable(p)}
                       >
-                        <div className="h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--surface-2)]">
+                        <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded bg-[var(--surface-2)]">
                           {p.images[0] ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img
+                            <Image
                               src={p.images[0]}
                               alt=""
-                              className="h-full w-full object-cover"
+                              fill
+                              sizes="36px"
+                              loading="lazy"
+                              className="object-cover"
                             />
                           ) : (
                             <div className="flex h-full items-center justify-center text-muted">
@@ -1481,13 +1484,15 @@ function SearchResult({
   return (
     <div className="rounded-lg border p-3">
       <div className="flex items-center gap-3">
-        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
+        <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
           {product.images[0] ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={product.images[0]}
               alt=""
-              className="h-full w-full object-cover"
+              fill
+              sizes="48px"
+              loading="lazy"
+              className="object-cover"
             />
           ) : (
             <div className="flex h-full items-center justify-center text-muted">

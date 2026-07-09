@@ -1,7 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { marked } from "marked";
+import { useEffect, useState } from "react";
 import { Eye, Pencil } from "lucide-react";
 import { cn } from "@/lib/cn";
 
@@ -11,15 +10,15 @@ import { cn } from "@/lib/cn";
 // يدعم: **عريض**، *مائل*، العناوين، والقوائم النقطية والرقمية.
 // يُحفَظ النص كـ Markdown خام في نفس حقل الوصف (بدون تغيير للمخطط).
 
-// إعداد marked مرة واحدة: أسطر مفردة تُحوّل إلى فواصل، بلا معرّفات.
-marked.setOptions({ breaks: true, gfm: true });
-
-function renderMarkdown(md: string): string {
+// مكتبة marked ثقيلة نسبياً وتُستخدم فقط عند فتح تبويب «معاينة»،
+// لذا تُحمَّل كسولاً (dynamic import) فلا تدخل ضمن حزمة صفحة المنتج.
+async function renderMarkdown(md: string): Promise<string> {
   const trimmed = md.trim();
   if (!trimmed) return "";
   try {
-    // parse متزامن افتراضياً (async=false) فيُرجع نصاً.
-    return marked.parse(trimmed, { async: false }) as string;
+    const { marked } = await import("marked");
+    // parse متزامن (async=false) فيُرجع نصاً.
+    return marked.parse(trimmed, { async: false, breaks: true, gfm: true }) as string;
   } catch {
     return "";
   }
@@ -35,10 +34,18 @@ export function MarkdownField({
   placeholder?: string;
 }) {
   const [tab, setTab] = useState<"edit" | "preview">("edit");
-  const html = useMemo(
-    () => (tab === "preview" ? renderMarkdown(value) : ""),
-    [tab, value]
-  );
+  const [html, setHtml] = useState("");
+
+  useEffect(() => {
+    if (tab !== "preview") return;
+    let cancelled = false;
+    renderMarkdown(value).then((out) => {
+      if (!cancelled) setHtml(out);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, value]);
 
   return (
     <div>

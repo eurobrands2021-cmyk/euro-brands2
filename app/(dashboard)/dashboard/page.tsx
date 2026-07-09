@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Image from "next/image";
 import {
   Banknote,
   TrendingUp,
@@ -478,13 +479,15 @@ function renderSection(key: string, data: DashboardStats): React.ReactNode {
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent-soft text-sm font-bold text-accent nums">
                     {i + 1}
                   </div>
-                  <div className="h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
+                  <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md bg-[var(--surface-2)]">
                     {p.image ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
+                      <Image
                         src={p.image}
                         alt=""
-                        className="h-full w-full object-cover"
+                        fill
+                        sizes="48px"
+                        loading="lazy"
+                        className="object-cover"
                       />
                     ) : (
                       <div className="flex h-full items-center justify-center text-muted">

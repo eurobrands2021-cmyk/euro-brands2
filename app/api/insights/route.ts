@@ -1,6 +1,6 @@
 import { subDays } from "date-fns";
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_LISTING } from "@/lib/api";
 import { MOCK_MODE, mockNormalizedData } from "@/lib/mock-store";
 import {
   computeInsights,
@@ -183,7 +183,7 @@ export async function GET() {
       performance,
       ai,
     };
-    return ok(result);
+    return ok(result, 200, CACHE_LISTING);
   } catch (error) {
     return handleServerError(error);
   }

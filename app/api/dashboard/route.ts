@@ -6,7 +6,8 @@ import {
   format,
 } from "date-fns";
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_LISTING } from "@/lib/api";
+import { cached } from "@/lib/cache";
 import { round2 } from "@/lib/sale-utils";
 import {
   BRANCHES,
@@ -34,6 +35,14 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     if (MOCK_MODE) return ok(mockDashboard(searchParams));
+
+    // تجميعات لوحة التحكم ثقيلة؛ نخزّن النتيجة مؤقتاً لمدة دقيقة لكل فترة
+    // (from/to) لتفادي إعادة الحساب مع كل طلب خلال نفس النافذة الزمنية.
+    const cacheKey = `dashboard:${searchParams.get("from") ?? ""}:${searchParams.get("to") ?? ""}`;
+    const dashboardStats = await cached<DashboardStats>(
+      cacheKey,
+      60_000,
+      async () => {
     const now = new Date();
 
     const from = searchParams.get("from")
@@ -606,7 +615,11 @@ export async function GET(req: Request) {
       stockTransfers,
     };
 
-    return ok(stats);
+    return stats;
+      }
+    );
+
+    return ok(dashboardStats, 200, CACHE_LISTING);
   } catch (error) {
     return handleServerError(error);
   }

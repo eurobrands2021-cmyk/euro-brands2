@@ -1,6 +1,6 @@
 import { type Category } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, fail, handleServerError } from "@/lib/api";
+import { ok, fail, handleServerError, CACHE_STATIC } from "@/lib/api";
 import { toProductTypeDTO } from "@/lib/serializers";
 import { parseProductTypeInput, ValidationError } from "@/lib/validate";
 import { CATEGORIES, type CategoryValue } from "@/lib/constants";
@@ -28,7 +28,7 @@ export async function GET(req: Request) {
       where: category ? { category: category as Category } : undefined,
       orderBy: [{ category: "asc" }, { name: "asc" }],
     });
-    return ok(types.map(toProductTypeDTO));
+    return ok(types.map(toProductTypeDTO), 200, CACHE_STATIC);
   } catch (error) {
     return handleServerError(error);
   }

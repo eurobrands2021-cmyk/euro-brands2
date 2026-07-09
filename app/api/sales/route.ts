@@ -7,7 +7,7 @@ import {
   type PaymentMethod,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, fail, handleServerError } from "@/lib/api";
+import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toSaleDTO } from "@/lib/serializers";
 import { parseSaleInput, ValidationError } from "@/lib/validate";
 import { calcDiscount, round2 } from "@/lib/sale-utils";
@@ -84,7 +84,7 @@ export async function GET(req: Request) {
       take: limit,
     });
 
-    return ok(sales.map(toSaleDTO));
+    return ok(sales.map(toSaleDTO), 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

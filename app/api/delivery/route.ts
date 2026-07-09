@@ -6,7 +6,7 @@ import {
   type OrderSource,
 } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toSaleDTO } from "@/lib/serializers";
 import { MOCK_MODE, mockListDelivery } from "@/lib/mock-store";
 
@@ -49,7 +49,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
       take: 500,
     });
-    return ok(sales.map(toSaleDTO));
+    return ok(sales.map(toSaleDTO), 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

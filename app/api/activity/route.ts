@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, fail, handleServerError } from "@/lib/api";
+import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toActivityDTO } from "@/lib/serializers";
 import { parseActivityInput, ValidationError } from "@/lib/validate";
 import {
@@ -35,7 +35,7 @@ export async function GET(req: Request) {
       orderBy: { createdAt: "desc" },
       take: limit,
     });
-    return ok(logs.map(toActivityDTO));
+    return ok(logs.map(toActivityDTO), 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

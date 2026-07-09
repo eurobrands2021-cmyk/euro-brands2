@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, fail, handleServerError } from "@/lib/api";
+import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toCustomerDTO } from "@/lib/serializers";
 import { parseCustomerInput, ValidationError } from "@/lib/validate";
 import {
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
         page: 1,
         pageSize: 1,
       };
-      return ok(response);
+      return ok(response, 200, CACHE_NONE);
     }
 
     const search = searchParams.get("search")?.trim();
@@ -76,7 +76,7 @@ export async function GET(req: Request) {
       page,
       pageSize,
     };
-    return ok(response);
+    return ok(response, 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

@@ -1,9 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { QRCodeSVG } from "qrcode.react";
-import QRCode from "qrcode";
-import JsBarcode from "jsbarcode";
+import dynamic from "next/dynamic";
+
+// المكتبات الثقيلة (qrcode / qrcode.react / jsbarcode) تُحمَّل كسولاً عند الحاجة
+// فقط، فلا تدخل ضمن الحزمة الأولية لصفحات المخزون والفورم.
+const QRCodeSVG = dynamic(
+  () => import("qrcode.react").then((m) => m.QRCodeSVG),
+  { ssr: false }
+);
 
 // مكوّنات توليد الأكواد على العميل بالكامل (بدون أي طلب للخادم):
 //   QrCode        → SVG (يُستخدم في الطباعة/التيكيت) يشفّر رابط صفحة المنتج العامة
@@ -57,12 +62,15 @@ export function QrImage({
     }
     let cancelled = false;
     setDataUrl(null);
-    QRCode.toDataURL(value, {
-      width: size,
-      margin: 0,
-      errorCorrectionLevel: "M",
-      color: { dark: "#000000", light: "#ffffff" },
-    })
+    import("qrcode")
+      .then(({ default: QRCode }) =>
+        QRCode.toDataURL(value, {
+          width: size,
+          margin: 0,
+          errorCorrectionLevel: "M",
+          color: { dark: "#000000", light: "#ffffff" },
+        })
+      )
       .then((url) => {
         if (!cancelled) setDataUrl(url);
       })
@@ -140,21 +148,28 @@ export function Barcode128({
 
   useEffect(() => {
     if (!ref.current || !value) return;
-    try {
-      JsBarcode(ref.current, value, {
-        format: "CODE128",
-        height,
-        width,
-        fontSize,
-        displayValue,
-        margin: 0,
-        background: "#ffffff",
-        lineColor: "#000000",
-        font: "monospace",
+    let cancelled = false;
+    import("jsbarcode")
+      .then(({ default: JsBarcode }) => {
+        if (cancelled || !ref.current) return;
+        JsBarcode(ref.current, value, {
+          format: "CODE128",
+          height,
+          width,
+          fontSize,
+          displayValue,
+          margin: 0,
+          background: "#ffffff",
+          lineColor: "#000000",
+          font: "monospace",
+        });
+      })
+      .catch(() => {
+        // قيمة لا تصلح للترميز — نترك الـ SVG فارغاً
       });
-    } catch {
-      // قيمة لا تصلح للترميز — نترك الـ SVG فارغاً
-    }
+    return () => {
+      cancelled = true;
+    };
   }, [value, height, width, fontSize, displayValue]);
 
   return <svg ref={ref} className={className} />;

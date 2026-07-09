@@ -14,12 +14,15 @@ const tajawal = Tajawal({
   display: "swap",
 });
 
-// خطوط بديلة يمكن اختيارها من الإعدادات (تُحمَّل ذاتياً وقت البناء)
+// خطوط بديلة يمكن اختيارها من الإعدادات (تُحمَّل ذاتياً وقت البناء).
+// preload:false — لا تُحمَّل مسبقاً في الصفحة الأولى لأن الخط الافتراضي هو
+// Tajawal؛ تُجلب فقط عند اختيار المستخدم لها من الإعدادات فلا تُثقل أول تحميل.
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
   weight: ["400", "500", "700"],
   variable: "--font-cairo",
   display: "swap",
+  preload: false,
 });
 
 const ibmPlexArabic = IBM_Plex_Sans_Arabic({
@@ -27,6 +30,7 @@ const ibmPlexArabic = IBM_Plex_Sans_Arabic({
   weight: ["400", "500", "700"],
   variable: "--font-ibm-plex-arabic",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {

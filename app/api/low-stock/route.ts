@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { ok, handleServerError } from "@/lib/api";
+import { ok, handleServerError, CACHE_NONE } from "@/lib/api";
 import { MOCK_MODE, mockLowStock } from "@/lib/mock-store";
 import type { BranchValue } from "@/lib/constants";
 import type { LowStockItem, LowStockResponse } from "@/lib/types";
@@ -32,7 +32,7 @@ export async function GET() {
       );
 
     const res: LowStockResponse = { count: items.length, items };
-    return ok(res);
+    return ok(res, 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

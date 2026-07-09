@@ -12,8 +12,8 @@
  *    فارغة، فلا تصبح الصفحة بيضاء أبداً عند انقطاع الاتصال.
  */
 
-const CACHE_VERSION = "eb-cache-v2";
-const API_CACHE = "eb-api-v2";
+const CACHE_VERSION = "eb-cache-v3";
+const API_CACHE = "eb-api-v3";
 const OFFLINE_URL = "/offline.html";
 const OFFLINE_DB = "eb-offline";
 const OFFLINE_DB_VERSION = 1;
@@ -24,6 +24,8 @@ const PENDING_STORE = "pendingSales";
 const APP_SHELL = [
   "/",
   "/pos",
+  "/inventory",
+  "/dashboard",
   "/login",
   OFFLINE_URL,
   "/manifest.json",
@@ -99,6 +101,39 @@ function isProductsApi(url) {
 function isSalesApi(url) {
   return url.pathname === "/api/sales";
 }
+// بيانات بطيئة التغيّر (البراندات وأنواع المنتجات) — مرشّحة لاستراتيجية SWR.
+function isSlowChangingApi(url) {
+  return (
+    url.pathname === "/api/brands" || url.pathname === "/api/product-types"
+  );
+}
+
+// Stale-While-Revalidate: يخدم النسخة المخبّأة فوراً (سرعة) ويحدّثها في
+// الخلفية من الشبكة. عند عدم وجود نسخة: ينتظر الشبكة، ثم يرجع لقائمة فارغة
+// صالحة عند تعذّر الاتصال بدل رمي خطأ.
+async function staleWhileRevalidate(event, request) {
+  const cache = await caches.open(API_CACHE);
+  const cachedResponse = await cache.match(request);
+  const fetchAndUpdate = fetch(request)
+    .then((res) => {
+      if (res && res.ok && !res.redirected) {
+        cache.put(request, res.clone()).catch(() => {});
+      }
+      return res;
+    })
+    .catch(() => null);
+
+  if (cachedResponse) {
+    event.waitUntil(fetchAndUpdate);
+    return cachedResponse;
+  }
+  const res = await fetchAndUpdate;
+  if (res) return res;
+  return new Response(JSON.stringify([]), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 // الأصول الثابتة المُجزّأة من Next لا تتغيّر (أسماؤها تحمل بصمة) — Cache-first.
 function isImmutableAsset(url, request) {
   if (url.pathname.startsWith("/_next/static/")) return true;
@@ -135,25 +170,16 @@ self.addEventListener("fetch", (event) => {
   // نتعامل فقط مع طلبات GET/POST من نفس الأصل
   if (url.origin !== self.location.origin) return;
 
-  // GET /api/products — Network-first ثم التخبئة
+  // GET /api/brands و /api/product-types — بيانات بطيئة التغيّر: SWR
+  if (request.method === "GET" && isSlowChangingApi(url)) {
+    event.respondWith(staleWhileRevalidate(event, request));
+    return;
+  }
+
+  // GET /api/products — قوائم المنتجات: Stale-While-Revalidate
+  // (عرض فوري من التخبئة + تحديث في الخلفية؛ صحّة الكميات تُتحقَّق عند البيع).
   if (request.method === "GET" && isProductsApi(url)) {
-    event.respondWith(
-      (async () => {
-        try {
-          const res = await fetch(request);
-          await cachePut(API_CACHE, request, res);
-          return res;
-        } catch (err) {
-          const cached = await caches.match(request);
-          if (cached) return cached;
-          // لا نسخة مخبّأة — أعِد استجابة فارغة صالحة بدل رمي الخطأ
-          return new Response(JSON.stringify([]), {
-            status: 200,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-      })()
-    );
+    event.respondWith(staleWhileRevalidate(event, request));
     return;
   }
 

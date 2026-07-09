@@ -1,6 +1,6 @@
 import { Prisma, type Branch } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, fail, handleServerError } from "@/lib/api";
+import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { parseDamagedInput, ValidationError } from "@/lib/validate";
 import { round2 } from "@/lib/sale-utils";
 import { buildDefectReport } from "@/lib/defect-report";
@@ -96,7 +96,7 @@ export async function GET(req: Request) {
     });
 
     const report: DefectReport = buildDefectReport(items);
-    return ok(report);
+    return ok(report, 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

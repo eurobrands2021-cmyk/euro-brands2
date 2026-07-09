@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Package, MapPin, ShoppingBag, Ruler, Palette } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { BRANCH_LABELS, CATEGORY_LABELS } from "@/lib/constants";
@@ -22,11 +23,13 @@ export function PublicProductView({ product }: { product: PublicProductDTO }) {
       <div>
         <div className="relative aspect-square w-full overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--surface-2)]">
           {images.length ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <Image
               src={images[active]}
               alt={product.name}
-              className="h-full w-full object-cover"
+              fill
+              sizes="(max-width: 768px) 100vw, 640px"
+              className="object-cover"
+              priority
             />
           ) : (
             <div className="flex h-full items-center justify-center text-muted">
@@ -40,14 +43,20 @@ export function PublicProductView({ product }: { product: PublicProductDTO }) {
               <button
                 key={img + i}
                 onClick={() => setActive(i)}
-                className={`h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition ${
+                className={`relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border-2 transition ${
                   i === active
                     ? "border-accent"
                     : "border-transparent opacity-70"
                 }`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={img} alt="" className="h-full w-full object-cover" />
+                <Image
+                  src={img}
+                  alt=""
+                  fill
+                  sizes="64px"
+                  loading="lazy"
+                  className="object-cover"
+                />
               </button>
             ))}
           </div>

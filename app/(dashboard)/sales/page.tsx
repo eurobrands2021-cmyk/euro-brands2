@@ -20,6 +20,7 @@ import {
 import { startOfDay, endOfDay } from "date-fns";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
+import { useVirtualWindow } from "@/lib/use-virtual-window";
 import { apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { PageHeader } from "@/components/ui/page-header";
@@ -99,6 +100,18 @@ export default function SalesPage() {
   const { data, loading, error, refetch } = useFetch<SaleDTO[]>(url);
   const sales = data ?? [];
   const summary = useMemo(() => computeSalesSummary(sales), [sales]);
+
+  // نافذة افتراضية لجدول سطح المكتب عند تجاوز 50 فاتورة (قوائم طويلة).
+  const VIRT_THRESHOLD = 50;
+  const virtualize = sales.length > VIRT_THRESHOLD;
+  const virtual = useVirtualWindow({
+    count: sales.length,
+    rowHeight: 49,
+    enabled: virtualize,
+  });
+  const visibleSales = virtualize
+    ? sales.slice(virtual.start, virtual.end)
+    : sales;
   const hasFilters = !!(search || branch || payment || status || from || to);
 
   function clearFilters() {
@@ -317,10 +330,21 @@ export default function SalesPage() {
       {!loading && sales.length > 0 && (
         <Card className="p-2 sm:p-4">
           {/* جدول لسطح المكتب */}
-          <div className="hidden overflow-x-auto sm:block">
+          <div
+            ref={virtual.scrollRef}
+            className={cn(
+              "hidden overflow-x-auto sm:block",
+              virtualize && "max-h-[70vh] overflow-y-auto"
+            )}
+          >
             <table className="w-full min-w-[860px] text-right text-sm">
               <thead>
-                <tr className="border-b text-muted">
+                <tr
+                  className={cn(
+                    "border-b text-muted",
+                    virtualize && "sticky top-0 z-10 bg-[var(--surface)]"
+                  )}
+                >
                   <th className="px-3 py-3 font-medium">رقم الفاتورة</th>
                   <th className="px-3 py-3 font-medium">التاريخ</th>
                   <th className="px-3 py-3 font-medium">الفرع</th>
@@ -333,7 +357,12 @@ export default function SalesPage() {
                 </tr>
               </thead>
               <tbody>
-                {sales.map((sale) => (
+                {virtual.padTop > 0 && (
+                  <tr aria-hidden>
+                    <td colSpan={9} className="p-0" style={{ height: virtual.padTop }} />
+                  </tr>
+                )}
+                {visibleSales.map((sale) => (
                   <tr
                     key={sale.id}
                     className={cn(
@@ -405,6 +434,15 @@ export default function SalesPage() {
                     </td>
                   </tr>
                 ))}
+                {virtual.padBottom > 0 && (
+                  <tr aria-hidden>
+                    <td
+                      colSpan={9}
+                      className="p-0"
+                      style={{ height: virtual.padBottom }}
+                    />
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
