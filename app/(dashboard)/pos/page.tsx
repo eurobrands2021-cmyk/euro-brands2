@@ -55,6 +55,8 @@ import {
 import {
   BRANCHES,
   BRANCH_LABELS,
+  CATEGORIES,
+  CATEGORY_LABELS,
   DELIVERY_METHODS,
   DELIVERY_METHOD_LABELS,
   ORDER_SOURCES,
@@ -64,6 +66,7 @@ import {
   TRANSFER_METHODS,
   TRANSFER_METHOD_LABELS,
   type BranchValue,
+  type CategoryValue,
   type DeliveryMethodValue,
   type DiscountTypeValue,
   type OrderSourceValue,
@@ -71,6 +74,7 @@ import {
   type TransferMethodValue,
 } from "@/lib/constants";
 import type {
+  BrandDTO,
   CustomerDTO,
   CustomerListResponse,
   ProductDTO,
@@ -229,6 +233,11 @@ function PosRegister({
   const [heldOpen, setHeldOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  // فلترة النتائج بالفئة والبراند (شريط فوق النتائج)
+  const [filterCategory, setFilterCategory] = useState<CategoryValue | "ALL">(
+    "ALL"
+  );
+  const [filterBrand, setFilterBrand] = useState<string | null>(null);
   const [bestsellers, setBestsellers] = useState<ProductDTO[]>([]);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const blurTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -239,6 +248,11 @@ function PosRegister({
   }, [term]);
 
   useEffect(() => setHighlight(0), [debounced]);
+  // كل بحث جديد يعيد ضبط فلاتر الفئة/البراند
+  useEffect(() => {
+    setFilterCategory("ALL");
+    setFilterBrand(null);
+  }, [debounced]);
 
   // بعد مزامنة الطابور (عودة الاتصال) أعِد جلب المنتجات لتحديث الكميات
   useEffect(() => {
@@ -312,6 +326,16 @@ function PosRegister({
   }`;
   const { data, loading, error, refetch } = useFetch<ProductDTO[]>(url);
   const results = data ?? [];
+  // النتائج بعد تطبيق فلاتر الفئة/البراند من الشريط
+  const filteredResults = useMemo(
+    () =>
+      results.filter(
+        (p) =>
+          (filterCategory === "ALL" || p.category === filterCategory) &&
+          (filterBrand === null || p.brand === filterBrand)
+      ),
+    [results, filterCategory, filterBrand]
+  );
   const dropdownItems = results.slice(0, 8);
   const dropdownOpen =
     searchFocused && debounced.length >= 2 && dropdownItems.length > 0 && !loading;
@@ -875,16 +899,35 @@ function PosRegister({
                 }
               />
             ) : (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {results.map((product) => (
-                  <SearchResult
-                    key={product.id}
-                    product={product}
-                    cart={cart}
-                    onAdd={addVariant}
+              <>
+                <PosFilterBar
+                  category={filterCategory}
+                  brand={filterBrand}
+                  onCategory={(c) => {
+                    setFilterCategory(c);
+                    setFilterBrand(null);
+                  }}
+                  onBrand={setFilterBrand}
+                />
+                {filteredResults.length === 0 ? (
+                  <EmptyState
+                    icon={<Package className="h-7 w-7" />}
+                    title="لا توجد منتجات مطابقة"
+                    description="جرّب تغيير الفئة أو البراند المحدد."
                   />
-                ))}
-              </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {filteredResults.map((product) => (
+                      <SearchResult
+                        key={product.id}
+                        product={product}
+                        cart={cart}
+                        onAdd={addVariant}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </div>
@@ -1454,6 +1497,102 @@ function PosRegister({
           </div>
         )}
       </Modal>
+    </div>
+  );
+}
+
+// تبويبات الفئة الثابتة: «الكل» + الفئات الأربع
+const CATEGORY_TABS: { value: CategoryValue | "ALL"; label: string }[] = [
+  { value: "ALL", label: "الكل" },
+  ...CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABELS[c] })),
+];
+
+// هل تبدأ الكلمة بحرف عربي؟ (لترتيب العربية قبل الإنجليزية)
+function isArabicWord(s: string) {
+  return /[؀-ۿ]/.test(s.trim().charAt(0));
+}
+
+// ترتيب البراندات: العربية (أ-ي) أولاً ثم الإنجليزية (A-Z)
+function compareBrands(a: string, b: string) {
+  const aArabic = isArabicWord(a);
+  const bArabic = isArabicWord(b);
+  if (aArabic !== bArabic) return aArabic ? -1 : 1;
+  return a.localeCompare(b, aArabic ? "ar" : "en");
+}
+
+// شريط الفلترة فوق نتائج البحث: تبويبات الفئة + شرائح البراند حسب الفئة
+function PosFilterBar({
+  category,
+  brand,
+  onCategory,
+  onBrand,
+}: {
+  category: CategoryValue | "ALL";
+  brand: string | null;
+  onCategory: (c: CategoryValue | "ALL") => void;
+  onBrand: (b: string | null) => void;
+}) {
+  const { data: brandsData } = useFetch<BrandDTO[]>(
+    category === "ALL" ? "/api/brands" : `/api/brands?category=${category}`
+  );
+  const brands = useMemo(() => {
+    const names = Array.from(new Set((brandsData ?? []).map((b) => b.name)));
+    return names.sort(compareBrands);
+  }, [brandsData]);
+
+  return (
+    <div className="mb-4 space-y-2">
+      {/* الصف الأول: تبويبات الفئة */}
+      <div className="flex flex-wrap gap-1.5">
+        {CATEGORY_TABS.map((t) => (
+          <button
+            key={t.value}
+            type="button"
+            onClick={() => onCategory(t.value)}
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+              category === t.value
+                ? "border-accent bg-accent-soft text-accent"
+                : "text-muted hover:text-text"
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* الصف الثاني: شرائح البراند (مفلترة بالفئة، مرتبة أبجدياً) */}
+      {brands.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          <button
+            type="button"
+            onClick={() => onBrand(null)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+              brand === null
+                ? "border-accent bg-accent-soft text-accent"
+                : "text-muted hover:text-text"
+            )}
+          >
+            الكل
+          </button>
+          {brands.map((b) => (
+            <button
+              key={b}
+              type="button"
+              onClick={() => onBrand(b)}
+              className={cn(
+                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                brand === b
+                  ? "border-accent bg-accent-soft text-accent"
+                  : "text-muted hover:text-text"
+              )}
+            >
+              {b}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

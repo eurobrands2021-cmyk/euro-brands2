@@ -141,6 +141,9 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
   }
 
   const [name, setName] = useState(initial?.name ?? "");
+  // هل عدّل المستخدم الاسم يدوياً؟ لو نعم نتوقّف عن التوليد التلقائي.
+  // في وضع التعديل نعتبر الاسم القائم «يدوياً» كي لا نستبدله.
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(!!initial?.name);
   const [brand, setBrand] = useState(initial?.brand ?? "");
   const [category, setCategory] = useState<CategoryValue>(
     initial?.category ?? "CLOTHES"
@@ -190,6 +193,8 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         const d = JSON.parse(raw);
         if (d && typeof d === "object") {
           if (typeof d.name === "string") setName(d.name);
+          if (typeof d.nameManuallyEdited === "boolean")
+            setNameManuallyEdited(d.nameManuallyEdited);
           if (typeof d.brand === "string") setBrand(d.brand);
           if (typeof d.category === "string") setCategory(d.category);
           if (typeof d.productTypeId === "string")
@@ -225,6 +230,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         DRAFT_KEY,
         JSON.stringify({
           name,
+          nameManuallyEdited,
           brand,
           category,
           productTypeId,
@@ -242,6 +248,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
     isEdit,
     draftLoaded,
     name,
+    nameManuallyEdited,
     brand,
     category,
     productTypeId,
@@ -296,6 +303,24 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
         : "— بدون نوع —";
 
   const selectedType = typeOptions.find((t) => t.id === productTypeId);
+
+  // اسم مقترح يُبنى من «{نوع المنتج} {البراند}» مثل «تيشرت نايك».
+  const suggestedName = useMemo(
+    () => [selectedType?.name, brand].filter(Boolean).join(" ").trim(),
+    [selectedType?.name, brand]
+  );
+
+  // توليد الاسم تلقائياً عند تغيير النوع أو البراند، ما لم يُعدّله المستخدم يدوياً.
+  useEffect(() => {
+    if (isEdit || !draftLoaded || nameManuallyEdited) return;
+    setName(suggestedName);
+  }, [isEdit, draftLoaded, nameManuallyEdited, suggestedName]);
+
+  // تغيير الاسم يدوياً يوقف التوليد؛ ومسحه بالكامل يستأنفه من جديد.
+  function handleNameChange(v: string) {
+    setName(v);
+    setNameManuallyEdited(v.trim().length > 0);
+  }
 
   async function uploadFiles(files: File[]) {
     for (const file of files) {
@@ -576,7 +601,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
       {quickMode && (
         <QuickAddForm
           name={name}
-          setName={setName}
+          setName={handleNameChange}
           brand={brand}
           setBrand={setBrand}
           category={category}
@@ -622,8 +647,8 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
               <TextOnlyInput
                 className="input"
                 value={name}
-                onChange={setName}
-                placeholder="مثال: تيشيرت قطن كلاسيك"
+                onChange={handleNameChange}
+                placeholder="سيتم توليده تلقائياً"
               />
             </div>
 
@@ -1497,7 +1522,7 @@ function QuickAddForm({
             className="input"
             value={name}
             onChange={setName}
-            placeholder="مثال: تيشيرت قطن كلاسيك"
+            placeholder="سيتم توليده تلقائياً"
           />
         </div>
 
