@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
@@ -38,6 +38,8 @@ export function QuickAddProductModal({
   onAdded: (product: ProductDTO, variant: VariantDTO) => void;
 }) {
   const [name, setName] = useState("");
+  // هل عدّل المستخدم الاسم يدوياً؟ لو نعم نتوقّف عن التوليد التلقائي.
+  const [nameManuallyEdited, setNameManuallyEdited] = useState(false);
   const [brand, setBrand] = useState("");
   const [category, setCategory] = useState<CategoryValue>("CLOTHES");
   const [productTypeId, setProductTypeId] = useState("");
@@ -60,11 +62,31 @@ export function QuickAddProductModal({
   const { data: typesData, loading: typesLoading } =
     useFetch<ProductTypeDTO[]>("/api/product-types");
   const typeOptions = (typesData ?? []).filter((t) => t.category === category);
+  const selectedType = typeOptions.find((t) => t.id === productTypeId);
+
+  // اسم مقترح يُبنى من «{نوع المنتج} {البراند}» مثل «بولو أميركن إيجل».
+  const suggestedName = useMemo(
+    () => [selectedType?.name, brand].filter(Boolean).join(" ").trim(),
+    [selectedType?.name, brand]
+  );
+
+  // توليد الاسم تلقائياً عند تغيير النوع أو البراند، ما لم يُعدّله المستخدم يدوياً.
+  useEffect(() => {
+    if (nameManuallyEdited) return;
+    setName(suggestedName);
+  }, [nameManuallyEdited, suggestedName]);
+
+  // تغيير الاسم يدوياً يوقف التوليد؛ ومسحه بالكامل يستأنفه من جديد.
+  function handleNameChange(v: string) {
+    setName(v);
+    setNameManuallyEdited(v.trim().length > 0);
+  }
 
   // إعادة ضبط الحقول عند فتح النافذة
   useEffect(() => {
     if (open) {
       setName("");
+      setNameManuallyEdited(false);
       setBrand("");
       setCategory("CLOTHES");
       setProductTypeId("");
@@ -199,8 +221,8 @@ export function QuickAddProductModal({
             autoFocus
             className="input"
             value={name}
-            onChange={setName}
-            placeholder="مثال: تيشيرت قطن"
+            onChange={handleNameChange}
+            placeholder="سيتم توليده تلقائياً"
           />
         </div>
 
