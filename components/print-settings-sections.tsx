@@ -18,6 +18,7 @@ import {
   PRINT_FONT_SIZE_LABELS,
   PRINT_SIZES,
   PRINT_SIZE_LABELS,
+  isThermalSize,
   type PrintFields,
   type PrintSettings,
 } from "@/lib/print-settings";
@@ -202,12 +203,26 @@ export function PrintSettingsCard() {
       {/* معاينة حيّة */}
       <p className="mb-2 text-sm font-medium text-text">معاينة مباشرة</p>
       <div className="flex max-h-[460px] justify-center overflow-auto rounded-lg border bg-[var(--surface-2)] p-4">
-        <InvoiceRender
-          sale={SAMPLE_SALE}
-          settings={settings}
-          template={template}
-          branding={branding}
-        />
+        {isThermalSize(settings.size) ? (
+          <div
+            className="eb-paper-sim"
+            style={{ width: settings.size === "58mm" ? 219 : 302 }}
+          >
+            <InvoiceRender
+              sale={SAMPLE_SALE}
+              settings={settings}
+              template={template}
+              branding={branding}
+            />
+          </div>
+        ) : (
+          <InvoiceRender
+            sale={SAMPLE_SALE}
+            settings={settings}
+            template={template}
+            branding={branding}
+          />
+        )}
       </div>
     </Card>
   );

@@ -13,6 +13,7 @@ import {
   PRINT_SIZE_LABELS,
   PRINT_FONT_SIZES,
   PRINT_FONT_SIZE_LABELS,
+  isThermalSize,
   type PrintFontSize,
   type PrintSize,
 } from "@/lib/print-settings";
@@ -127,18 +128,41 @@ export function PrintInvoiceModal({
           </div>
         </div>
 
-        {/* معاينة حيّة */}
+        {/* معاينة حيّة — للمقاسات الحرارية تُعرض بعرض الرول الفعلي (ضيّق) */}
         <div>
           <p className="mb-2 text-sm font-medium text-text">معاينة</p>
           <div className="flex max-h-[46vh] justify-center overflow-auto rounded-lg border bg-[var(--surface-2)] p-4">
-            <InvoiceRender
-              sale={sale}
-              settings={draft}
-              template={template}
-              branding={branding}
-            />
+            {isThermalSize(size) ? (
+              <div
+                className="eb-paper-sim"
+                style={{ width: size === "58mm" ? 219 : 302 }}
+              >
+                <InvoiceRender
+                  sale={sale}
+                  settings={draft}
+                  template={template}
+                  branding={branding}
+                />
+              </div>
+            ) : (
+              <InvoiceRender
+                sale={sale}
+                settings={draft}
+                template={template}
+                branding={branding}
+              />
+            )}
           </div>
         </div>
+
+        {/* تنبيه إعداد الطابعة الحرارية — يظهر قبل الطباعة للمقاسات الحرارية */}
+        {isThermalSize(size) && (
+          <p className="text-center text-xs leading-relaxed text-muted">
+            تأكد من اختيار الطابعة XP-80C وتعطيل خيار «Fit to page».
+            <br />
+            في Firefox: More Settings ← Paper size ← اختر Roll paper 80mm.
+          </p>
+        )}
       </div>
     </Modal>
   );

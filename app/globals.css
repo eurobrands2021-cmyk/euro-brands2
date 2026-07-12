@@ -950,6 +950,16 @@
   height: auto;
 }
 
+/* محاكاة ورق الرول في المعاينة: شريط أبيض بعرض الطابعة الفعلي، والإيصال يملؤه */
+.eb-paper-sim {
+  flex-shrink: 0;
+  background: #ffffff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.18);
+}
+.eb-paper-sim .eb-receipt {
+  width: 100% !important;
+}
+
 /* حاوية الطباعة الموحّدة — خارج الشاشة عادةً */
 .eb-print-area {
   position: fixed;
