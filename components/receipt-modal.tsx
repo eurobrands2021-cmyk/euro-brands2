@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Printer, Share2, Check } from "lucide-react";
 import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
 import { BranchBadge } from "@/components/ui/badge";
+import { InvoicePrintSurface } from "@/components/invoice-print-surface";
+import { useInvoiceBranding } from "@/lib/use-invoice-branding";
+import { usePrintSettings } from "@/lib/use-print-settings";
+import { triggerInvoicePrint } from "@/lib/print-trigger";
+import { loadInvoiceTemplate } from "@/lib/invoice-templates";
 import {
   BRANCH_LABELS,
   ORDER_SOURCE_LABELS,
@@ -65,13 +70,8 @@ export function ReceiptModal({
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-
-  // فعّل نطاق طباعة الإيصال فقط أثناء فتح النافذة
-  useEffect(() => {
-    if (!sale) return;
-    document.body.classList.add("receipt-open");
-    return () => document.body.classList.remove("receipt-open");
-  }, [sale]);
+  const branding = useInvoiceBranding();
+  const { settings: printSettings } = usePrintSettings();
 
   if (!sale) return null;
   const discount = sale.totalAmount - sale.finalAmount;
@@ -95,7 +95,7 @@ export function ReceiptModal({
       footer={
         <>
           <button
-            onClick={() => window.print()}
+            onClick={() => triggerInvoicePrint(printSettings.size)}
             className="btn btn-primary w-full sm:w-auto"
           >
             <Printer className="h-4 w-4" />
@@ -227,6 +227,14 @@ export function ReceiptModal({
           شكراً لتسوقكم من Euro Brands
         </p>
       </div>
+
+      {/* حاوية الطباعة المخفية — تطبع الإيصال بإعدادات الطباعة المحفوظة */}
+      <InvoicePrintSurface
+        sale={sale}
+        template={loadInvoiceTemplate()}
+        branding={branding}
+        settings={printSettings}
+      />
     </Modal>
   );
 }

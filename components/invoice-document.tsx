@@ -14,6 +14,7 @@ import {
 } from "@/lib/format";
 import { LOGO_PATH } from "@/lib/auth";
 import type { InvoiceSize, InvoiceTemplate } from "@/lib/invoice-templates";
+import { DEFAULT_PRINT_SETTINGS, type PrintFields } from "@/lib/print-settings";
 import type { SaleDTO } from "@/lib/types";
 
 function paymentLabel(sale: SaleDTO): string {
@@ -43,13 +44,19 @@ export function InvoiceDocument({
   size = "a4",
   className,
   branding,
+  fields,
+  thankYouMessage,
 }: {
   sale: SaleDTO;
   template?: InvoiceTemplate;
   size?: InvoiceSize;
   className?: string;
   branding?: InvoiceBranding;
+  // مفاتيح إظهار/إخفاء المحتوى (لطباعة A4/A5 القابلة للتخصيص). الافتراضي: الكل ظاهر.
+  fields?: PrintFields;
+  thankYouMessage?: string;
 }) {
+  const f = fields ?? DEFAULT_PRINT_SETTINGS.fields;
   const discount = sale.totalAmount - sale.finalAmount;
   const storeName = branding?.storeName?.trim() || DEFAULT_STORE_NAME;
   const logo = branding?.logo || LOGO_PATH;
@@ -73,24 +80,37 @@ export function InvoiceDocument({
       {/* الترويسة */}
       <header className="inv-header">
         <div className="inv-brand">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logo} alt={storeName} className="inv-logo" />
+          {f.storeName && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={logo} alt={storeName} className="inv-logo" />
+          )}
           <div className="inv-brand-text">
-            <span className="inv-store">{storeName}</span>
-            <span className="inv-tagline">
-              {contact || "فاتورة بيع"}
-            </span>
+            {f.storeName && <span className="inv-store">{storeName}</span>}
+            {f.contact && (
+              <span className="inv-tagline">{contact || "فاتورة بيع"}</span>
+            )}
           </div>
         </div>
         <div className="inv-meta">
-          <span className="inv-num nums">{formatSaleNumber(sale.saleNumber)}</span>
-          <span className="inv-date nums">{formatDateTime(sale.createdAt)}</span>
-          <span className="inv-branch">{BRANCH_LABELS[sale.branch]}</span>
+          {f.invoiceNumber && (
+            <span className="inv-num nums">
+              {formatSaleNumber(sale.saleNumber)}
+            </span>
+          )}
+          {f.dateTime && (
+            <span className="inv-date nums">
+              {formatDateTime(sale.createdAt)}
+            </span>
+          )}
+          {f.branch && (
+            <span className="inv-branch">{BRANCH_LABELS[sale.branch]}</span>
+          )}
         </div>
       </header>
 
       {/* بيانات العميل */}
-      {(sale.customerName || sale.customerPhone || sale.customerNotes) && (
+      {f.customer &&
+        (sale.customerName || sale.customerPhone || sale.customerNotes) && (
         <section className="inv-customer">
           {sale.customerName && (
             <span>
@@ -115,10 +135,10 @@ export function InvoiceDocument({
         <thead>
           <tr>
             <th className="inv-col-name">المنتج</th>
-            <th>المقاس</th>
-            <th>السعر</th>
-            <th>الكمية</th>
-            <th>الإجمالي</th>
+            {f.itemDetails && <th>المقاس</th>}
+            {f.qtyPrice && <th>السعر</th>}
+            {f.qtyPrice && <th>الكمية</th>}
+            {f.qtyPrice && <th>الإجمالي</th>}
           </tr>
         </thead>
         <tbody>
@@ -128,13 +148,21 @@ export function InvoiceDocument({
                 <span className="inv-item-name">{it.productName}</span>
                 {it.brand && <span className="inv-item-brand">{it.brand}</span>}
               </td>
-              <td className="nums">
-                {it.size}
-                {it.color ? ` / ${it.color}` : ""}
-              </td>
-              <td className="nums">{formatCurrency(it.unitPrice)}</td>
-              <td className="nums">{formatNumber(it.quantity)}</td>
-              <td className="nums">{formatCurrency(it.subtotal)}</td>
+              {f.itemDetails && (
+                <td className="nums">
+                  {it.size}
+                  {it.color ? ` / ${it.color}` : ""}
+                </td>
+              )}
+              {f.qtyPrice && (
+                <td className="nums">{formatCurrency(it.unitPrice)}</td>
+              )}
+              {f.qtyPrice && (
+                <td className="nums">{formatNumber(it.quantity)}</td>
+              )}
+              {f.qtyPrice && (
+                <td className="nums">{formatCurrency(it.subtotal)}</td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -142,11 +170,13 @@ export function InvoiceDocument({
 
       {/* الإجماليات */}
       <section className="inv-totals">
-        <div className="inv-total-row">
-          <span>الإجمالي قبل الخصم</span>
-          <span className="nums">{formatCurrency(sale.totalAmount)}</span>
-        </div>
-        {discount > 0 && (
+        {f.subtotal && (
+          <div className="inv-total-row">
+            <span>الإجمالي قبل الخصم</span>
+            <span className="nums">{formatCurrency(sale.totalAmount)}</span>
+          </div>
+        )}
+        {f.discount && discount > 0 && (
           <div className="inv-total-row inv-discount">
             <span>
               الخصم
@@ -164,19 +194,25 @@ export function InvoiceDocument({
             <span className="nums">- {formatCurrency(discount)}</span>
           </div>
         )}
-        <div className="inv-total-row inv-grand">
-          <span>الصافي</span>
-          <span className="nums">{formatCurrency(sale.finalAmount)}</span>
-        </div>
-        <div className="inv-total-row">
-          <span>طريقة الدفع</span>
-          <span>{paymentLabel(sale)}</span>
-        </div>
-        <div className="inv-total-row">
-          <span>المدفوع</span>
-          <span className="nums">{formatCurrency(sale.paidAmount)}</span>
-        </div>
-        {sale.remainingAmount > 0 && (
+        {f.total && (
+          <div className="inv-total-row inv-grand">
+            <span>الصافي</span>
+            <span className="nums">{formatCurrency(sale.finalAmount)}</span>
+          </div>
+        )}
+        {f.paymentMethod && (
+          <div className="inv-total-row">
+            <span>طريقة الدفع</span>
+            <span>{paymentLabel(sale)}</span>
+          </div>
+        )}
+        {f.cashChange && (
+          <div className="inv-total-row">
+            <span>المدفوع</span>
+            <span className="nums">{formatCurrency(sale.paidAmount)}</span>
+          </div>
+        )}
+        {f.cashChange && sale.remainingAmount > 0 && (
           <div className="inv-total-row inv-remaining">
             <span>المتبقي</span>
             <span className="nums">{formatCurrency(sale.remainingAmount)}</span>
@@ -203,10 +239,14 @@ export function InvoiceDocument({
       )}
 
       <footer className="inv-footer">
-        {sale.cashierName && (
+        {f.cashier && sale.cashierName && (
           <span className="inv-cashier">الكاشير: {sale.cashierName}</span>
         )}
-        <span>شكراً لتسوقكم من {storeName} 🤍</span>
+        {f.thankYou && (
+          <span>
+            {thankYouMessage?.trim() || `شكراً لتسوقكم من ${storeName} 🤍`}
+          </span>
+        )}
       </footer>
     </div>
   );

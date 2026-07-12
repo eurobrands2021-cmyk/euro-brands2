@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Printer,
+  Zap,
   Pencil,
   Clock,
   Ban,
@@ -22,8 +23,12 @@ import { Modal } from "@/components/ui/modal";
 import { InvoiceDocument } from "@/components/invoice-document";
 import { InvoiceTemplatePicker } from "@/components/invoice-template-picker";
 import { PrintInvoiceModal } from "@/components/print-invoice-modal";
+import { InvoicePrintSurface } from "@/components/invoice-print-surface";
 import { useSettings } from "@/components/settings-provider";
 import { useInvoiceBranding } from "@/lib/use-invoice-branding";
+import { usePrintSettings } from "@/lib/use-print-settings";
+import { triggerInvoicePrint } from "@/lib/print-trigger";
+import type { PrintFontSize, PrintSize } from "@/lib/print-settings";
 import { invoiceLockInfo } from "@/lib/invoice-lock";
 import {
   loadInvoiceTemplate,
@@ -40,6 +45,7 @@ export default function SaleDetailPage() {
   );
   const { settings } = useSettings();
   const branding = useInvoiceBranding();
+  const { settings: printSettings } = usePrintSettings();
 
   const [template, setTemplate] = useState<InvoiceTemplate>("classic");
   const [printOpen, setPrintOpen] = useState(false);
@@ -47,9 +53,36 @@ export default function SaleDetailPage() {
   const [reason, setReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
 
+  // مقاس/خط الطباعة الحالي للحاوية المخفية — يبدأ من الإعدادات المحفوظة.
+  const [printSize, setPrintSize] = useState<PrintSize>("80mm");
+  const [printFontSize, setPrintFontSize] = useState<PrintFontSize>("medium");
+  const [printNonce, setPrintNonce] = useState(0);
+  const pendingPrint = useRef(false);
+
   useEffect(() => {
     setTemplate(loadInvoiceTemplate());
   }, []);
+
+  // زامن مقاس/خط الطباعة مع الإعدادات المحفوظة (للطباعة المباشرة الافتراضية).
+  useEffect(() => {
+    setPrintSize(printSettings.size);
+    setPrintFontSize(printSettings.fontSize);
+  }, [printSettings.size, printSettings.fontSize]);
+
+  // بعد أن تعكس الحاوية المخفية المقاس المطلوب، شغّل الطباعة.
+  useEffect(() => {
+    if (!pendingPrint.current) return;
+    pendingPrint.current = false;
+    triggerInvoicePrint(printSize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [printNonce]);
+
+  function requestPrint(size: PrintSize, fontSize: PrintFontSize) {
+    setPrintSize(size);
+    setPrintFontSize(fontSize);
+    pendingPrint.current = true;
+    setPrintNonce((n) => n + 1);
+  }
 
   function changeTemplate(t: InvoiceTemplate) {
     setTemplate(t);
@@ -127,6 +160,14 @@ export default function SaleDetailPage() {
             </button>
           )}
           <button
+            onClick={() => requestPrint(printSettings.size, printSettings.fontSize)}
+            className="btn btn-secondary h-9 text-sm"
+            title="طباعة بالمقاس والإعدادات المحفوظة مباشرة"
+          >
+            <Zap className="h-4 w-4" />
+            طباعة مباشرة
+          </button>
+          <button
             onClick={() => setPrintOpen(true)}
             className="btn btn-primary h-9 text-sm"
           >
@@ -186,6 +227,22 @@ export default function SaleDetailPage() {
         template={template}
         open={printOpen}
         onClose={() => setPrintOpen(false)}
+        onPrint={(size, fontSize) => {
+          setPrintOpen(false);
+          requestPrint(size, fontSize);
+        }}
+      />
+
+      {/* حاوية الطباعة المخفية — تُطبَع وحدها بالمقاس المختار */}
+      <InvoicePrintSurface
+        sale={data}
+        template={template}
+        branding={branding}
+        settings={{
+          ...printSettings,
+          size: printSize,
+          fontSize: printFontSize,
+        }}
       />
 
       {/* نافذة فتح القفل (للمدير) — تتطلب سبباً يُسجَّل في التدقيق */}
