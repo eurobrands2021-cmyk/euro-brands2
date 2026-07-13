@@ -15,6 +15,7 @@ import {
   Copy,
   LayoutGrid,
   List as ListIcon,
+  SlidersHorizontal,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
@@ -29,6 +30,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { CategoryBadge, StockBadge, Badge, DraftBadge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import type { BrandDTO, ProductDTO, ProductInput } from "@/lib/types";
@@ -282,8 +284,14 @@ export default function InventoryPage() {
         }
       />
 
-      {/* شريط الفلاتر */}
-      <Card className="mb-6 p-4">
+      {/* شريط الفلاتر — قابل للطي مع حفظ الحالة */}
+      <CollapsiblePanel
+        storageKey="eb-inventory-filters"
+        title="الفلاتر"
+        icon={<SlidersHorizontal className="h-5 w-5 text-accent" />}
+        className="mb-6"
+        bodyClassName="pt-4"
+      >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="relative">
             <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -437,7 +445,7 @@ export default function InventoryPage() {
             </button>
           </div>
         </div>
-      </Card>
+      </CollapsiblePanel>
 
       {/* تبويبات حالة المخزون */}
       <div className="mb-5 flex flex-wrap gap-2">

@@ -16,6 +16,7 @@ import {
   Wallet,
   Tag,
   XCircle,
+  SlidersHorizontal,
 } from "lucide-react";
 import { startOfDay, endOfDay } from "date-fns";
 import toast from "react-hot-toast";
@@ -27,6 +28,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { BranchBadge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/cn";
@@ -195,8 +197,13 @@ export default function SalesPage() {
         }
       />
 
-      {/* الفلاتر */}
-      <Card className="mb-6 p-4">
+      {/* الفلاتر — قابلة للطي مع حفظ الحالة */}
+      <CollapsiblePanel
+        storageKey="eb-sales-filters"
+        title="الفلاتر"
+        icon={<SlidersHorizontal className="h-5 w-5 text-accent" />}
+        className="mb-6"
+      >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <div className="relative">
             <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
@@ -269,7 +276,7 @@ export default function SalesPage() {
             مسح الفلاتر
           </button>
         )}
-      </Card>
+      </CollapsiblePanel>
 
       {/* بطاقات الملخّص */}
       {!loading && !error && sales.length > 0 && (

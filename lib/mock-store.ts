@@ -908,6 +908,36 @@ export function mockCreateBrand(input: {
   return { id: b.id, name: b.name, category: b.category };
 }
 
+export function mockUpdateBrand(
+  id: string,
+  name: string
+): { ok: true; brand: BrandDTO } | { ok: false; status: number; error: string } {
+  const b = store.brands.find((x) => x.id === id);
+  if (!b) return { ok: false, status: 404, error: "البراند غير موجود" };
+  if (b.name === name)
+    return { ok: true, brand: { id: b.id, name: b.name, category: b.category } };
+  // تعارض التفرّد داخل نفس الفئة
+  if (
+    store.brands.some(
+      (x) => x.id !== id && x.name === name && x.category === b.category
+    )
+  )
+    return { ok: false, status: 409, error: "يوجد براند بنفس الاسم في هذه الفئة" };
+  // مزامنة المنتجات (نفس الفئة + الاسم القديم)
+  for (const p of store.products) {
+    if (p.brand === b.name && p.category === b.category) p.brand = name;
+  }
+  b.name = name;
+  return { ok: true, brand: { id: b.id, name: b.name, category: b.category } };
+}
+
+export function mockDeleteBrand(id: string): boolean {
+  const idx = store.brands.findIndex((x) => x.id === id);
+  if (idx === -1) return false;
+  store.brands.splice(idx, 1);
+  return true;
+}
+
 function soldCountByProduct(): Map<string, number> {
   const m = new Map<string, number>();
   for (const s of store.sales)
@@ -1457,6 +1487,29 @@ export function mockCreateProductType(input: ProductTypeInput): ProductTypeDTO {
   };
   store.productTypes.push(t);
   return shapeProductType(t);
+}
+
+export function mockUpdateProductType(
+  id: string,
+  input: ProductTypeInput
+):
+  | { ok: true; type: ProductTypeDTO }
+  | { ok: false; status: number; error: string } {
+  const t = store.productTypes.find((x) => x.id === id);
+  if (!t) return { ok: false, status: 404, error: "النوع غير موجود" };
+  if (
+    store.productTypes.some(
+      (x) =>
+        x.id !== id &&
+        x.name === input.name &&
+        x.category === input.category
+    )
+  )
+    return { ok: false, status: 409, error: "يوجد نوع بنفس الاسم في هذه الفئة" };
+  t.name = input.name;
+  t.code = input.code;
+  t.category = input.category;
+  return { ok: true, type: shapeProductType(t) };
 }
 
 export function mockDeleteProductType(id: string): boolean {

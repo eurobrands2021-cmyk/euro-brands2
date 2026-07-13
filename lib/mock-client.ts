@@ -13,8 +13,11 @@ import {
   mockHomeStats,
   mockListBrands,
   mockCreateBrand,
+  mockUpdateBrand,
+  mockDeleteBrand,
   mockListProductTypes,
   mockCreateProductType,
+  mockUpdateProductType,
   mockDeleteProductType,
   mockSeedProductTypes,
   mockListActivity,
@@ -186,12 +189,41 @@ export async function mockApi<T>(
     }
   }
 
+  // /api/brands/[id]
+  const brandMatch = path.match(/^\/api\/brands\/([^/]+)$/);
+  if (brandMatch) {
+    const id = decodeURIComponent(brandMatch[1]);
+    if (method === "PUT") {
+      const name =
+        body && typeof body === "object" && "name" in body
+          ? String((body as { name: unknown }).name ?? "").trim()
+          : "";
+      if (!name) throw new Error("اسم البراند مطلوب");
+      const res = mockUpdateBrand(id, name);
+      if (!res.ok) throw new Error(res.error);
+      return res.brand as T;
+    }
+    if (method === "DELETE") {
+      const removed = mockDeleteBrand(id);
+      if (!removed) throw new Error("البراند غير موجود");
+      return { id } as T;
+    }
+  }
+
   // /api/product-types/[id]
   const ptMatch = path.match(/^\/api\/product-types\/([^/]+)$/);
-  if (ptMatch && method === "DELETE") {
-    const removed = mockDeleteProductType(decodeURIComponent(ptMatch[1]));
-    if (!removed) throw new Error("النوع غير موجود");
-    return { id: ptMatch[1] } as T;
+  if (ptMatch) {
+    const id = decodeURIComponent(ptMatch[1]);
+    if (method === "PUT") {
+      const res = mockUpdateProductType(id, parseProductTypeInput(body));
+      if (!res.ok) throw new Error(res.error);
+      return res.type as T;
+    }
+    if (method === "DELETE") {
+      const removed = mockDeleteProductType(id);
+      if (!removed) throw new Error("النوع غير موجود");
+      return { id } as T;
+    }
   }
 
   // /api/customers/vip — كبار العملاء (قبل مطابقة المعرّف)

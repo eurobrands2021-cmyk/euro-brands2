@@ -11,6 +11,7 @@ import {
   Database,
   Printer,
   ChevronDown,
+  Tag,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -21,6 +22,7 @@ import { AdminRecoverySetupCard } from "@/components/admin-recovery-setup";
 import { InvoiceTemplateSettingsCard } from "@/components/invoice-template-settings";
 import { PrintSettingsCard } from "@/components/print-settings-sections";
 import { DataManagementCard } from "@/components/data-management";
+import { BrandTypeManagementCard } from "@/components/brand-type-management";
 import { cn } from "@/lib/cn";
 import {
   AppearanceSettingsCard,
@@ -40,7 +42,9 @@ export default function SettingsPage() {
   const router = useRouter();
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(false);
-  const [tab, setTab] = useState<"general" | "print" | "data">("general");
+  const [tab, setTab] = useState<"general" | "print" | "brands" | "data">(
+    "general"
+  );
 
   useEffect(() => {
     setSession(getSession());
@@ -48,7 +52,8 @@ export default function SettingsPage() {
     // فتح تبويب محدد عبر ?tab= (يُستخدم من رابط «تخصيص» في نافذة الطباعة)
     try {
       const t = new URLSearchParams(window.location.search).get("tab");
-      if (t === "print" || t === "data" || t === "general") setTab(t);
+      if (t === "print" || t === "data" || t === "general" || t === "brands")
+        setTab(t);
     } catch {
       /* تجاهل */
     }
@@ -95,6 +100,20 @@ export default function SettingsPage() {
         </button>
         {isAdmin && (
           <button
+            onClick={() => setTab("brands")}
+            className={cn(
+              "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+              tab === "brands"
+                ? "bg-surface text-text shadow-sm"
+                : "text-muted hover:text-text"
+            )}
+          >
+            <Tag className="h-4 w-4" />
+            البراندات والأنواع
+          </button>
+        )}
+        {isAdmin && (
+          <button
             onClick={() => setTab("data")}
             className={cn(
               "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -111,6 +130,8 @@ export default function SettingsPage() {
 
       {tab === "print" ? (
         <PrintSettingsCard />
+      ) : isAdmin && tab === "brands" ? (
+        <BrandTypeManagementCard />
       ) : isAdmin && tab === "data" ? (
         <DataManagementCard />
       ) : (
