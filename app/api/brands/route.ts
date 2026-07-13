@@ -1,6 +1,6 @@
 import { type Category } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import { ok, fail, handleServerError, CACHE_STATIC } from "@/lib/api";
+import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toBrandDTO } from "@/lib/serializers";
 import { parseBrandInput, ValidationError } from "@/lib/validate";
 import { MOCK_MODE, mockListBrands, mockCreateBrand } from "@/lib/mock-store";
@@ -18,7 +18,8 @@ export async function GET(req: Request) {
       where: category ? { category: category as Category } : undefined,
       orderBy: { name: "asc" },
     });
-    return ok(brands.map(toBrandDTO), 200, CACHE_STATIC);
+    // بدون تخزين مؤقت على الحافة (CDN) حتى يظهر البراند الجديد فور إضافته
+    return ok(brands.map(toBrandDTO), 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

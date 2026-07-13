@@ -33,8 +33,7 @@ import {
 import type { LowStockResponse } from "@/lib/types";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
-import { AccessRequestsBell } from "./access-requests-bell";
-import { LowStockBell } from "./low-stock-bell";
+import { NotificationsBell } from "./notifications-bell";
 import { OfflineIndicator } from "./offline-indicator";
 
 interface NavItem {
@@ -135,7 +134,7 @@ export function TopNav() {
     <header className="sticky top-0 z-30 border-b bg-surface/95 backdrop-blur">
       <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-4 sm:px-6">
         {/* الشعار + الروابط (يمين في RTL) */}
-        <div className="flex items-center gap-8">
+        <div className="flex items-center gap-3 lg:gap-6">
           <Link href="/" className="flex items-center gap-2">
             <Logo size={36} className="rounded-full" />
             <span className="hidden text-lg font-extrabold tracking-tight text-text sm:block">
@@ -152,7 +151,7 @@ export function TopNav() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex h-16 items-center gap-2 border-b-[3px] px-2.5 text-sm font-medium transition-colors lg:px-3",
+                    "flex h-16 items-center gap-1.5 border-b-[3px] px-2 text-sm font-medium transition-colors lg:px-2.5",
                     active
                       ? "border-accent text-accent"
                       : "border-transparent text-muted hover:text-text"
@@ -172,7 +171,7 @@ export function TopNav() {
                   aria-haspopup="menu"
                   aria-expanded={moreOpen}
                   className={cn(
-                    "flex h-16 items-center gap-1.5 border-b-[3px] px-2.5 text-sm font-medium transition-colors lg:px-3",
+                    "flex h-16 items-center gap-1 border-b-[3px] px-2 text-sm font-medium transition-colors lg:px-2.5",
                     moreActive || moreOpen
                       ? "border-accent text-accent"
                       : "border-transparent text-muted hover:text-text"
@@ -219,7 +218,7 @@ export function TopNav() {
         </div>
 
         {/* المستخدم + مبدّل الوضع + تسجيل الخروج (يسار في RTL) */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           {session && (
             <div className="hidden items-center gap-2 sm:flex">
               <span className="text-sm font-medium text-text">
@@ -231,8 +230,7 @@ export function TopNav() {
             </div>
           )}
           <OfflineIndicator />
-          {role === "ADMIN" && <LowStockBell />}
-          {role === "ADMIN" && <AccessRequestsBell />}
+          {role === "ADMIN" && <NotificationsBell />}
           <ThemeToggle />
           {session && (
             <button

@@ -10,6 +10,7 @@ import {
   X,
   Database,
   Printer,
+  ChevronDown,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { PageHeader } from "@/components/ui/page-header";
@@ -272,62 +273,69 @@ function ActivityViewer() {
           لا توجد سجلات مطابقة
         </p>
       ) : (
-        <>
-          {/* جدول لسطح المكتب */}
-          <div className="hidden overflow-x-auto sm:block">
-            <table className="w-full min-w-[640px] text-right text-sm">
-              <thead>
-                <tr className="border-b text-muted">
-                  <th className="px-3 py-2 font-medium">التاريخ</th>
-                  <th className="px-3 py-2 font-medium">المستخدم</th>
-                  <th className="px-3 py-2 font-medium">الدور</th>
-                  <th className="px-3 py-2 font-medium">الإجراء</th>
-                  <th className="px-3 py-2 font-medium">التفاصيل</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((a) => (
-                  <tr key={a.id} className="border-b border-[var(--border)]">
-                    <td className="px-3 py-2 text-muted nums whitespace-nowrap">
-                      {formatDateTime(a.createdAt)}
-                    </td>
-                    <td className="px-3 py-2 font-medium text-text">
-                      {a.userName}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-bold text-accent">
-                        {a.userRole === "ADMIN" ? "مدير" : "كاشير"}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-text">{a.action}</td>
-                    <td className="px-3 py-2 text-muted">{a.details || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* بطاقات للموبايل */}
-          <div className="space-y-2 sm:hidden">
-            {logs.map((a) => (
-              <div key={a.id} className="rounded-lg border p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="font-medium text-text">{a.action}</p>
-                  <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-bold text-accent">
-                    {a.userRole === "ADMIN" ? "مدير" : "كاشير"}
-                  </span>
-                </div>
-                {a.details && (
-                  <p className="mt-1 text-sm text-muted">{a.details}</p>
-                )}
-                <p className="mt-1 text-xs text-muted nums">
-                  {a.userName} · {formatDateTime(a.createdAt)}
-                </p>
-              </div>
-            ))}
-          </div>
-        </>
+        // صفوف قابلة للطي — ملخّص فقط افتراضياً، والنقر يوسّع التفاصيل الكاملة
+        <div className="space-y-2">
+          {logs.map((a) => (
+            <ActivityRow key={a.id} log={a} />
+          ))}
+        </div>
       )}
     </Card>
+  );
+}
+
+// صف سجل نشاط قابل للطي: يعرض الملخّص (الإجراء + المستخدم + الوقت) افتراضياً،
+// وبالنقر يتوسّع لإظهار كامل التفاصيل، وبالنقر مجدداً ينطوي.
+function ActivityRow({ log }: { log: ActivityLogDTO }) {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 px-3 py-2.5 text-right transition-colors hover:bg-[var(--surface-2)]"
+      >
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted transition-transform",
+            expanded && "rotate-180"
+          )}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-text">{log.action}</p>
+          <p className="mt-0.5 truncate text-xs text-muted nums">
+            {log.userName} · {formatDateTime(log.createdAt)}
+          </p>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="space-y-2 border-t border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-sm">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
+            <span className="text-xs text-muted">
+              المستخدم:{" "}
+              <span className="font-medium text-text">{log.userName}</span>
+            </span>
+            <span className="rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-bold text-accent">
+              {log.userRole === "ADMIN" ? "مدير" : "كاشير"}
+            </span>
+            <span className="text-xs text-muted nums">
+              {formatDateTime(log.createdAt)}
+            </span>
+          </div>
+          <div>
+            <p className="text-xs text-muted">الإجراء</p>
+            <p className="text-text">{log.action}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted">التفاصيل</p>
+            <p className="whitespace-pre-wrap break-words text-text">
+              {log.details || "—"}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

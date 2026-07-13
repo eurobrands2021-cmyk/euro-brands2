@@ -232,6 +232,10 @@ function PosRegister({
   const [held, setHeld] = useState<HeldInvoice[]>([]);
   const [heldOpen, setHeldOpen] = useState(false);
   const [searchFocused, setSearchFocused] = useState(false);
+  // هل تفاعل المستخدم مع حقل البحث؟ نستخدمه لعدم إظهار «الأكثر مبيعاً» تلقائياً
+  // عند تحميل الصفحة (بسبب autoFocus) — تظهر فقط بعد نقر/تركيز المستخدم.
+  const [recentUnlocked, setRecentUnlocked] = useState(false);
+  const initialFocusRef = useRef(true);
   const [highlight, setHighlight] = useState(0);
   // فلترة النتائج بالفئة والبراند (شريط فوق النتائج)
   const [filterCategory, setFilterCategory] = useState<CategoryValue | "ALL">(
@@ -342,7 +346,7 @@ function PosRegister({
 
   // قائمة «الأكثر مبيعاً» تظهر عند تركيز حقل البحث وهو فارغ ووجود منتجات
   const bestsellersOpen =
-    searchFocused && term.trim() === "" && bestsellers.length > 0;
+    searchFocused && recentUnlocked && term.trim() === "" && bestsellers.length > 0;
 
   // ---- عمليات السلة ----
   function addVariant(product: ProductDTO, variant: ProductDTO["variants"][0]) {
@@ -762,9 +766,16 @@ function PosRegister({
                   placeholder="ابحث بالاسم أو البراند أو الكود/الباركود..."
                   value={term}
                   onChange={(e) => setTerm(e.target.value)}
+                  onPointerDown={() => setRecentUnlocked(true)}
                   onFocus={() => {
                     if (blurTimer.current) clearTimeout(blurTimer.current);
                     setSearchFocused(true);
+                    // أول تركيز ناتج عن autoFocus عند التحميل لا يفتح «الأكثر مبيعاً»
+                    if (initialFocusRef.current) {
+                      initialFocusRef.current = false;
+                    } else {
+                      setRecentUnlocked(true);
+                    }
                   }}
                   onBlur={() => {
                     blurTimer.current = setTimeout(
@@ -805,9 +816,12 @@ function PosRegister({
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-text">
-                            {p.name}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="truncate text-sm font-medium text-text">
+                              {p.name}
+                            </p>
+                            {p.isDraft && <DraftTag />}
+                          </div>
                           <p className="text-xs text-muted">{p.brand}</p>
                         </div>
                         <div className="flex flex-wrap justify-end gap-1">
@@ -1597,6 +1611,15 @@ function PosFilterBar({
   );
 }
 
+// شارة صفراء صغيرة تميّز منتجات المسودة داخل نتائج البحث
+function DraftTag() {
+  return (
+    <span className="shrink-0 rounded bg-[rgba(230,162,60,0.16)] px-1.5 py-0.5 text-[10px] font-bold text-warning">
+      مسودة
+    </span>
+  );
+}
+
 function SearchResult({
   product,
   cart,
@@ -1640,7 +1663,12 @@ function SearchResult({
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-bold text-text">{product.name}</p>
+          <div className="flex items-center gap-1.5">
+            <p className="truncate text-sm font-bold text-text">
+              {product.name}
+            </p>
+            {product.isDraft && <DraftTag />}
+          </div>
           <p className="truncate text-xs text-muted">
             {product.brand}
             {product.sku ? ` · ${product.sku}` : ""}
