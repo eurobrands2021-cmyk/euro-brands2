@@ -592,6 +592,23 @@
   font-size: 11px;
   color: var(--inv-muted);
 }
+.inv-item-note {
+  display: block;
+  font-size: 11px;
+  color: var(--inv-muted);
+  font-style: italic;
+}
+.inv-item-disc {
+  display: block;
+  font-size: 11px;
+  color: #b06a12;
+}
+.inv-gross-strike {
+  display: block;
+  font-size: 11px;
+  color: var(--inv-muted);
+  text-decoration: line-through;
+}
 
 .inv-totals {
   margin-inline-start: auto;

@@ -9,7 +9,7 @@ import type {
   Sale,
   SaleItem,
 } from "@prisma/client";
-import type { BranchValue, CategoryValue } from "./constants";
+import type { BranchValue, CategoryValue, DiscountTypeValue } from "./constants";
 import type {
   AccessRequestDTO,
   AccessRequestStatus,
@@ -161,6 +161,9 @@ export function toSaleDTO(s: SaleWithItems): SaleDTO {
       quantity: it.quantity,
       unitPrice: it.unitPrice,
       subtotal: it.subtotal,
+      note: it.note ?? null,
+      itemDiscount: it.itemDiscount ?? 0,
+      itemDiscountType: (it.itemDiscountType as DiscountTypeValue) ?? "FIXED",
       productName: it.product.name,
       brand: it.product.brand,
       size: it.variant.size,

@@ -142,29 +142,55 @@ export function InvoiceDocument({
           </tr>
         </thead>
         <tbody>
-          {sale.items.map((it) => (
-            <tr key={it.id}>
-              <td className="inv-col-name">
-                <span className="inv-item-name">{it.productName}</span>
-                {it.brand && <span className="inv-item-brand">{it.brand}</span>}
-              </td>
-              {f.itemDetails && (
-                <td className="nums">
-                  {it.size}
-                  {it.color ? ` / ${it.color}` : ""}
+          {sale.items.map((it) => {
+            const gross = it.unitPrice * it.quantity;
+            const itemDisc = gross - it.subtotal;
+            return (
+              <tr key={it.id}>
+                <td className="inv-col-name">
+                  <span className="inv-item-name">{it.productName}</span>
+                  {it.brand && (
+                    <span className="inv-item-brand">{it.brand}</span>
+                  )}
+                  {it.note && (
+                    <span className="inv-item-note">📝 {it.note}</span>
+                  )}
                 </td>
-              )}
-              {f.qtyPrice && (
-                <td className="nums">{formatCurrency(it.unitPrice)}</td>
-              )}
-              {f.qtyPrice && (
-                <td className="nums">{formatNumber(it.quantity)}</td>
-              )}
-              {f.qtyPrice && (
-                <td className="nums">{formatCurrency(it.subtotal)}</td>
-              )}
-            </tr>
-          ))}
+                {f.itemDetails && (
+                  <td className="nums">
+                    {it.size}
+                    {it.color ? ` / ${it.color}` : ""}
+                  </td>
+                )}
+                {f.qtyPrice && (
+                  <td className="nums">{formatCurrency(it.unitPrice)}</td>
+                )}
+                {f.qtyPrice && (
+                  <td className="nums">{formatNumber(it.quantity)}</td>
+                )}
+                {f.qtyPrice && (
+                  <td className="nums">
+                    {itemDisc > 0 && (
+                      <span className="inv-gross-strike">
+                        {formatCurrency(gross)}
+                      </span>
+                    )}
+                    {formatCurrency(it.subtotal)}
+                    {itemDisc > 0 && (
+                      <span className="inv-item-disc">
+                        خصم
+                        {it.itemDiscountType === "PERCENTAGE" &&
+                        it.itemDiscount > 0
+                          ? ` ${formatNumber(it.itemDiscount)}%`
+                          : ""}{" "}
+                        - {formatCurrency(itemDisc)}
+                      </span>
+                    )}
+                  </td>
+                )}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
 

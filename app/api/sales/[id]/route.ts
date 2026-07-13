@@ -10,7 +10,8 @@ import { prisma } from "@/lib/prisma";
 import { ok, fail, handleServerError } from "@/lib/api";
 import { toSaleDTO } from "@/lib/serializers";
 import { parseSaleInput, ValidationError } from "@/lib/validate";
-import { calcDiscount, round2 } from "@/lib/sale-utils";
+import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
+import type { DiscountTypeValue } from "@/lib/constants";
 import { formatSaleNumber } from "@/lib/format";
 import { isInvoiceLocked } from "@/lib/invoice-lock";
 import { readServerSettings } from "@/lib/server-settings";
@@ -92,10 +93,22 @@ export async function PUT(
     // مدة قفل الفواتير (يقرؤها الخادم لمنع تعديل الفواتير القديمة)
     const { lockDays } = await readServerSettings();
 
-    // دمج الكميات المكررة لنفس الصنف
-    const merged = new Map<string, number>();
+    // دمج الكميات المكررة لنفس الصنف (مع ملاحظة/خصم الصنف)
+    interface MergedSaleItem {
+      quantity: number;
+      note: string | null;
+      itemDiscount: number;
+      itemDiscountType: DiscountTypeValue;
+    }
+    const merged = new Map<string, MergedSaleItem>();
     for (const it of input.items) {
-      merged.set(it.variantId, (merged.get(it.variantId) ?? 0) + it.quantity);
+      const prev = merged.get(it.variantId);
+      merged.set(it.variantId, {
+        quantity: (prev?.quantity ?? 0) + it.quantity,
+        note: it.note ?? prev?.note ?? null,
+        itemDiscount: it.itemDiscount ?? prev?.itemDiscount ?? 0,
+        itemDiscountType: it.itemDiscountType ?? prev?.itemDiscountType ?? "FIXED",
+      });
     }
     const variantIds = [...merged.keys()];
 
@@ -121,10 +134,10 @@ export async function PUT(
         };
 
       // 1) إرجاع كميات العناصر القديمة للمخزون
-      for (const it of sale.items) {
+      for (const oldItem of sale.items) {
         await tx.productVariant.update({
-          where: { id: it.variantId },
-          data: { quantity: { increment: it.quantity } },
+          where: { id: oldItem.variantId },
+          data: { quantity: { increment: oldItem.quantity } },
         });
       }
 
@@ -142,8 +155,11 @@ export async function PUT(
         quantity: number;
         unitPrice: number;
         subtotal: number;
+        note: string | null;
+        itemDiscount: number;
+        itemDiscountType: DiscountTypeValue;
       }[] = [];
-      for (const [variantId, qty] of merged.entries()) {
+      for (const [variantId, m] of merged.entries()) {
         const v = vmap.get(variantId);
         // نرمي ValidationError كي تُلغى المعاملة بالكامل (بما فيها إرجاع
         // الكميات في الخطوة 1) فلا يتضخّم المخزون عند فشل التحقق.
@@ -153,19 +169,28 @@ export async function PUT(
           throw new ValidationError(
             `المنتج "${v.product.name}" لا ينتمي للفرع المحدد`
           );
-        if (v.quantity < qty)
+        if (v.quantity < m.quantity)
           throw new ValidationError(
             `الكمية غير كافية من "${v.product.name}" مقاس ${v.size} (المتاح: ${v.quantity})`
           );
 
-        const subtotal = round2(v.price * qty);
-        totalAmount += subtotal;
+        // الصافي بعد خصم الصنف (يُحسب من السعر الموثوق في الخادم)
+        const { net } = calcItemNet(
+          v.price,
+          m.quantity,
+          m.itemDiscount,
+          m.itemDiscountType
+        );
+        totalAmount += net;
         itemsData.push({
           productId: v.productId,
           variantId: v.id,
-          quantity: qty,
+          quantity: m.quantity,
           unitPrice: v.price,
-          subtotal,
+          subtotal: net,
+          note: m.note,
+          itemDiscount: m.itemDiscount,
+          itemDiscountType: m.itemDiscountType,
         });
       }
 
@@ -183,10 +208,10 @@ export async function PUT(
       const remainingAmount = round2(finalAmount - paidAmount);
 
       // 3) خصم الكميات الجديدة من المخزون
-      for (const [variantId, qty] of merged.entries()) {
+      for (const [variantId, m] of merged.entries()) {
         await tx.productVariant.update({
           where: { id: variantId },
-          data: { quantity: { decrement: qty } },
+          data: { quantity: { decrement: m.quantity } },
         });
       }
 

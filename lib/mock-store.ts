@@ -6,7 +6,7 @@ import {
   format,
   setHours,
 } from "date-fns";
-import { calcDiscount, round2 } from "./sale-utils";
+import { calcDiscount, calcItemNet, round2 } from "./sale-utils";
 import { normalizeArabic } from "./normalize";
 import { expandBrandQuery, matchesWithBrandAliases } from "./brand-map";
 import {
@@ -130,6 +130,9 @@ interface MItem {
   quantity: number;
   unitPrice: number;
   subtotal: number;
+  note?: string | null;
+  itemDiscount?: number;
+  itemDiscountType?: DiscountTypeValue;
 }
 interface MSale {
   id: string;
@@ -804,6 +807,9 @@ function shapeSale(s: MSale): SaleDTO {
         quantity: it.quantity,
         unitPrice: it.unitPrice,
         subtotal: it.subtotal,
+        note: it.note ?? null,
+        itemDiscount: it.itemDiscount ?? 0,
+        itemDiscountType: it.itemDiscountType ?? "FIXED",
         productName: ref?.product.name ?? "—",
         brand: ref?.product.brand ?? "",
         size: ref?.variant.size ?? "—",
@@ -1813,37 +1819,65 @@ export function mockGetSale(id: string): SaleDTO | null {
   return s ? shapeSale(s) : null;
 }
 
+interface MockMergedItem {
+  quantity: number;
+  note: string | null;
+  itemDiscount: number;
+  itemDiscountType: DiscountTypeValue;
+}
+
+// دمج الأصناف المكررة (وضع المعاينة): تجميع الكمية مع إبقاء ملاحظة/خصم الصنف
+function mockMergeItems(items: SaleInput["items"]): Map<string, MockMergedItem> {
+  const merged = new Map<string, MockMergedItem>();
+  for (const it of items) {
+    const prev = merged.get(it.variantId);
+    merged.set(it.variantId, {
+      quantity: (prev?.quantity ?? 0) + it.quantity,
+      note: it.note ?? prev?.note ?? null,
+      itemDiscount: it.itemDiscount ?? prev?.itemDiscount ?? 0,
+      itemDiscountType: it.itemDiscountType ?? prev?.itemDiscountType ?? "FIXED",
+    });
+  }
+  return merged;
+}
+
 export function mockCreateSale(input: SaleInput): SaleDTO {
-  const merged = new Map<string, number>();
-  for (const it of input.items)
-    merged.set(it.variantId, (merged.get(it.variantId) ?? 0) + it.quantity);
+  const merged = mockMergeItems(input.items);
 
   let totalAmount = 0;
   const items: MItem[] = [];
   const saleId = nextId("s");
 
-  for (const [variantId, qty] of merged.entries()) {
+  for (const [variantId, m] of merged.entries()) {
     const ref = findVariant(variantId);
     if (!ref) throw new ValidationError("أحد المنتجات لم يعد متاحاً في المخزون");
     if (ref.variant.branch !== input.branch)
       throw new ValidationError(
         `المنتج "${ref.product.name}" لا ينتمي للفرع المحدد`
       );
-    if (ref.variant.quantity < qty)
+    if (ref.variant.quantity < m.quantity)
       throw new ValidationError(
         `الكمية غير كافية من "${ref.product.name}" مقاس ${ref.variant.size} (المتاح: ${ref.variant.quantity})`
       );
 
-    const subtotal = round2(ref.variant.price * qty);
-    totalAmount += subtotal;
+    const { net } = calcItemNet(
+      ref.variant.price,
+      m.quantity,
+      m.itemDiscount,
+      m.itemDiscountType
+    );
+    totalAmount += net;
     items.push({
       id: nextId("si"),
       saleId,
       productId: ref.product.id,
       variantId,
-      quantity: qty,
+      quantity: m.quantity,
       unitPrice: ref.variant.price,
-      subtotal,
+      subtotal: net,
+      note: m.note,
+      itemDiscount: m.itemDiscount,
+      itemDiscountType: m.itemDiscountType,
     });
   }
 
@@ -1855,8 +1889,8 @@ export function mockCreateSale(input: SaleInput): SaleDTO {
   );
 
   // خصم المخزون
-  for (const [variantId, qty] of merged.entries()) {
-    findVariant(variantId)!.variant.quantity -= qty;
+  for (const [variantId, m] of merged.entries()) {
+    findVariant(variantId)!.variant.quantity -= m.quantity;
   }
 
   const saleNumber =
@@ -2002,9 +2036,7 @@ export function mockUpdateSale(
   }
 
   // 2) التحقق من العناصر الجديدة (بعد الإرجاع)
-  const merged = new Map<string, number>();
-  for (const it of input.items)
-    merged.set(it.variantId, (merged.get(it.variantId) ?? 0) + it.quantity);
+  const merged = mockMergeItems(input.items);
 
   const rollback = () => {
     // إعادة الحالة كما كانت: اخصم القديمة مرة أخرى
@@ -2016,7 +2048,7 @@ export function mockUpdateSale(
 
   let totalAmount = 0;
   const items: MItem[] = [];
-  for (const [variantId, qty] of merged.entries()) {
+  for (const [variantId, m] of merged.entries()) {
     const ref = findVariant(variantId);
     if (!ref) {
       rollback();
@@ -2034,7 +2066,7 @@ export function mockUpdateSale(
         error: `المنتج "${ref.product.name}" لا ينتمي للفرع المحدد`,
       };
     }
-    if (ref.variant.quantity < qty) {
+    if (ref.variant.quantity < m.quantity) {
       // احسب المتاح قبل الاسترجاع كي تُظهر الرسالة الرقم الصحيح
       const avail = ref.variant.quantity;
       rollback();
@@ -2044,16 +2076,24 @@ export function mockUpdateSale(
         error: `الكمية غير كافية من "${ref.product.name}" مقاس ${ref.variant.size} (المتاح: ${avail})`,
       };
     }
-    const subtotal = round2(ref.variant.price * qty);
-    totalAmount += subtotal;
+    const { net } = calcItemNet(
+      ref.variant.price,
+      m.quantity,
+      m.itemDiscount,
+      m.itemDiscountType
+    );
+    totalAmount += net;
     items.push({
       id: nextId("si"),
       saleId: sale.id,
       productId: ref.product.id,
       variantId,
-      quantity: qty,
+      quantity: m.quantity,
       unitPrice: ref.variant.price,
-      subtotal,
+      subtotal: net,
+      note: m.note,
+      itemDiscount: m.itemDiscount,
+      itemDiscountType: m.itemDiscountType,
     });
   }
 
@@ -2065,8 +2105,8 @@ export function mockUpdateSale(
   );
 
   // 3) خصم الكميات الجديدة
-  for (const [variantId, qty] of merged.entries()) {
-    findVariant(variantId)!.variant.quantity -= qty;
+  for (const [variantId, m] of merged.entries()) {
+    findVariant(variantId)!.variant.quantity -= m.quantity;
   }
 
   const paidAmount =

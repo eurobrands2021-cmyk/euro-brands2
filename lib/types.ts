@@ -100,7 +100,10 @@ export interface SaleItemDTO {
   variantId: string;
   quantity: number;
   unitPrice: number;
-  subtotal: number;
+  subtotal: number; // الصافي بعد خصم الصنف
+  note: string | null; // ملاحظة على الصنف
+  itemDiscount: number; // قيمة خصم الصنف (نسبة أو مبلغ)
+  itemDiscountType: DiscountTypeValue; // نوع خصم الصنف
   productName: string;
   brand: string;
   size: string;
@@ -210,6 +213,9 @@ export interface ImportResult {
 export interface SaleItemInput {
   variantId: string;
   quantity: number;
+  note?: string | null; // ملاحظة على الصنف (اختيارية)
+  itemDiscount?: number; // قيمة خصم الصنف (نسبة أو مبلغ)
+  itemDiscountType?: DiscountTypeValue; // نوع خصم الصنف (افتراضي FIXED)
 }
 
 export interface SaleInput {

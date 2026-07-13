@@ -118,27 +118,42 @@ export function ThermalReceipt({
 
       {/* 5) العناصر — الاسم يمين والسعر يسار، المقاس/اللون بخط صغير أسفله */}
       <div className="eb-rcpt-items">
-        {sale.items.map((it) => (
-          <div key={it.id} className="eb-rcpt-item">
-            <div className="eb-rcpt-row">
-              <span className="eb-rcpt-name">{it.productName}</span>
-              {f.qtyPrice && (
-                <span className="nums">{formatCurrency(it.subtotal)}</span>
+        {sale.items.map((it) => {
+          const itemDisc = it.unitPrice * it.quantity - it.subtotal;
+          return (
+            <div key={it.id} className="eb-rcpt-item">
+              <div className="eb-rcpt-row">
+                <span className="eb-rcpt-name">{it.productName}</span>
+                {f.qtyPrice && (
+                  <span className="nums">{formatCurrency(it.subtotal)}</span>
+                )}
+              </div>
+              {f.itemDetails && (
+                <div className="eb-rcpt-small nums">
+                  {it.size}
+                  {it.color ? ` / ${it.color}` : ""}
+                </div>
               )}
+              {f.qtyPrice && (
+                <div className="eb-rcpt-small nums">
+                  {formatNumber(it.quantity)} × {formatCurrency(it.unitPrice)}
+                </div>
+              )}
+              {f.qtyPrice && itemDisc > 0 && (
+                <div className="eb-rcpt-row eb-rcpt-small">
+                  <span>
+                    خصم الصنف
+                    {it.itemDiscountType === "PERCENTAGE" && it.itemDiscount > 0
+                      ? ` (${formatNumber(it.itemDiscount)}%)`
+                      : ""}
+                  </span>
+                  <span className="nums">- {formatCurrency(itemDisc)}</span>
+                </div>
+              )}
+              {it.note && <div className="eb-rcpt-small">📝 {it.note}</div>}
             </div>
-            {f.itemDetails && (
-              <div className="eb-rcpt-small nums">
-                {it.size}
-                {it.color ? ` / ${it.color}` : ""}
-              </div>
-            )}
-            {f.qtyPrice && (
-              <div className="eb-rcpt-small nums">
-                {formatNumber(it.quantity)} × {formatCurrency(it.unitPrice)}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* 6) فاصل */}

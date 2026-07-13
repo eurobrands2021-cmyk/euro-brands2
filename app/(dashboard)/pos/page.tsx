@@ -18,6 +18,8 @@ import {
   Clock,
   Truck,
   X,
+  StickyNote,
+  Percent,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
@@ -45,7 +47,7 @@ import {
   OFFLINE_SYNCED_EVENT,
 } from "@/components/offline-provider";
 import { cn } from "@/lib/cn";
-import { calcDiscount, round2 } from "@/lib/sale-utils";
+import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
 import {
   formatCurrency,
   formatDateTime,
@@ -93,6 +95,9 @@ interface CartItem {
   unitPrice: number;
   available: number;
   quantity: number;
+  note: string; // ملاحظة على الصنف (فارغة افتراضياً)
+  itemDiscount: string; // قيمة خصم الصنف كنص إدخال (فارغة = بدون)
+  itemDiscountType: DiscountTypeValue; // نوع خصم الصنف: FIXED / PERCENTAGE
 }
 
 interface HeldInvoice {
@@ -377,6 +382,9 @@ function PosRegister({
           unitPrice: variant.price,
           available: variant.quantity,
           quantity: 1,
+          note: "",
+          itemDiscount: "",
+          itemDiscountType: "FIXED",
         },
       ];
     });
@@ -411,6 +419,35 @@ function PosRegister({
   }
   function removeItem(variantId: string) {
     setCart((prev) => prev.filter((i) => i.variantId !== variantId));
+  }
+
+  // ملاحظة الصنف
+  function setItemNote(variantId: string, note: string) {
+    setCart((prev) =>
+      prev.map((i) => (i.variantId === variantId ? { ...i, note } : i))
+    );
+  }
+  // قيمة خصم الصنف (كنص إدخال)
+  function setItemDiscount(variantId: string, value: string) {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.variantId === variantId ? { ...i, itemDiscount: value } : i
+      )
+    );
+  }
+  // تبديل نوع خصم الصنف بين مبلغ ثابت ونسبة مئوية
+  function toggleItemDiscountType(variantId: string) {
+    setCart((prev) =>
+      prev.map((i) =>
+        i.variantId === variantId
+          ? {
+              ...i,
+              itemDiscountType:
+                i.itemDiscountType === "FIXED" ? "PERCENTAGE" : "FIXED",
+            }
+          : i
+      )
+    );
   }
 
   // تغيير رقم الهاتف يُلغي نتيجة أي بحث سابق عن عميل
@@ -516,8 +553,20 @@ function PosRegister({
   }
 
   // ---- الإجماليات ----
+  // إجمالي الفاتورة = مجموع صافي كل صنف (بعد خصم الصنف). خصم الفاتورة يُطبَّق فوقه.
   const totalAmount = useMemo(
-    () => cart.reduce((s, i) => s + i.unitPrice * i.quantity, 0),
+    () =>
+      cart.reduce(
+        (s, i) =>
+          s +
+          calcItemNet(
+            i.unitPrice,
+            i.quantity,
+            Number(i.itemDiscount) || 0,
+            i.itemDiscountType
+          ).net,
+        0
+      ),
     [cart]
   );
   const { discountAmount, finalAmount } = useMemo(
@@ -595,7 +644,15 @@ function PosRegister({
   }
 
   function restoreHeld(h: HeldInvoice) {
-    setCart(h.cart);
+    // تعبئة الحقول الجديدة للفواتير المعلّقة المحفوظة قبل إضافة ملاحظة/خصم الصنف
+    setCart(
+      h.cart.map((i) => ({
+        ...i,
+        note: i.note ?? "",
+        itemDiscount: i.itemDiscount ?? "",
+        itemDiscountType: i.itemDiscountType ?? "FIXED",
+      }))
+    );
     setCartOpen(true);
     setCustomerName(h.customerName);
     setCustomerPhone(h.customerPhone);
@@ -640,6 +697,9 @@ function PosRegister({
       items: cart.map((i) => ({
         variantId: i.variantId,
         quantity: i.quantity,
+        note: i.note.trim() || null,
+        itemDiscount: Number(i.itemDiscount) || 0,
+        itemDiscountType: i.itemDiscountType,
       })),
       discountType: discountType === "NONE" ? null : discountType,
       discountValue: Number(discountValue) || 0,
@@ -984,57 +1044,15 @@ function PosRegister({
             ) : (
               <div className="max-h-[36vh] space-y-2 overflow-y-auto pl-1">
                 {cart.map((item) => (
-                  <div key={item.variantId} className="rounded-lg border bg-bg p-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-text">
-                          {item.productName}
-                        </p>
-                        <p className="text-xs text-muted">
-                          مقاس {item.size}
-                          {item.color ? ` / ${item.color}` : ""} ·{" "}
-                          {formatCurrency(item.unitPrice)}
-                        </p>
-                      </div>
-                      <button
-                        onClick={() => removeItem(item.variantId)}
-                        className="-mr-1 flex h-10 w-10 items-center justify-center rounded-md text-muted hover:bg-[var(--surface-2)] hover:text-danger"
-                        aria-label="حذف"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="mt-2 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => setQty(item.variantId, item.quantity - 1)}
-                          className="flex h-10 w-10 items-center justify-center rounded-md border text-muted hover:text-text"
-                          aria-label="إنقاص"
-                        >
-                          <Minus className="h-4 w-4" />
-                        </button>
-                        <NumberInput
-                          value={String(item.quantity)}
-                          max={item.available}
-                          onChange={(v) =>
-                            setQty(item.variantId, Number(v) || 1)
-                          }
-                          className="input h-10 w-16 px-1 text-center nums"
-                        />
-                        <button
-                          onClick={() => setQty(item.variantId, item.quantity + 1)}
-                          disabled={item.quantity >= item.available}
-                          className="flex h-10 w-10 items-center justify-center rounded-md border text-muted hover:text-text disabled:opacity-30"
-                          aria-label="زيادة"
-                        >
-                          <Plus className="h-4 w-4" />
-                        </button>
-                      </div>
-                      <span className="text-sm font-bold text-text nums">
-                        {formatCurrency(item.unitPrice * item.quantity)}
-                      </span>
-                    </div>
-                  </div>
+                  <CartRow
+                    key={item.variantId}
+                    item={item}
+                    onQty={setQty}
+                    onRemove={removeItem}
+                    onNote={setItemNote}
+                    onDiscount={setItemDiscount}
+                    onToggleDiscountType={toggleItemDiscountType}
+                  />
                 ))}
               </div>
             )}
@@ -1515,6 +1533,173 @@ function PosRegister({
   );
 }
 
+// صف صنف داخل الفاتورة — الكمية والإجمالي + ملاحظة وخصم على مستوى الصنف
+// (كلاهما مطويّ افتراضياً ويُفتح بزر صغير).
+function CartRow({
+  item,
+  onQty,
+  onRemove,
+  onNote,
+  onDiscount,
+  onToggleDiscountType,
+}: {
+  item: CartItem;
+  onQty: (variantId: string, qty: number) => void;
+  onRemove: (variantId: string) => void;
+  onNote: (variantId: string, note: string) => void;
+  onDiscount: (variantId: string, value: string) => void;
+  onToggleDiscountType: (variantId: string) => void;
+}) {
+  // مفتوح افتراضياً فقط إن كان للصنف ملاحظة/خصم مسبق (مثلاً عند استرجاع فاتورة معلّقة)
+  const [noteOpen, setNoteOpen] = useState(item.note.trim() !== "");
+  const [discountOpen, setDiscountOpen] = useState(
+    (Number(item.itemDiscount) || 0) > 0
+  );
+
+  const { gross, discountAmount, net } = calcItemNet(
+    item.unitPrice,
+    item.quantity,
+    Number(item.itemDiscount) || 0,
+    item.itemDiscountType
+  );
+  const hasDiscount = discountAmount > 0;
+
+  return (
+    <div className="rounded-lg border bg-bg p-2.5">
+      {/* الاسم + حذف */}
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium text-text">
+            {item.productName}
+          </p>
+          <p className="text-xs text-muted">
+            مقاس {item.size}
+            {item.color ? ` / ${item.color}` : ""} ·{" "}
+            {formatCurrency(item.unitPrice)}
+          </p>
+        </div>
+        <button
+          onClick={() => onRemove(item.variantId)}
+          className="-mr-1 flex h-10 w-10 items-center justify-center rounded-md text-muted hover:bg-[var(--surface-2)] hover:text-danger"
+          aria-label="حذف"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+
+      {/* الكمية + إجمالي الصنف (الصافي بعد الخصم) */}
+      <div className="mt-2 flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => onQty(item.variantId, item.quantity - 1)}
+            className="flex h-10 w-10 items-center justify-center rounded-md border text-muted hover:text-text"
+            aria-label="إنقاص"
+          >
+            <Minus className="h-4 w-4" />
+          </button>
+          <NumberInput
+            value={String(item.quantity)}
+            max={item.available}
+            onChange={(v) => onQty(item.variantId, Number(v) || 1)}
+            className="input h-10 w-16 px-1 text-center nums"
+          />
+          <button
+            onClick={() => onQty(item.variantId, item.quantity + 1)}
+            disabled={item.quantity >= item.available}
+            className="flex h-10 w-10 items-center justify-center rounded-md border text-muted hover:text-text disabled:opacity-30"
+            aria-label="زيادة"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="text-left leading-tight">
+          {hasDiscount && (
+            <span className="block text-[11px] text-muted line-through nums">
+              {formatCurrency(gross)}
+            </span>
+          )}
+          <span className="text-sm font-bold text-text nums">
+            {formatCurrency(net)}
+          </span>
+        </div>
+      </div>
+
+      {/* أزرار التوسيع: ملاحظة + خصم الصنف */}
+      <div className="mt-2 flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => setNoteOpen((o) => !o)}
+          aria-pressed={noteOpen}
+          className={cn(
+            "flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+            noteOpen || item.note.trim()
+              ? "border-accent bg-accent-soft text-accent"
+              : "text-muted hover:text-text"
+          )}
+          title="ملاحظة على الصنف"
+        >
+          <StickyNote className="h-3.5 w-3.5" />
+          ملاحظة
+        </button>
+        <button
+          type="button"
+          onClick={() => setDiscountOpen((o) => !o)}
+          aria-pressed={discountOpen}
+          className={cn(
+            "flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+            discountOpen || hasDiscount
+              ? "border-accent bg-accent-soft text-accent"
+              : "text-muted hover:text-text"
+          )}
+          title="خصم على الصنف"
+        >
+          <Percent className="h-3.5 w-3.5" />
+          خصم
+        </button>
+      </div>
+
+      {/* حقل الملاحظة (مطويّ افتراضياً) */}
+      {noteOpen && (
+        <input
+          className="input mt-2 h-9 text-xs"
+          placeholder="ملاحظة (اختياري)"
+          value={item.note}
+          onChange={(e) => onNote(item.variantId, e.target.value)}
+        />
+      )}
+
+      {/* حقل الخصم (مطويّ افتراضياً) — مبلغ ثابت أو نسبة مئوية */}
+      {discountOpen && (
+        <div className="mt-2 flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onToggleDiscountType(item.variantId)}
+            className="flex h-9 w-16 shrink-0 items-center justify-center rounded-md border text-xs font-medium text-muted transition-colors hover:border-accent hover:text-accent"
+            title="بدّل بين مبلغ ثابت ونسبة مئوية"
+          >
+            {item.itemDiscountType === "PERCENTAGE" ? "نسبة %" : "مبلغ"}
+          </button>
+          <NumberInput
+            decimal
+            max={item.itemDiscountType === "PERCENTAGE" ? 100 : undefined}
+            className="input h-9 flex-1 text-xs nums"
+            placeholder={
+              item.itemDiscountType === "PERCENTAGE" ? "% النسبة" : "قيمة الخصم"
+            }
+            value={item.itemDiscount}
+            onChange={(v) => onDiscount(item.variantId, v)}
+          />
+          {hasDiscount && (
+            <span className="shrink-0 text-[11px] font-bold text-warning nums">
+              - {formatCurrency(discountAmount)}
+            </span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // تبويبات الفئة الثابتة: «الكل» + الفئات الأربع
 const CATEGORY_TABS: { value: CategoryValue | "ALL"; label: string }[] = [
   { value: "ALL", label: "الكل" },
@@ -1546,13 +1731,28 @@ function PosFilterBar({
   onCategory: (c: CategoryValue | "ALL") => void;
   onBrand: (b: string | null) => void;
 }) {
+  // عدد شرائح البراند المعروضة قبل زر «المزيد»
+  const MAX_BRAND_CHIPS = 10;
+  const [showAllBrands, setShowAllBrands] = useState(false);
+
+  // شرائح البراند تظهر فقط بعد اختيار فئة (لا تُعرض عند «الكل»)
+  const showBrands = category !== "ALL";
   const { data: brandsData } = useFetch<BrandDTO[]>(
-    category === "ALL" ? "/api/brands" : `/api/brands?category=${category}`
+    showBrands ? `/api/brands?category=${category}` : null
   );
   const brands = useMemo(() => {
     const names = Array.from(new Set((brandsData ?? []).map((b) => b.name)));
     return names.sort(compareBrands);
   }, [brandsData]);
+
+  // عند تغيّر الفئة: أعِد طيّ القائمة إلى أول 10
+  useEffect(() => {
+    setShowAllBrands(false);
+  }, [category]);
+
+  const hasMore = brands.length > MAX_BRAND_CHIPS;
+  const visibleBrands =
+    showAllBrands || !hasMore ? brands : brands.slice(0, MAX_BRAND_CHIPS);
 
   return (
     <div className="mb-4 space-y-2">
@@ -1575,8 +1775,9 @@ function PosFilterBar({
         ))}
       </div>
 
-      {/* الصف الثاني: شرائح البراند (مفلترة بالفئة، مرتبة أبجدياً) */}
-      {brands.length > 0 && (
+      {/* الصف الثاني: شرائح البراند — بعد اختيار فئة فقط، مرتبة أبجدياً،
+          بحد أقصى 10 شرائح وزر «المزيد» عند وجود المزيد */}
+      {showBrands && brands.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
@@ -1590,7 +1791,7 @@ function PosFilterBar({
           >
             الكل
           </button>
-          {brands.map((b) => (
+          {visibleBrands.map((b) => (
             <button
               key={b}
               type="button"
@@ -1605,6 +1806,15 @@ function PosFilterBar({
               {b}
             </button>
           ))}
+          {hasMore && !showAllBrands && (
+            <button
+              type="button"
+              onClick={() => setShowAllBrands(true)}
+              className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent-soft"
+            >
+              المزيد ({formatNumber(brands.length - MAX_BRAND_CHIPS)})
+            </button>
+          )}
         </div>
       )}
     </div>

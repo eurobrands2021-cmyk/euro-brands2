@@ -11,7 +11,7 @@ import { getSession } from "@/lib/auth";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
-import { calcDiscount, round2 } from "@/lib/sale-utils";
+import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
 import {
   BRANCHES,
   BRANCH_LABELS,
@@ -46,6 +46,10 @@ interface EditItem {
   color: string | null;
   unitPrice: number;
   quantity: number;
+  // ملاحظة/خصم الصنف — يُحفظان كما هما عبر التعديل (لا يُمسحان)
+  note: string | null;
+  itemDiscount: number;
+  itemDiscountType: DiscountTypeValue;
 }
 
 export default function EditSalePage() {
@@ -99,6 +103,9 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
       color: it.color,
       unitPrice: it.unitPrice,
       quantity: it.quantity,
+      note: it.note,
+      itemDiscount: it.itemDiscount,
+      itemDiscountType: it.itemDiscountType,
     }))
   );
 
@@ -247,6 +254,9 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
           color: v.color,
           unitPrice: v.price,
           quantity: 1,
+          note: null,
+          itemDiscount: 0,
+          itemDiscountType: "FIXED",
         },
       ];
     });
@@ -267,7 +277,20 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
 
   // الإجماليات
   const totalAmount = useMemo(
-    () => round2(items.reduce((s, it) => s + it.unitPrice * it.quantity, 0)),
+    () =>
+      round2(
+        items.reduce(
+          (s, it) =>
+            s +
+            calcItemNet(
+              it.unitPrice,
+              it.quantity,
+              it.itemDiscount,
+              it.itemDiscountType
+            ).net,
+          0
+        )
+      ),
     [items]
   );
   const dValue = Number(discountValue) || 0;
@@ -300,6 +323,9 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
         items: items.map((it) => ({
           variantId: it.variantId,
           quantity: it.quantity,
+          note: it.note,
+          itemDiscount: it.itemDiscount,
+          itemDiscountType: it.itemDiscountType,
         })),
         discountType: discountType || null,
         discountValue: dValue,
@@ -441,6 +467,19 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
                       {it.productName}
                     </p>
                     <p className="text-xs text-muted">{it.brand}</p>
+                    {it.itemDiscount > 0 && (
+                      <p className="text-xs text-warning">
+                        خصم الصنف:{" "}
+                        {it.itemDiscountType === "PERCENTAGE"
+                          ? `${it.itemDiscount}%`
+                          : formatCurrency(it.itemDiscount)}
+                      </p>
+                    )}
+                    {it.note && (
+                      <p className="truncate text-xs text-muted">
+                        📝 {it.note}
+                      </p>
+                    )}
                   </div>
 
                   {/* اختيار الصنف (المقاس/اللون) */}
@@ -479,7 +518,14 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
                         : "w-24 text-left text-xs text-muted nums"
                     }
                   >
-                    {formatCurrency(round2(it.unitPrice * it.quantity))}
+                    {formatCurrency(
+                      calcItemNet(
+                        it.unitPrice,
+                        it.quantity,
+                        it.itemDiscount,
+                        it.itemDiscountType
+                      ).net
+                    )}
                   </span>
                   <button
                     onClick={() => removeItem(i)}

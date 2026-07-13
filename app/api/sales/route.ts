@@ -10,8 +10,34 @@ import { prisma } from "@/lib/prisma";
 import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toSaleDTO } from "@/lib/serializers";
 import { parseSaleInput, ValidationError } from "@/lib/validate";
-import { calcDiscount, round2 } from "@/lib/sale-utils";
+import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
+import type { DiscountTypeValue } from "@/lib/constants";
 import { MOCK_MODE, mockListSales, mockCreateSale } from "@/lib/mock-store";
+
+// عنصر مدموج: كمية مجمّعة + ملاحظة وخصم الصنف (من الفاتورة)
+interface MergedSaleItem {
+  quantity: number;
+  note: string | null;
+  itemDiscount: number;
+  itemDiscountType: DiscountTypeValue;
+}
+
+// دمج الأصناف المكررة: تجميع الكمية مع إبقاء آخر ملاحظة/خصم للصنف
+function mergeItems(
+  items: { variantId: string; quantity: number; note?: string | null; itemDiscount?: number; itemDiscountType?: DiscountTypeValue }[]
+): Map<string, MergedSaleItem> {
+  const merged = new Map<string, MergedSaleItem>();
+  for (const it of items) {
+    const prev = merged.get(it.variantId);
+    merged.set(it.variantId, {
+      quantity: (prev?.quantity ?? 0) + it.quantity,
+      note: it.note ?? prev?.note ?? null,
+      itemDiscount: it.itemDiscount ?? prev?.itemDiscount ?? 0,
+      itemDiscountType: it.itemDiscountType ?? prev?.itemDiscountType ?? "FIXED",
+    });
+  }
+  return merged;
+}
 
 export const dynamic = "force-dynamic";
 
@@ -98,11 +124,8 @@ export async function POST(req: Request) {
 
     if (MOCK_MODE) return ok(mockCreateSale(input), 201);
 
-    // دمج الكميات المكررة لنفس المقاس
-    const merged = new Map<string, number>();
-    for (const it of input.items) {
-      merged.set(it.variantId, (merged.get(it.variantId) ?? 0) + it.quantity);
-    }
+    // دمج الكميات المكررة لنفس المقاس (مع ملاحظة/خصم الصنف)
+    const merged = mergeItems(input.items);
     const variantIds = [...merged.keys()];
 
     // محاولة الإنشاء مع إعادة المحاولة عند تعارض رقم الفاتورة (نادر)
@@ -118,7 +141,7 @@ export async function POST(req: Request) {
 
           let totalAmount = 0;
           const itemsData = [];
-          for (const [variantId, qty] of merged.entries()) {
+          for (const [variantId, m] of merged.entries()) {
             const v = vmap.get(variantId);
             if (!v)
               throw new ValidationError("أحد المنتجات لم يعد متاحاً في المخزون");
@@ -126,19 +149,28 @@ export async function POST(req: Request) {
               throw new ValidationError(
                 `المنتج "${v.product.name}" لا ينتمي للفرع المحدد`
               );
-            if (v.quantity < qty)
+            if (v.quantity < m.quantity)
               throw new ValidationError(
                 `الكمية غير كافية من "${v.product.name}" مقاس ${v.size} (المتاح: ${v.quantity})`
               );
 
-            const subtotal = round2(v.price * qty);
-            totalAmount += subtotal;
+            // الصافي بعد خصم الصنف (يُحسب من السعر الموثوق في الخادم)
+            const { net } = calcItemNet(
+              v.price,
+              m.quantity,
+              m.itemDiscount,
+              m.itemDiscountType
+            );
+            totalAmount += net;
             itemsData.push({
               productId: v.productId,
               variantId: v.id,
-              quantity: qty,
+              quantity: m.quantity,
               unitPrice: v.price,
-              subtotal,
+              subtotal: net,
+              note: m.note,
+              itemDiscount: m.itemDiscount,
+              itemDiscountType: m.itemDiscountType,
             });
           }
 
@@ -161,10 +193,10 @@ export async function POST(req: Request) {
             input.changeAmount == null ? null : round2(Math.max(input.changeAmount, 0));
 
           // خصم الكميات من مخزون الفرع
-          for (const [variantId, qty] of merged.entries()) {
+          for (const [variantId, m] of merged.entries()) {
             await tx.productVariant.update({
               where: { id: variantId },
-              data: { quantity: { decrement: qty } },
+              data: { quantity: { decrement: m.quantity } },
             });
           }
 

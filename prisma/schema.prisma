@@ -211,7 +211,11 @@ model SaleItem {
 
   quantity  Int
   unitPrice Float
-  subtotal  Float
+  subtotal  Float // الصافي بعد خصم الصنف (unitPrice × quantity − خصم الصنف)
+
+  note             String? // ملاحظة على الصنف (اختيارية)
+  itemDiscount     Float  @default(0) // قيمة خصم الصنف (نسبة أو مبلغ حسب النوع)
+  itemDiscountType String @default("FIXED") // نوع خصم الصنف: 'PERCENTAGE' أو 'FIXED'
 
   @@index([saleId])
   @@index([productId])

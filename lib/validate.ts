@@ -13,6 +13,7 @@ import {
   type DefectReasonValue,
   type DeliveryMethodValue,
   type DeliveryStatusValue,
+  type DiscountTypeValue,
   type OrderSourceValue,
   type PaymentMethodValue,
   type TransferMethodValue,
@@ -224,7 +225,28 @@ export function parseSaleInput(body: any): SaleInput {
       throw new ValidationError(`عنصر غير صحيح في الفاتورة (الصف ${i + 1})`);
     if (!Number.isFinite(quantity) || quantity <= 0)
       throw new ValidationError(`الكمية غير صحيحة (الصف ${i + 1})`);
-    return { variantId, quantity: Math.floor(quantity) };
+
+    // ملاحظة الصنف (اختيارية)
+    const note = asString(it?.note) || null;
+
+    // خصم الصنف (اختياري) — قيمة موجبة ونوع نسبة/مبلغ ثابت
+    let itemDiscount = Number(it?.itemDiscount) || 0;
+    if (itemDiscount < 0)
+      throw new ValidationError(`قيمة خصم الصنف غير صحيحة (الصف ${i + 1})`);
+    let itemDiscountType: DiscountTypeValue = "FIXED";
+    if (it?.itemDiscountType && DISCOUNT_TYPES.includes(it.itemDiscountType))
+      itemDiscountType = it.itemDiscountType;
+    if (itemDiscountType === "PERCENTAGE" && itemDiscount > 100)
+      throw new ValidationError(`نسبة خصم الصنف تتجاوز 100% (الصف ${i + 1})`);
+    if (itemDiscount === 0) itemDiscountType = "FIXED";
+
+    return {
+      variantId,
+      quantity: Math.floor(quantity),
+      note,
+      itemDiscount,
+      itemDiscountType,
+    };
   });
 
   let discountType = body?.discountType ?? null;
