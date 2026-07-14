@@ -9,9 +9,9 @@ import { prisma } from "@/lib/prisma";
 import { ok, handleServerError, CACHE_LISTING } from "@/lib/api";
 import { cached } from "@/lib/cache";
 import { round2 } from "@/lib/sale-utils";
+import { fetchLowStockVariants } from "@/lib/low-stock-query";
 import {
   BRANCHES,
-  LOW_STOCK_THRESHOLD,
   type BranchValue,
   type CategoryValue,
 } from "@/lib/constants";
@@ -56,12 +56,8 @@ export async function GET(req: Request) {
         },
         orderBy: { createdAt: "asc" },
       }),
-      prisma.productVariant.findMany({
-        where: { quantity: { lte: LOW_STOCK_THRESHOLD } },
-        include: { product: { select: { name: true, brand: true } } },
-        orderBy: { quantity: "asc" },
-        take: 100,
-      }),
+      // أصناف منخفضة المخزون — التعريف الموحّد (alertOnLowStock + minQuantity)
+      fetchLowStockVariants(100),
       prisma.product.findMany({
         select: {
           id: true,
@@ -199,10 +195,10 @@ export async function GET(req: Request) {
       slowMoving,
       lowStock: lowStockVariants.map((v) => ({
         id: v.id,
-        productName: v.product.name,
-        brand: v.product.brand,
+        productName: v.productName,
+        brand: v.brand,
         size: v.size,
-        branch: v.branch as BranchValue,
+        branch: v.branch,
         quantity: v.quantity,
       })),
     };

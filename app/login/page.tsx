@@ -6,7 +6,13 @@ import { Eye, EyeOff, Lock, User } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { Logo } from "@/components/logo";
 import { ForgotPasswordModal } from "@/components/forgot-password-modal";
-import { isSessionValid, tryLogin } from "@/lib/auth";
+import {
+  isSessionValid,
+  tryLogin,
+  startSession,
+  consumeRecovery,
+  type Role,
+} from "@/lib/auth";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 
 export default function LoginPage() {
@@ -40,7 +46,7 @@ function LoginInner() {
     setBusy(true);
     setError(null);
     try {
-      const result = tryLogin(name, password);
+      const result = await tryLogin(name, password);
       if (!result.ok) {
         setError(result.error || "كلمة المرور غير صحيحة");
         return;
@@ -135,10 +141,18 @@ function LoginInner() {
       <ForgotPasswordModal
         open={forgotOpen}
         onClose={() => setForgotOpen(false)}
-        onRecovered={(pwd, recoveredName) => {
-          setPassword(pwd);
-          if (recoveredName && !name.trim()) setName(recoveredName);
+        onRecovered={(role: Role, recoveredName?: string) => {
+          // إذن استرجاع قصير الأجل بدل كشف كلمة المرور — يبدأ الجلسة مباشرةً.
+          if (!consumeRecovery(role)) {
+            setError("انتهت صلاحية التحقّق، حاول مرة أخرى");
+            return;
+          }
+          const sessionName =
+            recoveredName?.trim() || (role === "ADMIN" ? "المدير" : "كاشير");
+          startSession(sessionName, role);
+          void logActivity(ACTIVITY_ACTIONS.LOGIN, null);
           setError(null);
+          router.replace(next);
         }}
       />
     </div>

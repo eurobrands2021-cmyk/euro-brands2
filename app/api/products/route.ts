@@ -41,8 +41,10 @@ function likePattern(term: string): string {
 async function searchProductIds(terms: string[]): Promise<string[]> {
   if (terms.length === 0) return [];
   const patterns = terms.map(likePattern);
+  // ملاحظة: p."sku" مهجور (لكل صنف SKU خاص) فلا نبحث فيه — نبحث في اسم/براند
+  // المنتج والباركود وأكواد الأصناف فقط.
   const folded = foldSql(
-    `(coalesce(p."name",'') || ' ' || coalesce(p."brand",'') || ' ' || coalesce(p."sku",'') || ' ' || coalesce(p."barcode",'') || ' ' || coalesce(v."sku",''))`
+    `(coalesce(p."name",'') || ' ' || coalesce(p."brand",'') || ' ' || coalesce(p."barcode",'') || ' ' || coalesce(v."sku",''))`
   );
   const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT DISTINCT p."id"
@@ -176,7 +178,6 @@ export async function GET(req: Request) {
           const fields = [
             p.name,
             p.brand,
-            p.sku ?? "",
             p.barcode ?? "",
             ...p.variants.map((v) => v.sku ?? ""),
           ].map((f) => normalizeArabic(f));

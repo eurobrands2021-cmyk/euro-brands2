@@ -22,7 +22,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { apiGet, apiPost } from "@/lib/client";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
-import { getSession, ADMIN_PASSWORD } from "@/lib/auth";
+import { getSession } from "@/lib/auth";
 import { buildExcelFile, buildPdfFile } from "@/lib/data-export-file";
 import {
   DATA_TYPE_KEYS,
@@ -128,6 +128,9 @@ function ExportPanel() {
   const [deletePwd, setDeletePwd] = useState("");
   const [deleting, setDeleting] = useState(false);
 
+  // تأكيد الأرشفة بكلمة مرور المدير (يتحقّق منها الخادم) بدل إرسال ثابت من العميل
+  const [showArchivePwd, setShowArchivePwd] = useState(false);
+
   const [archived, setArchived] = useState<ArchivedGroup[]>([]);
 
   const userName = getSession()?.name ?? "المدير";
@@ -208,11 +211,15 @@ function ExportPanel() {
     }
   }
 
-  async function handleArchive() {
+  function requestArchive() {
     if (archivableSelected.length === 0) {
       toast.error("الأنواع المختارة غير قابلة للأرشفة (الديفو والتحويلات تُحذف مباشرةً فقط)");
       return;
     }
+    setShowArchivePwd(true);
+  }
+
+  async function handleArchive(password: string) {
     setArchiving(true);
     try {
       const res = await apiPost<{ total: number }>(
@@ -220,13 +227,14 @@ function ExportPanel() {
         {
           types: archivableSelected,
           ...rangeBody(preset, from, to),
-          password: ADMIN_PASSWORD,
+          password,
           user: userName,
         }
       );
       toast.success(
         `تمت أرشفة ${formatNumber(res.total)} سجلاً — سيُحذف تلقائياً بعد ${ARCHIVE_RETENTION_HOURS} ساعة`
       );
+      setShowArchivePwd(false);
       setExported(false);
       await loadStatus();
     } catch (err) {
@@ -417,7 +425,7 @@ function ExportPanel() {
               احتفظ
             </button>
             <button
-              onClick={handleArchive}
+              onClick={requestArchive}
               disabled={archiving}
               className="btn btn-secondary h-11 flex-1"
             >
@@ -502,7 +510,78 @@ function ExportPanel() {
           </div>
         </div>
       </Modal>
+
+      {/* تأكيد الأرشفة بكلمة مرور المدير (يتحقّق منها الخادم) */}
+      <AdminPasswordModal
+        open={showArchivePwd}
+        title="تأكيد الأرشفة"
+        busy={archiving}
+        onConfirm={handleArchive}
+        onClose={() => setShowArchivePwd(false)}
+      />
     </div>
+  );
+}
+
+// نافذة تأكيد بكلمة مرور المدير — تُرسَل للخادم للتحقّق منها (لا تُخزَّن في العميل)
+function AdminPasswordModal({
+  open,
+  title,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  busy: boolean;
+  onConfirm: (password: string) => void;
+  onClose: () => void;
+}) {
+  const [pwd, setPwd] = useState("");
+  useEffect(() => {
+    if (!open) setPwd("");
+  }, [open]);
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={title}
+      size="sm"
+    >
+      <div className="space-y-4">
+        <p className="text-sm text-muted">
+          اكتب كلمة مرور المدير للتأكيد. هذه العملية للمدير فقط.
+        </p>
+        <input
+          type="password"
+          className="input"
+          value={pwd}
+          onChange={(e) => setPwd(e.target.value)}
+          placeholder="كلمة المرور"
+          autoFocus
+        />
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <button
+            onClick={() => onConfirm(pwd)}
+            disabled={busy || !pwd}
+            className="btn btn-primary h-11 flex-1"
+          >
+            {busy && <Spinner className="h-4 w-4" />}
+            تأكيد
+          </button>
+          <button
+            onClick={onClose}
+            disabled={busy}
+            className="btn btn-secondary h-11 flex-1"
+          >
+            إلغاء
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -582,6 +661,7 @@ function ImportPanel() {
   const [groups, setGroups] = useState<ParsedGroup[] | null>(null);
   const [importing, setImporting] = useState(false);
   const [results, setResults] = useState<ImportTypeResult[] | null>(null);
+  const [showImportPwd, setShowImportPwd] = useState(false);
 
   const userName = getSession()?.name ?? "المدير";
 
@@ -665,11 +745,15 @@ function ImportPanel() {
     [toImport]
   );
 
-  async function handleImport() {
+  function requestImport() {
     if (toImport.length === 0) {
       toast.error("اختر نوعاً واحداً على الأقل للاستيراد (غير وضع المراجعة)");
       return;
     }
+    setShowImportPwd(true);
+  }
+
+  async function handleImport(password: string) {
     setImporting(true);
     try {
       const payloadGroups = toImport.map((g) => ({
@@ -681,9 +765,10 @@ function ImportPanel() {
       }));
       const res = await apiPost<{ results: ImportTypeResult[] }>(
         "/api/data-management/import",
-        { groups: payloadGroups, password: ADMIN_PASSWORD, user: userName }
+        { groups: payloadGroups, password, user: userName }
       );
       setResults(res.results);
+      setShowImportPwd(false);
       const created = res.results.reduce((a, r) => a + r.created, 0);
       const updated = res.results.reduce((a, r) => a + r.updated, 0);
       toast.success(
@@ -851,7 +936,7 @@ function ImportPanel() {
 
       <div className="flex flex-col gap-2 sm:flex-row">
         <button
-          onClick={handleImport}
+          onClick={requestImport}
           disabled={importing || totalRowsToImport === 0}
           className="btn btn-primary h-11 sm:w-auto"
         >
@@ -866,6 +951,15 @@ function ImportPanel() {
           رفع ملف آخر
         </button>
       </div>
+
+      {/* تأكيد الاستيراد بكلمة مرور المدير (يتحقّق منها الخادم) */}
+      <AdminPasswordModal
+        open={showImportPwd}
+        title="تأكيد الاستيراد"
+        busy={importing}
+        onConfirm={handleImport}
+        onClose={() => setShowImportPwd(false)}
+      />
     </div>
   );
 }

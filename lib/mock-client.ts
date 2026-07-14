@@ -69,6 +69,9 @@ import { mergeSettings } from "./settings";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
+// كلمة مرور المدير في وضع المعاينة فقط (هذا الملف لا يُضمَّن في حزمة الإنتاج).
+const MOCK_ADMIN_PASSWORD = "2021";
+
 const delay = (ms = 120) => new Promise((r) => setTimeout(r, ms));
 
 export async function mockApi<T>(
@@ -84,6 +87,12 @@ export async function mockApi<T>(
 
   // /api/preview-mode
   if (path === "/api/preview-mode") return { mock: true } as T;
+
+  // /api/auth/verify-admin — في وضع المعاينة نتحقّق من كلمة مرور المدير التجريبية
+  if (path === "/api/auth/verify-admin" && method === "POST") {
+    const pw = (body as { password?: unknown } | undefined)?.password;
+    return { ok: typeof pw === "string" && pw === MOCK_ADMIN_PASSWORD } as T;
+  }
 
   // /api/products
   if (path === "/api/products") {

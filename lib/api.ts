@@ -20,10 +20,10 @@ export function fail(message: string, status = 400) {
   return NextResponse.json({ error: message }, { status });
 }
 
-// تغليف المعالج لالتقاط الأخطاء غير المتوقعة
+// تغليف المعالج لالتقاط الأخطاء غير المتوقعة.
+// نُسجّل التفاصيل الكاملة في الخادم فقط، ونُعيد للعميل رسالة عربية عامة
+// حتى لا تتسرّب تفاصيل داخلية/رسائل قاعدة البيانات إلى الواجهة.
 export function handleServerError(error: unknown) {
   console.error("[API ERROR]", error);
-  const message =
-    error instanceof Error ? error.message : "حدث خطأ غير متوقع في الخادم";
-  return fail(message, 500);
+  return fail("حدث خطأ غير متوقع في الخادم، برجاء المحاولة مرة أخرى", 500);
 }

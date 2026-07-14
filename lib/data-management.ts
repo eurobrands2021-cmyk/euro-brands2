@@ -2,7 +2,7 @@
 // كل العمليات المؤثِّرة (أرشفة/حذف/استيراد) تتطلّب كلمة مرور المدير ويُتحقَّق منها هنا
 // في الخادم — فلا تُنفَّذ من كاشير حتى لو استُدعيت الـ API مباشرةً.
 import { prisma } from "./prisma";
-import { ADMIN_PASSWORD } from "./auth";
+import { verifyAdminPassword } from "./server-auth";
 import {
   BRANCH_LABELS,
   PAYMENT_METHOD_LABELS,
@@ -44,9 +44,9 @@ export type {
   ArchivedGroup,
 } from "./data-management-types";
 
-// التحقّق من كلمة مرور المدير (نفس مستوى الحماية القائم في التطبيق).
+// التحقّق من كلمة مرور المدير — يفوّض للتحقّق الخادمي (القيمة السرّية على الخادم).
 export function verifyAdmin(password: unknown): boolean {
-  return typeof password === "string" && password === ADMIN_PASSWORD;
+  return verifyAdminPassword(password);
 }
 
 // ----------------------------------------------------

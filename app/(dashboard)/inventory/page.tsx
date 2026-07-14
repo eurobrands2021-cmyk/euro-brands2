@@ -45,6 +45,7 @@ import {
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
 import { matchesWithBrandAliases } from "@/lib/brand-map";
+import { isLowStockVariant } from "@/lib/low-stock";
 
 interface Filters {
   search: string;
@@ -120,15 +121,13 @@ export default function InventoryPage() {
     [filters.branch, filters.size]
   );
 
-  // منخفض المخزون = صنف مُفعَّل له التنبيه وبلغ الحد الأدنى (وما زال متوفراً)
+  // منخفض المخزون = صنف مُفعَّل له التنبيه وبلغ الحد الأدنى (وما زال متوفراً).
+  // نستخدم المُحدِّد الموحّد isLowStockVariant، مع استثناء المنفَد (كمية صفر)
+  // لأنه يُعرَض في تبويب «نفذ المخزون» المستقل.
   const isLow = useCallback(
     (p: ProductDTO) =>
       p.variants.some(
-        (v) =>
-          variantInScope(v) &&
-          v.alertOnLowStock &&
-          v.quantity > 0 &&
-          v.quantity <= v.minQuantity
+        (v) => variantInScope(v) && v.quantity > 0 && isLowStockVariant(v)
       ),
     [variantInScope]
   );

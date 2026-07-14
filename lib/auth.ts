@@ -3,6 +3,8 @@
 // أي شخص لديه أدوات المطوّر في المتصفح يستطيع تجاوزها في ثوانٍ.
 // للأمان الفعلي يلزم تسجيل دخول حقيقي عبر الخادم وكوكيز HttpOnly.
 
+import { apiPost } from "./client";
+
 const SESSION_KEY = "eb-auth-session";
 const SESSION_HOURS = 24;
 
@@ -18,14 +20,9 @@ export const ROLE_LABELS: Record<Role, string> = {
   CASHIER: "كاشير",
 };
 
-// كلمات المرور الثابتة → الدور. (2021 = مدير، 0000 = كاشير)
-export const ADMIN_PASSWORD = "2021";
+// كلمة مرور الكاشير (دور محدود) تبقى على العميل. أمّا كلمة مرور المدير فلم
+// تعُد ثابتة في حزمة المتصفح — يتحقّق منها الخادم عبر /api/auth/verify-admin.
 export const CASHIER_PASSWORD = "0000";
-
-const PASSWORD_ROLES: Record<string, Role> = {
-  [ADMIN_PASSWORD]: "ADMIN",
-  [CASHIER_PASSWORD]: "CASHIER",
-};
 
 export interface Session {
   name: string;
@@ -85,11 +82,70 @@ export interface LoginResult {
 }
 
 // تسجيل الدخول بالاسم وكلمة المرور. عند نجاح المطابقة تُنشأ جلسة ويُعاد الدور.
-export function tryLogin(name: string, password: string): LoginResult {
+// الكاشير يُتحقَّق منه محلياً (دور محدود)، والمدير يُتحقَّق منه على الخادم كي لا
+// نثق بالعميل في قيمة كلمة المرور ولا نُضمّنها في حزمة المتصفح.
+export async function tryLogin(
+  name: string,
+  password: string
+): Promise<LoginResult> {
   const trimmedName = name.trim();
   if (!trimmedName) return { ok: false, error: "الاسم مطلوب" };
-  const role = PASSWORD_ROLES[password];
-  if (!role) return { ok: false, error: "كلمة المرور غير صحيحة" };
-  startSession(trimmedName, role);
-  return { ok: true, role };
+  if (!password) return { ok: false, error: "كلمة المرور غير صحيحة" };
+
+  if (password === CASHIER_PASSWORD) {
+    startSession(trimmedName, "CASHIER");
+    return { ok: true, role: "CASHIER" };
+  }
+
+  try {
+    const res = await apiPost<{ ok: boolean }>("/api/auth/verify-admin", {
+      password,
+    });
+    if (res.ok) {
+      startSession(trimmedName, "ADMIN");
+      return { ok: true, role: "ADMIN" };
+    }
+  } catch {
+    /* فشل الشبكة/التحقّق — نُعيد رسالة عامة أدناه */
+  }
+  return { ok: false, error: "كلمة المرور غير صحيحة" };
+}
+
+// ----------------------------------------------------
+//  منح استرجاع قصير الأجل (تدفّق «نسيت كلمة المرور»)
+// ----------------------------------------------------
+// بعد التحقّق من سؤال الأمان (مدير) أو موافقة الأدمن (كاشير) نمنح إذناً قصير
+// الأجل يسمح ببدء الجلسة دون كشف كلمة المرور على الشاشة. يُستهلَك مرة واحدة.
+const RECOVERY_KEY = "eb-recovery-grant";
+const RECOVERY_MINUTES = 5;
+
+export function grantRecovery(role: Role) {
+  try {
+    sessionStorage.setItem(
+      RECOVERY_KEY,
+      JSON.stringify({
+        role,
+        expiresAt: Date.now() + RECOVERY_MINUTES * 60 * 1000,
+      })
+    );
+  } catch {
+    /* تجاهل امتلاء التخزين */
+  }
+}
+
+// يستهلك الإذن ويؤكّد أنه للدور المتوقّع وما زال صالحاً.
+export function consumeRecovery(expectedRole: Role): boolean {
+  try {
+    const raw = sessionStorage.getItem(RECOVERY_KEY);
+    if (!raw) return false;
+    sessionStorage.removeItem(RECOVERY_KEY);
+    const g = JSON.parse(raw) as { role?: Role; expiresAt?: number };
+    return (
+      g.role === expectedRole &&
+      typeof g.expiresAt === "number" &&
+      Date.now() < g.expiresAt
+    );
+  } catch {
+    return false;
+  }
 }

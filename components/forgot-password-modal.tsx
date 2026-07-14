@@ -14,7 +14,7 @@ import {
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { apiGet, apiPost, apiPut } from "@/lib/client";
-import { ADMIN_PASSWORD, CASHIER_PASSWORD } from "@/lib/auth";
+import { grantRecovery, type Role } from "@/lib/auth";
 import type { AccessRequestDTO, AdminRecoveryStatus } from "@/lib/types";
 
 type Step =
@@ -35,8 +35,8 @@ export function ForgotPasswordModal({
 }: {
   open: boolean;
   onClose: () => void;
-  // يملأ حقل كلمة المرور في صفحة الدخول عند نجاح الاسترجاع
-  onRecovered?: (password: string, name?: string) => void;
+  // بعد التحقّق الناجح: يمنح إذن دخول قصير الأجل بالدور المحدَّد دون كشف كلمة المرور
+  onRecovered?: (role: Role, name?: string) => void;
 }) {
   const [step, setStep] = useState<Step>("choose");
   const [busy, setBusy] = useState(false);
@@ -150,8 +150,10 @@ export function ForgotPasswordModal({
     }
   }
 
-  function applyRecoveredPassword(password: string, name?: string) {
-    onRecovered?.(password, name);
+  // بعد التحقّق: امنح إذناً قصير الأجل ثم تابع الدخول عادةً (دون كشف كلمة المرور)
+  function proceed(role: Role, name?: string) {
+    grantRecovery(role);
+    onRecovered?.(role, name);
     close();
   }
 
@@ -244,14 +246,11 @@ export function ForgotPasswordModal({
         <div className="flex flex-col items-center gap-3 py-2 text-center">
           <CheckCircle2 className="h-10 w-10 text-success" />
           <p className="text-base font-bold text-text">تمت الموافقة على دخولك</p>
-          <p className="text-sm text-muted">كلمة مرور الكاشير هي:</p>
-          <div className="rounded-lg bg-accent-soft px-6 py-3 text-2xl font-extrabold tracking-widest text-accent nums">
-            {CASHIER_PASSWORD}
-          </div>
+          <p className="text-sm text-muted">
+            يمكنك الآن الدخول كـ«كاشير» مباشرةً.
+          </p>
           <button
-            onClick={() =>
-              applyRecoveredPassword(CASHIER_PASSWORD, cashierName.trim())
-            }
+            onClick={() => proceed("CASHIER", cashierName.trim())}
             className="btn btn-primary mt-2 w-full"
           >
             <ArrowRight className="h-4 w-4" />
@@ -344,12 +343,11 @@ export function ForgotPasswordModal({
         <div className="flex flex-col items-center gap-3 py-2 text-center">
           <KeyRound className="h-10 w-10 text-success" />
           <p className="text-base font-bold text-text">تم التحقق بنجاح</p>
-          <p className="text-sm text-muted">كلمة مرور المدير هي:</p>
-          <div className="rounded-lg bg-accent-soft px-6 py-3 text-2xl font-extrabold tracking-widest text-accent nums">
-            {ADMIN_PASSWORD}
-          </div>
+          <p className="text-sm text-muted">
+            يمكنك الآن الدخول كـ«مدير» مباشرةً.
+          </p>
           <button
-            onClick={() => applyRecoveredPassword(ADMIN_PASSWORD)}
+            onClick={() => proceed("ADMIN")}
             className="btn btn-primary mt-2 w-full"
           >
             <ArrowRight className="h-4 w-4" />
