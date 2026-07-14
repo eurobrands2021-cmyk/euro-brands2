@@ -12,6 +12,47 @@ import { cached } from "@/lib/cache";
 // نافذة احتساب «الأكثر مبيعاً» — 90 يوماً متجدّدة (بدلاً من كامل التاريخ).
 const BESTSELLER_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
+// حدّ أقصى افتراضي لحجم الصفحة عند تفعيل الترقيم (skip/take).
+const MAX_PAGE_SIZE = 200;
+
+// ---- بحث نصي عربي على مستوى SQL ----
+// تطبيع خام داخل Postgres يوازي normalizeArabic (توحيد الهمزة/الأرقام،
+// حذف التطويل/التشكيل، تقليص الفراغات) لكنه *لا* يزيل «ال» التعريف. هذا يجعله
+// مجموعة فائقة (superset): يطابق كل ما تطابقه الدالة في JS وربما أكثر، ثم
+// نُطبّق normalizeArabic الدقيق في JS على المرشّحين لضمان نتائج مطابقة تماماً.
+const FOLD_FROM = "آأإؤئى٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹ـء";
+const FOLD_TO = "اااويي01234567890123456789";
+
+// تعبير SQL يطبّع نصاً معطى (يُمرَّر كتعبير عمود خام)
+function foldSql(columnExpr: string) {
+  return Prisma.raw(
+    `regexp_replace(regexp_replace(translate(lower(${columnExpr}), '${FOLD_FROM}', '${FOLD_TO}'), '[ً-ْٰ]', '', 'g'), '\\s+', ' ', 'g')`
+  );
+}
+
+// يبني نمط ILIKE آمناً (تهريب الرموز الخاصة % _ \)
+function likePattern(term: string): string {
+  return `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+}
+
+// يُرجع معرّفات المنتجات المطابقة لأي من عبارات البحث الموسّعة، بحثاً في
+// الاسم/البراند/الكود/الباركود وأكواد الأصناف — كلّه داخل SQL بدل تحميل
+// الجدول كاملاً وتصفيته في الذاكرة.
+async function searchProductIds(terms: string[]): Promise<string[]> {
+  if (terms.length === 0) return [];
+  const patterns = terms.map(likePattern);
+  const folded = foldSql(
+    `(coalesce(p."name",'') || ' ' || coalesce(p."brand",'') || ' ' || coalesce(p."sku",'') || ' ' || coalesce(p."barcode",'') || ' ' || coalesce(v."sku",''))`
+  );
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT DISTINCT p."id"
+    FROM "Product" p
+    LEFT JOIN "ProductVariant" v ON v."productId" = p."id"
+    WHERE ${folded} ILIKE ANY(${patterns}::text[])
+  `);
+  return rows.map((r) => r.id);
+}
+
 export const dynamic = "force-dynamic";
 
 // GET /api/products — قائمة المنتجات مع الفلاتر
@@ -31,12 +72,21 @@ export async function GET(req: Request) {
     const limit =
       Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : null;
 
+    // ترقيم اختياري (skip/take): يُفعَّل بوجود page، ويغيّر شكل الاستجابة إلى
+    // { items, total, page, perPage }. غيابه يُبقي السلوك القديم (مصفوفة).
+    const pageRaw = Number(searchParams.get("page"));
+    const perPageRaw = Number(searchParams.get("perPage"));
+    const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+    const page = paginated ? pageRaw : 1;
+    const perPage = Math.min(
+      Number.isInteger(perPageRaw) && perPageRaw > 0 ? perPageRaw : 50,
+      MAX_PAGE_SIZE
+    );
+
     const where: Prisma.ProductWhereInput = {};
 
     if (category) where.category = category as Category;
     if (brand) where.brand = brand;
-    // ملاحظة: البحث النصي يُطبَّق بعد الجلب باستخدام تطبيع عربي ذكي
-    // (توحيد الهمزة + إزالة «ال») حتى يطابق "اديداس" اسم "أديداس".
 
     // فلترة على مستوى المقاسات (الفرع/المقاس)
     const variantWhere: Prisma.ProductVariantWhereInput = {};
@@ -48,37 +98,25 @@ export async function GET(req: Request) {
       where.variants = { some: variantWhere };
     }
 
-    const allProducts = await prisma.product.findMany({
-      where,
-      include: {
-        productType: true,
-        variants: {
-          where: hasVariantFilter ? variantWhere : undefined,
-          orderBy: [{ branch: "asc" }, { size: "asc" }],
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    });
+    // البحث النصي: نُضيّق المرشّحين على مستوى SQL (تطبيع عربي خام كمجموعة
+    // فائقة) بدل تحميل كل المنتجات وتصفيتها في الذاكرة. النتيجة النهائية تبقى
+    // محكومة بـ normalizeArabic الدقيق أدناه لضمان تطابق النتائج تماماً.
+    let searchTerms: string[] | null = null;
+    if (search) {
+      const nq = normalizeArabic(search);
+      if (nq) {
+        searchTerms = expandBrandQuery(nq);
+        where.id = { in: await searchProductIds(searchTerms) };
+      }
+    }
 
-    // بحث نصي بتطبيع عربي: يطابق الاسم/البراند/الكود/الباركود/كود الصنف
-    const products = search
-      ? (() => {
-          const nq = normalizeArabic(search);
-          if (!nq) return allProducts;
-          // توسعة العبارة لتشمل مقابل اسم البراند بالّلغة الأخرى (نايك ↔ Nike)
-          const terms = expandBrandQuery(nq);
-          return allProducts.filter((p) => {
-            const fields = [
-              p.name,
-              p.brand,
-              p.sku ?? "",
-              p.barcode ?? "",
-              ...p.variants.map((v) => v.sku ?? ""),
-            ].map((f) => normalizeArabic(f));
-            return terms.some((t) => fields.some((f) => f.includes(t)));
-          });
-        })()
-      : allProducts;
+    const productInclude = {
+      productType: true,
+      variants: {
+        where: hasVariantFilter ? variantWhere : undefined,
+        orderBy: [{ branch: "asc" }, { size: "asc" }],
+      },
+    } satisfies Prisma.ProductInclude;
 
     let soldMap: Map<string, number> | null = null;
     if (withSales || bestselling) {
@@ -98,6 +136,54 @@ export async function GET(req: Request) {
       soldMap = new Map(grouped.map((g) => [g.productId, g._sum.quantity ?? 0]));
     }
 
+    // مسار سريع للترقيم على مستوى قاعدة البيانات (skip/take + count) — يُطبَّق
+    // عندما لا يوجد بحث نصّي دقيق أو ترتيب «الأكثر مبيعاً» يحتاج معالجة في JS.
+    if (paginated && !searchTerms && !bestselling) {
+      const [total, rows] = await Promise.all([
+        prisma.product.count({ where }),
+        prisma.product.findMany({
+          where,
+          include: productInclude,
+          orderBy: { createdAt: "desc" },
+          skip: (page - 1) * perPage,
+          take: perPage,
+        }),
+      ]);
+      return ok(
+        {
+          items: rows.map((p) =>
+            toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
+          ),
+          total,
+          page,
+          perPage,
+        },
+        200,
+        CACHE_NONE
+      );
+    }
+
+    const allProducts = await prisma.product.findMany({
+      where,
+      include: productInclude,
+      orderBy: { createdAt: "desc" },
+    });
+
+    // تطبيق التطبيع العربي الدقيق على المرشّحين لضمان تطابق النتائج مع السابق
+    // (يطابق الاسم/البراند/الكود/الباركود/كود الصنف مع إزالة «ال» وتوحيد الهمزة).
+    const products = searchTerms
+      ? allProducts.filter((p) => {
+          const fields = [
+            p.name,
+            p.brand,
+            p.sku ?? "",
+            p.barcode ?? "",
+            ...p.variants.map((v) => v.sku ?? ""),
+          ].map((f) => normalizeArabic(f));
+          return searchTerms!.some((t) => fields.some((f) => f.includes(t)));
+        })
+      : allProducts;
+
     // ترتيب «الأكثر مبيعاً»: حسب إجمالي الكمية المباعة تنازلياً (المنتجات التي بيعت فقط)
     let output = products;
     if (bestselling && soldMap) {
@@ -107,6 +193,17 @@ export async function GET(req: Request) {
         .sort((a, b) => (sold.get(b.id) ?? 0) - (sold.get(a.id) ?? 0));
     }
     if (limit) output = output.slice(0, limit);
+
+    // ترقيم في الذاكرة للمسارات التي تُصفّى/تُرتّب في JS (بحث دقيق/الأكثر مبيعاً)
+    if (paginated) {
+      const total = output.length;
+      const items = output
+        .slice((page - 1) * perPage, (page - 1) * perPage + perPage)
+        .map((p) =>
+          toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
+        );
+      return ok({ items, total, page, perPage }, 200, CACHE_NONE);
+    }
 
     return ok(
       output.map((p) =>
