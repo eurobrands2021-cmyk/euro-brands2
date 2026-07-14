@@ -52,16 +52,13 @@ export async function GET(
     if (!sale) return fail("الفاتورة غير موجودة", 404);
 
     const dto = toSaleDTO(sale);
-    // آخر تعديل: أحدث سجل نشاط بإجراء «تعديل فاتورة» يشير لرقم هذه الفاتورة
-    const lastEdit = await prisma.activityLog.findFirst({
-      where: {
-        action: EDIT_ACTION,
-        details: { contains: formatSaleNumber(sale.saleNumber) },
-      },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true },
-    });
-    dto.lastEditedAt = lastEdit ? lastEdit.createdAt.toISOString() : null;
+    // «آخر تعديل»: من عمود updatedAt مباشرةً (يُضبط تلقائياً عند أي تعديل) بدل
+    // مسح سجل النشاط بمطابقة نصية هشّة. نعرضه فقط إذا اختلف عن وقت الإنشاء
+    // (أي عُدِّلت الفاتورة فعلاً بعد إنشائها).
+    dto.lastEditedAt =
+      sale.updatedAt.getTime() > sale.createdAt.getTime()
+        ? sale.updatedAt.toISOString()
+        : null;
 
     return ok(dto);
   } catch (error) {
@@ -276,7 +273,8 @@ export async function PUT(
 
     if (!result.ok) return fail(result.error, result.status);
     const dto = toSaleDTO(result.sale);
-    dto.lastEditedAt = new Date().toISOString();
+    // updatedAt ضُبط تلقائياً في هذه المعاملة — نستخدمه كطابع «آخر تعديل»
+    dto.lastEditedAt = result.sale.updatedAt.toISOString();
     return ok(dto);
   } catch (error) {
     if (error instanceof ValidationError) return fail(error.message, 422);

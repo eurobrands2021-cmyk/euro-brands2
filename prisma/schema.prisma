@@ -189,6 +189,7 @@ model Sale {
   archivedAt DateTime? // وقت الأرشفة (حذف مؤجّل بعد 72 ساعة) — إدارة البيانات
 
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt // يُضبط تلقائياً عند أي تعديل — يُستخدم لـ«آخر تعديل»
 
   @@index([branch])
   @@index([createdAt])
