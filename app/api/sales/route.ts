@@ -192,12 +192,20 @@ export async function POST(req: Request) {
           const changeAmount =
             input.changeAmount == null ? null : round2(Math.max(input.changeAmount, 0));
 
-          // خصم الكميات من مخزون الفرع
+          // خصم الكميات من مخزون الفرع — تحديث شرطي ذري (updateMany مع شرط
+          // الكمية) يمنع البيع الزائد/الرصيد السالب عند وصول طلبين متزامنين
+          // يتجاوزان الفحص المبدئي معاً قبل أن يثبّت أيٌّ منهما الخصم.
           for (const [variantId, m] of merged.entries()) {
-            await tx.productVariant.update({
-              where: { id: variantId },
+            const dec = await tx.productVariant.updateMany({
+              where: { id: variantId, quantity: { gte: m.quantity } },
               data: { quantity: { decrement: m.quantity } },
             });
+            if (dec.count === 0) {
+              const v = vmap.get(variantId);
+              throw new ValidationError(
+                `الكمية غير كافية من "${v?.product.name ?? "المنتج"}" مقاس ${v?.size ?? ""}`
+              );
+            }
           }
 
           // رقم فاتورة تصاعدي عام

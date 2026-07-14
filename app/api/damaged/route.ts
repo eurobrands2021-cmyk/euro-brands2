@@ -128,11 +128,16 @@ export async function POST(req: Request) {
           ? input.unitCost
           : variant.price;
 
-      // 1) خصم الكمية من مخزون الفرع
-      await tx.productVariant.update({
-        where: { id: variant.id },
+      // 1) خصم الكمية من مخزون الفرع — تحديث شرطي ذري يمنع الرصيد السالب
+      // عند تسجيل تلف متزامن يتجاوز طلبان الفحص المبدئي معاً.
+      const dec = await tx.productVariant.updateMany({
+        where: { id: variant.id, quantity: { gte: input.quantity } },
         data: { quantity: { decrement: input.quantity } },
       });
+      if (dec.count === 0)
+        throw new ValidationError(
+          `الكمية غير كافية من "${variant.product.name}" مقاس ${variant.size} (المتاح: ${variant.quantity})`
+        );
 
       // 2) تسجيل التلف — كود السبب في عمود reason، والنص الحر في detail
       const damaged = await tx.damagedItem.create({

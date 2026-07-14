@@ -54,6 +54,20 @@ export async function POST(
         return { ok: true as const, sale: unchanged! };
       }
 
+      // تحويل حالة التوصيل بشكل ذري مشروط بأنها ما زالت الحالة القديمة.
+      // نُجريه أولاً كي لا يتحرّك المخزون إلا مرة واحدة: طلبان متزامنان
+      // ينجح فيهما تحويل واحد فقط، والآخر يُرجع تعارضاً دون أي حركة مخزون.
+      const flip = await tx.sale.updateMany({
+        where: { id: params.id, deliveryStatus: oldStatus },
+        data: { deliveryStatus: newStatus },
+      });
+      if (flip.count === 0)
+        return {
+          ok: false as const,
+          error: "تغيّرت حالة الطلب — أعد المحاولة",
+          status: 409,
+        };
+
       // إذا انتقلنا إلى «مرتجع» من حالة أخرى، أعد الكميات للمخزون
       if (newStatus === "RETURNED" && oldStatus !== "RETURNED") {
         for (const it of sale.items) {
@@ -63,21 +77,25 @@ export async function POST(
           });
         }
       } else if (oldStatus === "RETURNED" && newStatus !== "RETURNED") {
-        // تراجع عن المرتجع: اخصم الكميات مجدداً
+        // تراجع عن المرتجع: اخصم الكميات مجدداً — خصم شرطي ذري يمنع الرصيد
+        // السالب. فشله يرمي خطأً يُلغي المعاملة (بما فيها تحويل الحالة).
         for (const it of sale.items) {
-          await tx.productVariant.update({
-            where: { id: it.variantId },
+          const dec = await tx.productVariant.updateMany({
+            where: { id: it.variantId, quantity: { gte: it.quantity } },
             data: { quantity: { decrement: it.quantity } },
           });
+          if (dec.count === 0)
+            throw new ValidationError(
+              "الكمية غير كافية لإلغاء المرتجع وإعادة خصم الكميات"
+            );
         }
       }
 
-      const updated = await tx.sale.update({
+      const updated = await tx.sale.findUnique({
         where: { id: params.id },
-        data: { deliveryStatus: newStatus },
         include: saleInclude,
       });
-      return { ok: true as const, sale: updated };
+      return { ok: true as const, sale: updated! };
     });
 
     if (!result.ok) return fail(result.error, result.status);

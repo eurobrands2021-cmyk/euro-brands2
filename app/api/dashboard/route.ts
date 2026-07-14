@@ -70,7 +70,7 @@ export async function GET(req: Request) {
       weeklySales,
       lowStockVariants,
       allProducts,
-      priorCustomers,
+      newCustomersCount,
       damagedRows,
       transferRows,
     ] = await Promise.all([
@@ -141,17 +141,10 @@ export async function GET(req: Request) {
           },
         },
       }),
-      // عملاء سابقون (قبل بداية الفترة) — لتحديد العملاء الجدد
-      prisma.sale.findMany({
-        where: {
-          createdAt: { lt: from },
-          status: { not: "CANCELLED" },
-          OR: [
-            { customerName: { not: null } },
-            { customerPhone: { not: null } },
-          ],
-        },
-        select: { customerName: true, customerPhone: true },
+      // العملاء الجدد في الفترة — نعتمد على Customer.createdAt (الجدول يسجّله
+      // أصلاً) بدلاً من مسح كل سجل المبيعات قبل بداية الفترة.
+      prisma.customer.count({
+        where: { createdAt: { gte: from, lte: to } },
       }),
       // الديفو (التالف/المعيب) خلال الفترة — استعلام دفاعي (الجدول قد لا يكون مفعّلاً)
       prisma.damagedItem
@@ -338,14 +331,8 @@ export async function GET(req: Request) {
         lastWeekBuckets.set(key, (lastWeekBuckets.get(key) ?? 0) + s.finalAmount);
     }
 
-    // عملاء جدد في الفترة
-    const priorKeys = new Set(
-      priorCustomers.map((c) => customerKey(c.customerName, c.customerPhone))
-    );
-    let newCustomersCount = 0;
-    for (const k of customerMap.keys()) {
-      if (!priorKeys.has(k)) newCustomersCount += 1;
-    }
+    // العملاء الجدد في الفترة محسوبون مباشرةً من عدّ Customer.createdAt أعلاه
+    // (newCustomersCount) بدلاً من مسح كامل سجل المبيعات السابق.
 
     // أكثر براند مبيعاً
     let topBrand: DashboardStats["topBrand"] = null;

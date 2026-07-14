@@ -207,12 +207,20 @@ export async function PUT(
           : Math.min(Math.max(input.paidAmount, 0), finalAmount);
       const remainingAmount = round2(finalAmount - paidAmount);
 
-      // 3) خصم الكميات الجديدة من المخزون
+      // 3) خصم الكميات الجديدة من المخزون — تحديث شرطي ذري يمنع الرصيد السالب
+      // عند التزامن. فشل الشرط يرمي خطأً يُلغي المعاملة كاملة (بما فيها إرجاع
+      // كميات الخطوة 1) فلا يتضخّم أو يتناقص المخزون بشكل خاطئ.
       for (const [variantId, m] of merged.entries()) {
-        await tx.productVariant.update({
-          where: { id: variantId },
+        const dec = await tx.productVariant.updateMany({
+          where: { id: variantId, quantity: { gte: m.quantity } },
           data: { quantity: { decrement: m.quantity } },
         });
+        if (dec.count === 0) {
+          const v = vmap.get(variantId);
+          throw new ValidationError(
+            `الكمية غير كافية من "${v?.product.name ?? "المنتج"}" مقاس ${v?.size ?? ""}`
+          );
+        }
       }
 
       // 4) حالة التوصيل: نُبقيها إن كانت الفاتورة توصيلاً بالفعل، وإلا NEW

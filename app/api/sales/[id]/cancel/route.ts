@@ -42,7 +42,17 @@ export async function POST(
       if (sale.status === "CANCELLED")
         return { ok: false as const, error: "الفاتورة ملغية بالفعل", status: 409 };
 
-      // إعادة الكميات للمخزون
+      // تحويل الحالة إلى «ملغية» بشكل ذري مشروط بأنها ما زالت مكتملة.
+      // يضمن هذا أن إلغاءين متزامنين لا ينجح منهما إلا واحد، فلا تُعاد
+      // الكميات للمخزون مرتين.
+      const flip = await tx.sale.updateMany({
+        where: { id: params.id, status: "COMPLETED" },
+        data: { status: "CANCELLED", cancellationReason: reason },
+      });
+      if (flip.count === 0)
+        return { ok: false as const, error: "الفاتورة ملغية بالفعل", status: 409 };
+
+      // إعادة الكميات للمخزون (مرة واحدة مضمونة بعد نجاح تحويل الحالة)
       for (const it of sale.items) {
         await tx.productVariant.update({
           where: { id: it.variantId },
@@ -50,12 +60,11 @@ export async function POST(
         });
       }
 
-      const updated = await tx.sale.update({
+      const updated = await tx.sale.findUnique({
         where: { id: params.id },
-        data: { status: "CANCELLED", cancellationReason: reason },
         include: saleInclude,
       });
-      return { ok: true as const, sale: updated };
+      return { ok: true as const, sale: updated! };
     });
 
     if (!result.ok) return fail(result.error, result.status);

@@ -7,6 +7,10 @@ import { MOCK_MODE, mockListProducts, mockCreateProduct } from "@/lib/mock-store
 import { buildVariantSku, uniquifySku } from "@/lib/sku";
 import { normalizeArabic } from "@/lib/normalize";
 import { expandBrandQuery } from "@/lib/brand-map";
+import { cached } from "@/lib/cache";
+
+// نافذة احتساب «الأكثر مبيعاً» — 90 يوماً متجدّدة (بدلاً من كامل التاريخ).
+const BESTSELLER_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const dynamic = "force-dynamic";
 
@@ -78,10 +82,19 @@ export async function GET(req: Request) {
 
     let soldMap: Map<string, number> | null = null;
     if (withSales || bestselling) {
-      const grouped = await prisma.saleItem.groupBy({
-        by: ["productId"],
-        _sum: { quantity: true },
-      });
+      // تجميع الكميات المباعة خلال آخر 90 يوماً فقط، مع تخزين مؤقت للنتيجة
+      // (تُستدعى مع كل تحميل للمخزون وكل جلب لـ«الأكثر مبيعاً» في نقطة البيع).
+      const cutoff = new Date(Date.now() - BESTSELLER_WINDOW_MS);
+      const grouped = await cached(
+        "products:sold:90d",
+        60_000,
+        () =>
+          prisma.saleItem.groupBy({
+            by: ["productId"],
+            _sum: { quantity: true },
+            where: { sale: { createdAt: { gte: cutoff } } },
+          })
+      );
       soldMap = new Map(grouped.map((g) => [g.productId, g._sum.quantity ?? 0]));
     }
 
