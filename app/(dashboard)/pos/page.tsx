@@ -30,7 +30,7 @@ import { BarcodeScanner } from "@/components/barcode-scanner";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { QuickAddProductModal } from "@/components/quick-add-product-modal";
 import { Modal } from "@/components/ui/modal";
-import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductFilterBar } from "@/components/product-filter-bar";
 import { Card } from "@/components/ui/card";
 import { Spinner, PageLoader } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -58,8 +58,6 @@ import {
 import {
   BRANCHES,
   BRANCH_LABELS,
-  CATEGORIES,
-  CATEGORY_LABELS,
   DELIVERY_METHODS,
   DELIVERY_METHOD_LABELS,
   ORDER_SOURCES,
@@ -77,7 +75,6 @@ import {
   type TransferMethodValue,
 } from "@/lib/constants";
 import type {
-  BrandDTO,
   CustomerDTO,
   CustomerListResponse,
   ProductDTO,
@@ -258,11 +255,6 @@ function PosRegister({
   }, [term]);
 
   useEffect(() => setHighlight(0), [debounced]);
-  // كل بحث جديد يعيد ضبط فلاتر الفئة/البراند
-  useEffect(() => {
-    setFilterCategory("ALL");
-    setFilterBrand(null);
-  }, [debounced]);
 
   // بعد مزامنة الطابور (عودة الاتصال) أعِد جلب المنتجات لتحديث الكميات
   useEffect(() => {
@@ -330,34 +322,56 @@ function PosRegister({
     };
   }, [branch]);
 
-  // بوابة البحث: لا نجلب حتى يبلغ البحث حرفين (نفس بوابة القائمة المنسدلة) —
-  // بدل جلب كل منتجات الفرع عند التحميل. الحالة الافتراضية تعرض «الأكثر مبيعاً».
+  // مصدر النتائج له مساران:
+  //  1) «تصفّح بالبراند أولاً»: اختيار براند من الشريط يجلب كل منتجاته للفرع
+  //     فوراً دون كتابة — ثم يمكن التضييق بالكتابة.
+  //  2) البحث النصي المعتاد: بوابة حرفين تجلب المطابق بالاسم/البراند/الكود.
   const canSearch = debounced.length >= 2;
   const normalizedSearch = normalizeArabic(debounced);
-  const url = canSearch
-    ? `/api/products?branch=${branch}&search=${encodeURIComponent(
-        normalizedSearch
-      )}&limit=50`
-    : null;
+  const browseByBrand = filterBrand !== null;
+  const url = browseByBrand
+    ? `/api/products?branch=${branch}&brand=${encodeURIComponent(filterBrand)}${
+        filterCategory !== "ALL" ? `&category=${filterCategory}` : ""
+      }&limit=100`
+    : canSearch
+      ? `/api/products?branch=${branch}&search=${encodeURIComponent(
+          normalizedSearch
+        )}&limit=50`
+      : null;
   const { data, loading, error, refetch } = useFetch<ProductDTO[]>(url);
   const results = data ?? [];
-  // النتائج بعد تطبيق فلاتر الفئة/البراند من الشريط
-  const filteredResults = useMemo(
-    () =>
-      results.filter(
-        (p) =>
-          (filterCategory === "ALL" || p.category === filterCategory) &&
-          (filterBrand === null || p.brand === filterBrand)
-      ),
-    [results, filterCategory, filterBrand]
-  );
-  const dropdownItems = results.slice(0, 8);
+  // النتائج بعد تطبيق فلاتر الشريط + تضييق بالكتابة في وضع البراند
+  const filteredResults = useMemo(() => {
+    let list = results.filter(
+      (p) =>
+        (filterCategory === "ALL" || p.category === filterCategory) &&
+        (filterBrand === null || p.brand === filterBrand)
+    );
+    // في وضع البراند: الكتابة تُضيّق داخل منتجات البراند (بدل بدء بحث جديد)
+    if (browseByBrand && debounced) {
+      const nq = normalizeArabic(debounced);
+      list = list.filter((p) =>
+        normalizeArabic(`${p.name} ${p.brand}`).includes(nq)
+      );
+    }
+    return list;
+  }, [results, filterCategory, filterBrand, browseByBrand, debounced]);
+  // القائمة المنسدلة السريعة للبحث بالكتابة — تُعطَّل في وضع البراند (النتائج بالشبكة)
+  const dropdownItems = browseByBrand ? [] : results.slice(0, 8);
   const dropdownOpen =
-    searchFocused && debounced.length >= 2 && dropdownItems.length > 0 && !loading;
+    searchFocused &&
+    !browseByBrand &&
+    debounced.length >= 2 &&
+    dropdownItems.length > 0 &&
+    !loading;
 
   // قائمة «الأكثر مبيعاً» تظهر عند تركيز حقل البحث وهو فارغ ووجود منتجات
   const bestsellersOpen =
-    searchFocused && recentUnlocked && term.trim() === "" && bestsellers.length > 0;
+    searchFocused &&
+    !browseByBrand &&
+    recentUnlocked &&
+    term.trim() === "" &&
+    bestsellers.length > 0;
 
   // ---- عمليات السلة ----
   function addVariant(product: ProductDTO, variant: ProductDTO["variants"][0]) {
@@ -955,16 +969,19 @@ function PosRegister({
               </button>
             </div>
 
-            {!canSearch ? (
-              // الحالة الافتراضية (قبل الكتابة): «الأكثر مبيعاً» + دعوة للمسح
-              // بدل تحميل كل منتجات الفرع.
-              <PosDefaultState
-                bestsellers={bestsellers}
-                cart={cart}
-                onAdd={addVariant}
-                onScan={() => setScannerOpen(true)}
-              />
-            ) : loading ? (
+            {/* شريط الفلترة الموحّد — ظاهر دائماً لدعم التصفّح بالبراند أولاً */}
+            <ProductFilterBar
+              category={filterCategory}
+              brand={filterBrand}
+              onCategory={(c) => {
+                setFilterCategory(c);
+                setFilterBrand(null);
+              }}
+              onBrand={setFilterBrand}
+              className="mb-4"
+            />
+
+            {loading ? (
               <PageLoader label="جاري البحث..." />
             ) : error ? (
               <div className="rounded-lg border border-danger/40 bg-[rgba(217,83,79,0.08)] p-4 text-sm text-danger">
@@ -977,42 +994,58 @@ function PosRegister({
                   إعادة المحاولة
                 </button>
               </div>
+            ) : browseByBrand ? (
+              // وضع «تصفّح بالبراند أولاً»: عرض كل منتجات البراند للفرع
+              filteredResults.length === 0 ? (
+                <EmptyState
+                  icon={<Package className="h-7 w-7" />}
+                  title="لا توجد منتجات لهذا البراند"
+                  description="جرّب برانداً آخر، أو ابحث بالاسم في الأعلى."
+                />
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {filteredResults.map((product) => (
+                    <SearchResult
+                      key={product.id}
+                      product={product}
+                      cart={cart}
+                      onAdd={addVariant}
+                    />
+                  ))}
+                </div>
+              )
+            ) : !canSearch ? (
+              // الحالة الافتراضية (قبل الكتابة): «الأكثر مبيعاً» + دعوة للمسح
+              // بدل تحميل كل منتجات الفرع.
+              <PosDefaultState
+                bestsellers={bestsellers}
+                cart={cart}
+                onAdd={addVariant}
+                onScan={() => setScannerOpen(true)}
+              />
             ) : results.length === 0 ? (
               <EmptyState
                 icon={<Package className="h-7 w-7" />}
                 title="لا توجد منتجات"
                 description={`لا توجد منتجات مطابقة لـ "${debounced}" في هذا الفرع.`}
               />
+            ) : filteredResults.length === 0 ? (
+              <EmptyState
+                icon={<Package className="h-7 w-7" />}
+                title="لا توجد منتجات مطابقة"
+                description="جرّب تغيير الفئة أو البراند المحدد."
+              />
             ) : (
-              <>
-                <PosFilterBar
-                  category={filterCategory}
-                  brand={filterBrand}
-                  onCategory={(c) => {
-                    setFilterCategory(c);
-                    setFilterBrand(null);
-                  }}
-                  onBrand={setFilterBrand}
-                />
-                {filteredResults.length === 0 ? (
-                  <EmptyState
-                    icon={<Package className="h-7 w-7" />}
-                    title="لا توجد منتجات مطابقة"
-                    description="جرّب تغيير الفئة أو البراند المحدد."
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {filteredResults.map((product) => (
+                  <SearchResult
+                    key={product.id}
+                    product={product}
+                    cart={cart}
+                    onAdd={addVariant}
                   />
-                ) : (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {filteredResults.map((product) => (
-                      <SearchResult
-                        key={product.id}
-                        product={product}
-                        cart={cart}
-                        onAdd={addVariant}
-                      />
-                    ))}
-                  </div>
-                )}
-              </>
+                ))}
+              </div>
             )}
           </Card>
         </div>
@@ -1706,86 +1739,6 @@ function CartRow({
             </span>
           )}
         </div>
-      )}
-    </div>
-  );
-}
-
-// تبويبات الفئة الثابتة: «الكل» + الفئات الأربع
-const CATEGORY_TABS: { value: CategoryValue | "ALL"; label: string }[] = [
-  { value: "ALL", label: "الكل" },
-  ...CATEGORIES.map((c) => ({ value: c, label: CATEGORY_LABELS[c] })),
-];
-
-// هل تبدأ الكلمة بحرف عربي؟ (لترتيب العربية قبل الإنجليزية)
-function isArabicWord(s: string) {
-  return /[؀-ۿ]/.test(s.trim().charAt(0));
-}
-
-// ترتيب البراندات: العربية (أ-ي) أولاً ثم الإنجليزية (A-Z)
-function compareBrands(a: string, b: string) {
-  const aArabic = isArabicWord(a);
-  const bArabic = isArabicWord(b);
-  if (aArabic !== bArabic) return aArabic ? -1 : 1;
-  return a.localeCompare(b, aArabic ? "ar" : "en");
-}
-
-// شريط الفلترة فوق نتائج البحث: تبويبات الفئة + شرائح البراند حسب الفئة
-function PosFilterBar({
-  category,
-  brand,
-  onCategory,
-  onBrand,
-}: {
-  category: CategoryValue | "ALL";
-  brand: string | null;
-  onCategory: (c: CategoryValue | "ALL") => void;
-  onBrand: (b: string | null) => void;
-}) {
-  // شرائح البراند تظهر فقط بعد اختيار فئة (لا تُعرض عند «الكل»)
-  const showBrands = category !== "ALL";
-  const { data: brandsData } = useFetch<BrandDTO[]>(
-    showBrands ? `/api/brands?category=${category}` : null
-  );
-  const brands = useMemo(() => {
-    const names = Array.from(new Set((brandsData ?? []).map((b) => b.name)));
-    return names.sort(compareBrands);
-  }, [brandsData]);
-
-  return (
-    <div className="mb-4 space-y-2">
-      {/* الصف الأول: تبويبات الفئة */}
-      <div className="flex flex-wrap gap-1.5">
-        {CATEGORY_TABS.map((t) => (
-          <button
-            key={t.value}
-            type="button"
-            onClick={() => onCategory(t.value)}
-            className={cn(
-              "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
-              category === t.value
-                ? "border-accent bg-accent-soft text-accent"
-                : "text-muted hover:text-text"
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* الصف الثاني: فلتر البراند — قائمة قابلة للبحث (بعد اختيار فئة فقط)
-          تتحمّل القوائم الكبيرة بدل عرض كل البراندات كشرائح */}
-      {showBrands && brands.length > 0 && (
-        <SearchableSelect
-          className="sm:max-w-xs"
-          value={brand ?? ""}
-          onChange={(v) => onBrand(v || null)}
-          options={brands.map((b) => ({ value: b, label: b }))}
-          placeholder="كل البراندات"
-          searchPlaceholder="ابحث عن براند…"
-          ariaLabel="فلترة بالبراند"
-          emptyMessage="لا توجد براندات"
-        />
       )}
     </div>
   );

@@ -13,6 +13,7 @@ import {
   CATEGORIES,
   CATEGORY_LABELS,
   COMMON_COLORS,
+  sizesForCategory,
   type BranchValue,
   type CategoryValue,
 } from "@/lib/constants";
@@ -44,6 +45,8 @@ export function QuickAddProductModal({
   const [category, setCategory] = useState<CategoryValue>("CLOTHES");
   const [productTypeId, setProductTypeId] = useState("");
   const [size, setSize] = useState("");
+  // وضع «مقاس مخصص» (أخرى) — يكشف حقل إدخال حر عندما لا تكفي القائمة القياسية
+  const [customSizeMode, setCustomSizeMode] = useState(false);
   const [color, setColor] = useState("");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -91,6 +94,7 @@ export function QuickAddProductModal({
       setCategory("CLOTHES");
       setProductTypeId("");
       setSize("");
+      setCustomSizeMode(false);
       setColor("");
       setPrice("");
       setQuantity("1");
@@ -99,11 +103,13 @@ export function QuickAddProductModal({
     }
   }, [open]);
 
-  // عند تغيير الفئة: صفّر البراند والنوع (لأنهما مرتبطان بالفئة)
+  // عند تغيير الفئة: صفّر البراند والنوع والمقاس (لأنها مرتبطة بالفئة)
   function changeCategory(c: CategoryValue) {
     setCategory(c);
     setBrand("");
     setProductTypeId("");
+    setSize("");
+    setCustomSizeMode(false);
     setAddingBrand(false);
     setNewBrand("");
   }
@@ -320,12 +326,41 @@ export function QuickAddProductModal({
 
         <div>
           <label className="label">المقاس *</label>
-          <input
+          <select
             className="input"
-            value={size}
-            onChange={(e) => setSize(e.target.value)}
-            placeholder="مثال: M أو 42"
-          />
+            value={customSizeMode ? "__other__" : size}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (v === "__other__") {
+                setCustomSizeMode(true);
+                setSize("");
+              } else {
+                setCustomSizeMode(false);
+                setSize(v);
+              }
+            }}
+          >
+            <option value="">اختر المقاس</option>
+            {sizesForCategory(category).map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+            {/* مقاس محفوظ خارج القائمة القياسية يبقى ظاهراً */}
+            {size && !customSizeMode && !sizesForCategory(category).includes(size) && (
+              <option value={size}>{size}</option>
+            )}
+            <option value="__other__">أخرى…</option>
+          </select>
+          {customSizeMode && (
+            <input
+              className="input mt-2"
+              value={size}
+              onChange={(e) => setSize(e.target.value)}
+              placeholder="اكتب مقاساً مخصصاً (مثال: 3XL أو 46)"
+              autoFocus
+            />
+          )}
         </div>
 
         <div>

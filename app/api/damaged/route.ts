@@ -95,7 +95,31 @@ export async function GET(req: Request) {
       };
     });
 
+    // الملخّص (الخسارة/السبب الأكثر تكراراً) يُحسب دائماً فوق كامل النطاق المفلتر.
     const report: DefectReport = buildDefectReport(items);
+
+    // ترقيم اختياري (skip/take على العناصر): يُفعَّل بوجود page ويعيد صفحة واحدة
+    // من العناصر + الإجمالي، مع الإبقاء على الملخّص فوق كامل النطاق. غيابه يُبقي
+    // السلوك القديم (التقرير الكامل).
+    const pageRaw = Number(searchParams.get("page"));
+    const perPageRaw = Number(searchParams.get("perPage"));
+    if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+      const perPage = Math.min(
+        Number.isInteger(perPageRaw) && perPageRaw > 0 ? perPageRaw : 20,
+        200
+      );
+      const total = report.items.length;
+      const pageItems = report.items.slice(
+        (pageRaw - 1) * perPage,
+        (pageRaw - 1) * perPage + perPage
+      );
+      return ok(
+        { ...report, items: pageItems, total, page: pageRaw, perPage },
+        200,
+        CACHE_NONE
+      );
+    }
+
     return ok(report, 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);

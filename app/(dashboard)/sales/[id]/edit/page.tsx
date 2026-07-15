@@ -8,8 +8,10 @@ import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
 import { apiGet, apiPut } from "@/lib/client";
 import { getSession } from "@/lib/auth";
+import { normalizeArabic } from "@/lib/normalize";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
+import { ProductFilterBar } from "@/components/product-filter-bar";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
 import {
@@ -26,6 +28,7 @@ import {
   ORDER_SOURCES,
   ORDER_SOURCE_LABELS,
   type BranchValue,
+  type CategoryValue,
   type DiscountTypeValue,
   type PaymentMethodValue,
   type TransferMethodValue,
@@ -146,6 +149,11 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
+  // فلتر «تصفّح بالبراند أولاً» (نفس نمط نقطة البيع)
+  const [filterCategory, setFilterCategory] = useState<CategoryValue | "ALL">(
+    "ALL"
+  );
+  const [filterBrand, setFilterBrand] = useState<string | null>(null);
   // المنتجات المُضافة من البحث (تُراكَم حتى تبقى أصنافها متاحة للتبديل والتحقق)
   const [picked, setPicked] = useState<ProductDTO[]>([]);
 
@@ -176,6 +184,27 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
   const { data: searchData, loading: searchLoading } =
     useFetch<ProductDTO[]>(searchUrl);
   const searchResults = searchData ?? [];
+
+  // «تصفّح بالبراند أولاً»: اختيار براند يجلب كل منتجاته للفرع فوراً؛ الكتابة
+  // تُضيّق داخلها. المسار البديل (البحث بالاسم أعلاه) يبقى كما هو.
+  const browseByBrand = filterBrand !== null;
+  const browseUrl = browseByBrand
+    ? `/api/products?branch=${branch}&brand=${encodeURIComponent(filterBrand)}${
+        filterCategory !== "ALL" ? `&category=${filterCategory}` : ""
+      }&limit=100`
+    : null;
+  const { data: browseData, loading: browseLoading } =
+    useFetch<ProductDTO[]>(browseUrl);
+  const brandResults = useMemo(() => {
+    let list = browseData ?? [];
+    if (debounced) {
+      const nq = normalizeArabic(debounced);
+      list = list.filter((p) =>
+        normalizeArabic(`${p.name} ${p.brand}`).includes(nq)
+      );
+    }
+    return list;
+  }, [browseData, debounced]);
 
   // خريطة الأصناف المعروفة: أصناف الفاتورة (بمعرّفاتها) + ما أُضيف من البحث.
   const resolved = useMemo(() => {
@@ -216,6 +245,8 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
       return;
     setBranch(b);
     setItems([]);
+    setFilterCategory("ALL");
+    setFilterBrand(null);
   }
 
   function setQty(index: number, qty: number) {
@@ -428,16 +459,34 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
           </span>
         </div>
 
-        {/* إضافة منتج */}
+        {/* شريط الفلترة الموحّد — تصفّح بالبراند أولاً */}
+        <ProductFilterBar
+          category={filterCategory}
+          brand={filterBrand}
+          onCategory={(c) => {
+            setFilterCategory(c);
+            setFilterBrand(null);
+          }}
+          onBrand={setFilterBrand}
+          className="mb-3"
+        />
+
+        {/* إضافة منتج بالبحث بالاسم */}
         <div className="relative mb-3">
           <Search className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" />
           <input
             className="input pr-9"
-            placeholder="ابحث لإضافة منتج (الاسم أو البراند)"
+            placeholder={
+              browseByBrand
+                ? "ضيّق داخل منتجات البراند (اختياري)"
+                : "ابحث لإضافة منتج (الاسم أو البراند)"
+            }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          {debounced.length >= 2 && (searchLoading || searchResults.length > 0) && (
+          {!browseByBrand &&
+            debounced.length >= 2 &&
+            (searchLoading || searchResults.length > 0) && (
             <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-surface shadow-card">
               {searchLoading && (
                 <p className="px-3 py-2 text-center text-sm text-muted">
@@ -473,6 +522,45 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
             </div>
           )}
         </div>
+
+        {/* وضع البراند: قائمة كل منتجات البراند المختار (مع تضييق بالكتابة) */}
+        {browseByBrand && (
+          <div className="mb-3 max-h-72 overflow-auto rounded-lg border">
+            {browseLoading ? (
+              <p className="px-3 py-4 text-center text-sm text-muted">
+                جارٍ التحميل…
+              </p>
+            ) : brandResults.length === 0 ? (
+              <p className="px-3 py-4 text-center text-sm text-muted">
+                لا توجد منتجات مطابقة لهذا البراند في الفرع.
+              </p>
+            ) : (
+              brandResults.map((p) => {
+                const avail = p.variants.reduce(
+                  (s, v) => s + v.quantity + (originalQty.get(v.id) ?? 0),
+                  0
+                );
+                return (
+                  <button
+                    key={p.id}
+                    onClick={() => addProduct(p)}
+                    className="flex w-full items-center justify-between gap-2 border-b border-[var(--border)] px-3 py-2 text-right text-sm last:border-0 hover:bg-[var(--surface-2)]"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-medium text-text">
+                        {p.name}
+                      </span>
+                      <span className="block text-xs text-muted">{p.brand}</span>
+                    </span>
+                    <span className="shrink-0 text-xs text-muted nums">
+                      متاح: {avail}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        )}
 
         {items.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted">

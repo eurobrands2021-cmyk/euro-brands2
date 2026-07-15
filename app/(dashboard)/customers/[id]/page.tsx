@@ -16,6 +16,11 @@ import {
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
 import { apiPut } from "@/lib/client";
+import { useHistoryPagination } from "@/lib/use-history-pagination";
+import {
+  HistoryDateFilter,
+  HistoryPager,
+} from "@/components/ui/history-toolbar";
 import { Card, StatCard } from "@/components/ui/card";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -32,8 +37,10 @@ import type { CustomerDetailDTO } from "@/lib/types";
 
 export default function CustomerDetailPage() {
   const params = useParams<{ id: string }>();
-  const { data, loading, error, refetch, setData } = useFetch<CustomerDetailDTO>(
-    `/api/customers/${params.id}`
+  const { from, to, setFrom, setTo, page, setPage, pageSize, params: pageParams, hasDateFilter, clearDates } =
+    useHistoryPagination();
+  const { data, loading, error, setData } = useFetch<CustomerDetailDTO>(
+    `/api/customers/${params.id}?${pageParams.toString()}`
   );
 
   const [editing, setEditing] = useState(false);
@@ -206,12 +213,36 @@ export default function CustomerDetailPage() {
         />
       </div>
 
-      <h2 className="mb-3 text-base font-bold text-text">تاريخ المشتريات</h2>
+      <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-base font-bold text-text">تاريخ المشتريات</h2>
+        <HistoryDateFilter
+          from={from}
+          to={to}
+          onFrom={setFrom}
+          onTo={setTo}
+          onClear={clearDates}
+          hasDateFilter={hasDateFilter}
+        />
+      </div>
       {data.sales.length === 0 ? (
-        <EmptyState title="لا توجد فواتير لهذا العميل بعد" />
+        <EmptyState
+          title={
+            hasDateFilter
+              ? "لا توجد فواتير ضمن النطاق المحدد"
+              : "لا توجد فواتير لهذا العميل بعد"
+          }
+        />
       ) : (
         <Card className="overflow-hidden">
           <SalesTable sales={data.sales} />
+          <div className="px-4 pb-3">
+            <HistoryPager
+              page={page}
+              perPage={pageSize}
+              total={data.salesTotal}
+              onPage={setPage}
+            />
+          </div>
         </Card>
       )}
     </div>

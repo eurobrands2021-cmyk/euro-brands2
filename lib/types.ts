@@ -307,7 +307,8 @@ export interface CustomerDTO {
 }
 
 export interface CustomerDetailDTO extends CustomerDTO {
-  sales: SaleDTO[]; // تاريخ المشتريات الكامل
+  sales: SaleDTO[]; // تاريخ المشتريات (صفحة واحدة عند الترقيم)
+  salesTotal: number; // إجمالي عدد الفواتير (لأزرار الترقيم)
 }
 
 // كبار العملاء (VIP) — عميل مع متوسط الفاتورة المحسوب
@@ -383,6 +384,13 @@ export interface DefectReport {
   reasonBreakdown: { reason: DefectReasonValue; count: number; loss: number }[];
 }
 
+// تقرير الديفو المرقّم: نفس الملخّص فوق كامل النطاق، مع صفحة واحدة من العناصر.
+export interface DefectReportPage extends DefectReport {
+  total: number; // إجمالي عدد السجلات في النطاق (لأزرار الترقيم)
+  page: number;
+  perPage: number;
+}
+
 export interface CustomerUpdateInput {
   name?: string;
   notes?: string | null;
@@ -394,6 +402,15 @@ export interface CustomerListResponse {
   total: number;
   page: number;
   pageSize: number;
+}
+
+// استجابة مرقّمة موحّدة للقوائم الطويلة (سجل نشاط/طلبات دخول/…): صفحة من
+// العناصر + الإجمالي لحساب أزرار «السابق/التالي».
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  page: number;
+  perPage: number;
 }
 
 // سجل النشاط

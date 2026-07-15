@@ -30,6 +30,31 @@ export async function GET(req: Request) {
       if (to) where.createdAt.lte = new Date(to);
     }
 
+    // ترقيم اختياري (skip/take): يُفعَّل بوجود page، ويعيد { items, total, page,
+    // perPage }. غيابه يُبقي السلوك القديم (مصفوفة محدودة بـ limit).
+    const pageRaw = Number(searchParams.get("page"));
+    const perPageRaw = Number(searchParams.get("perPage"));
+    if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+      const perPage = Math.min(
+        Number.isInteger(perPageRaw) && perPageRaw > 0 ? perPageRaw : 20,
+        200
+      );
+      const [total, rows] = await Promise.all([
+        prisma.activityLog.count({ where }),
+        prisma.activityLog.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (pageRaw - 1) * perPage,
+          take: perPage,
+        }),
+      ]);
+      return ok(
+        { items: rows.map(toActivityDTO), total, page: pageRaw, perPage },
+        200,
+        CACHE_NONE
+      );
+    }
+
     const logs = await prisma.activityLog.findMany({
       where,
       orderBy: { createdAt: "desc" },

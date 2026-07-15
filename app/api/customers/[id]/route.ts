@@ -23,12 +23,12 @@ const saleInclude = {
 
 // GET /api/customers/[id] — عميل واحد مع كامل تاريخ مشترياته
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: { id: string } }
 ) {
   try {
     if (MOCK_MODE) {
-      const dto = mockGetCustomer(params.id);
+      const dto = mockGetCustomer(params.id, new URL(req.url).searchParams);
       return dto ? ok(dto) : fail("العميل غير موجود", 404);
     }
 
@@ -37,15 +37,43 @@ export async function GET(
     });
     if (!customer) return fail("العميل غير موجود", 404);
 
-    const sales = await prisma.sale.findMany({
-      where: { customerPhone: customer.phone },
-      include: saleInclude,
-      orderBy: { createdAt: "desc" },
-    });
+    const { searchParams } = new URL(req.url);
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
+    const pageRaw = Number(searchParams.get("page"));
+    const perPageRaw = Number(searchParams.get("perPage"));
+    const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+    const page = paginated ? pageRaw : 1;
+    const perPage = Math.min(
+      Number.isInteger(perPageRaw) && perPageRaw > 0 ? perPageRaw : 20,
+      200
+    );
+
+    // نطاق التاريخ الاختياري على الفواتير (لفلتر تاريخ المشتريات)
+    const saleWhere: Prisma.SaleWhereInput = { customerPhone: customer.phone };
+    if (from || to) {
+      saleWhere.createdAt = {};
+      if (from) saleWhere.createdAt.gte = new Date(from);
+      if (to) saleWhere.createdAt.lte = new Date(to);
+    }
+
+    // ترقيم فعلي على مستوى قاعدة البيانات (skip/take) بدل جلب كامل تاريخ العميل.
+    const [salesTotal, sales] = await Promise.all([
+      prisma.sale.count({ where: saleWhere }),
+      prisma.sale.findMany({
+        where: saleWhere,
+        include: saleInclude,
+        orderBy: { createdAt: "desc" },
+        ...(paginated
+          ? { skip: (page - 1) * perPage, take: perPage }
+          : {}),
+      }),
+    ]);
 
     const response: CustomerDetailDTO = {
       ...toCustomerDTO(customer),
       sales: sales.map(toSaleDTO),
+      salesTotal,
     };
     return ok(response);
   } catch (error) {

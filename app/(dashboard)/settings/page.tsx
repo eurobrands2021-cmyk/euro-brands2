@@ -7,7 +7,6 @@ import {
   UserCircle,
   ScrollText,
   Filter,
-  X,
   Database,
   Printer,
   ChevronDown,
@@ -36,7 +35,12 @@ import {
   ROLE_LABELS,
   type Session,
 } from "@/lib/auth";
-import type { ActivityLogDTO } from "@/lib/types";
+import { useHistoryPagination } from "@/lib/use-history-pagination";
+import {
+  HistoryDateFilter,
+  HistoryPager,
+} from "@/components/ui/history-toolbar";
+import type { ActivityLogDTO, Paginated } from "@/lib/types";
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -208,33 +212,24 @@ export default function SettingsPage() {
 
 function ActivityViewer() {
   const [user, setUser] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const { from, to, setFrom, setTo, page, setPage, pageSize, params, hasDateFilter, clearDates } =
+    useHistoryPagination();
 
-  // بناء رابط الاستعلام من الفلاتر
+  // فلتر المستخدم يعيدنا لأحدث دفعة (مثل نطاق التاريخ)
+  useEffect(() => {
+    setPage(1);
+  }, [user, setPage]);
+
+  // بناء رابط الاستعلام: معاملات الترقيم/التاريخ المشتركة + فلتر المستخدم
   const url = useMemo(() => {
-    const params = new URLSearchParams();
-    if (user.trim()) params.set("user", user.trim());
-    if (from) params.set("from", new Date(from).toISOString());
-    if (to) {
-      // نهاية اليوم المحدد
-      const end = new Date(to);
-      end.setHours(23, 59, 59, 999);
-      params.set("to", end.toISOString());
-    }
-    const qs = params.toString();
-    return `/api/activity${qs ? `?${qs}` : ""}`;
-  }, [user, from, to]);
+    const p = new URLSearchParams(params);
+    if (user.trim()) p.set("user", user.trim());
+    return `/api/activity?${p.toString()}`;
+  }, [params, user]);
 
-  const { data, loading } = useFetch<ActivityLogDTO[]>(url);
-  const logs = data ?? [];
-
-  const hasFilters = !!(user.trim() || from || to);
-  function clearFilters() {
-    setUser("");
-    setFrom("");
-    setTo("");
-  }
+  const { data, loading } = useFetch<Paginated<ActivityLogDTO>>(url);
+  const logs = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   return (
     <Card className="p-5">
@@ -243,49 +238,29 @@ function ActivityViewer() {
         سجل النشاط
       </h2>
 
-      {/* الفلاتر */}
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {/* الفلاتر: المستخدم + النطاق الزمني الموحّد */}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
         <div>
           <label className="label flex items-center gap-1.5">
             <Filter className="h-3.5 w-3.5 text-muted" />
             المستخدم
           </label>
           <input
-            className="input"
+            className="input w-auto"
             value={user}
             onChange={(e) => setUser(e.target.value)}
             placeholder="اسم المستخدم"
           />
         </div>
-        <div>
-          <label className="label">من تاريخ</label>
-          <input
-            type="date"
-            className="input nums"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="label">إلى تاريخ</label>
-          <input
-            type="date"
-            className="input nums"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-          />
-        </div>
+        <HistoryDateFilter
+          from={from}
+          to={to}
+          onFrom={setFrom}
+          onTo={setTo}
+          onClear={clearDates}
+          hasDateFilter={hasDateFilter}
+        />
       </div>
-
-      {hasFilters && (
-        <button
-          onClick={clearFilters}
-          className="btn btn-ghost mb-3 h-8 gap-1 px-2 text-xs text-muted"
-        >
-          <X className="h-3.5 w-3.5" />
-          مسح الفلاتر
-        </button>
-      )}
 
       {loading ? (
         <p className="py-8 text-center text-sm text-muted">جارٍ التحميل…</p>
@@ -295,11 +270,19 @@ function ActivityViewer() {
         </p>
       ) : (
         // صفوف قابلة للطي — ملخّص فقط افتراضياً، والنقر يوسّع التفاصيل الكاملة
-        <div className="space-y-2">
-          {logs.map((a) => (
-            <ActivityRow key={a.id} log={a} />
-          ))}
-        </div>
+        <>
+          <div className="space-y-2">
+            {logs.map((a) => (
+              <ActivityRow key={a.id} log={a} />
+            ))}
+          </div>
+          <HistoryPager
+            page={page}
+            perPage={pageSize}
+            total={total}
+            onPage={setPage}
+          />
+        </>
       )}
     </Card>
   );

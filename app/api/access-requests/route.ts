@@ -19,9 +19,42 @@ export async function GET(req: Request) {
 
     const status = searchParams.get("status")?.trim();
     const limit = Math.min(Number(searchParams.get("limit")) || 100, 500);
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
 
     const where: Prisma.AccessRequestWhereInput = {};
     if (status) where.status = status;
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(from);
+      if (to) where.createdAt.lte = new Date(to);
+    }
+
+    // ترقيم اختياري (skip/take) — يعيد { items, total, page, perPage } بوجود
+    // page، وإلا يُبقي السلوك القديم (مصفوفة).
+    const pageRaw = Number(searchParams.get("page"));
+    const perPageRaw = Number(searchParams.get("perPage"));
+    if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+      const perPage = Math.min(
+        Number.isInteger(perPageRaw) && perPageRaw > 0 ? perPageRaw : 20,
+        200
+      );
+      const [total, rows] = await Promise.all([
+        prisma.accessRequest.count({ where }),
+        prisma.accessRequest.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: (pageRaw - 1) * perPage,
+          take: perPage,
+        }),
+      ]);
+      return ok({
+        items: rows.map(toAccessRequestDTO),
+        total,
+        page: pageRaw,
+        perPage,
+      });
+    }
 
     const rows = await prisma.accessRequest.findMany({
       where,

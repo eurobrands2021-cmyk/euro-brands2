@@ -49,10 +49,12 @@ import type {
   DamagedItemDTO,
   DashboardStats,
   DefectReport,
+  DefectReportPage,
   DeliveryListResponse,
   ImportResult,
   ImportRow,
   LowStockResponse,
+  Paginated,
   ProductDTO,
   ProductInput,
   ProductListPage,
@@ -1619,13 +1621,15 @@ function shapeActivity(a: MActivityLog): ActivityLogDTO {
   };
 }
 
-export function mockListActivity(sp: URLSearchParams): ActivityLogDTO[] {
+export function mockListActivity(
+  sp: URLSearchParams
+): ActivityLogDTO[] | Paginated<ActivityLogDTO> {
   const user = sp.get("user")?.trim();
   const from = sp.get("from") ? new Date(sp.get("from")!) : null;
   const to = sp.get("to") ? new Date(sp.get("to")!) : null;
   const limit = Math.min(Number(sp.get("limit")) || 200, 1000);
 
-  return store.activityLogs
+  const matched = store.activityLogs
     .filter((a) => {
       if (user && a.userName !== user) return false;
       if (from && a.createdAt < from) return false;
@@ -1633,8 +1637,16 @@ export function mockListActivity(sp: URLSearchParams): ActivityLogDTO[] {
       return true;
     })
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, limit)
     .map(shapeActivity);
+
+  const pageRaw = Number(sp.get("page"));
+  if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+    const perPage = Math.min(Number(sp.get("perPage")) || 20, 200);
+    const items = matched.slice((pageRaw - 1) * perPage, pageRaw * perPage);
+    return { items, total: matched.length, page: pageRaw, perPage };
+  }
+
+  return matched.slice(0, limit);
 }
 
 export function mockCreateActivity(input: ActivityLogInput): ActivityLogDTO {
@@ -1663,14 +1675,30 @@ function shapeAccessRequest(a: MAccessRequest): AccessRequestDTO {
 
 export function mockListAccessRequests(
   sp: URLSearchParams
-): AccessRequestDTO[] {
+): AccessRequestDTO[] | Paginated<AccessRequestDTO> {
   const status = sp.get("status")?.trim();
   const limit = Math.min(Number(sp.get("limit")) || 100, 500);
-  return store.accessRequests
-    .filter((a) => !status || a.status === status)
+  const from = sp.get("from") ? new Date(sp.get("from")!) : null;
+  const to = sp.get("to") ? new Date(sp.get("to")!) : null;
+
+  const matched = store.accessRequests
+    .filter((a) => {
+      if (status && a.status !== status) return false;
+      if (from && a.createdAt < from) return false;
+      if (to && a.createdAt > to) return false;
+      return true;
+    })
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, limit)
     .map(shapeAccessRequest);
+
+  const pageRaw = Number(sp.get("page"));
+  if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+    const perPage = Math.min(Number(sp.get("perPage")) || 20, 200);
+    const items = matched.slice((pageRaw - 1) * perPage, pageRaw * perPage);
+    return { items, total: matched.length, page: pageRaw, perPage };
+  }
+
+  return matched.slice(0, limit);
 }
 
 export function mockGetAccessRequest(id: string): AccessRequestDTO | null {
@@ -1856,15 +1884,35 @@ export function mockListVipCustomers(sp: URLSearchParams): VipCustomerDTO[] {
 }
 
 export function mockGetCustomer(
-  id: string
-): (CustomerDTO & { sales: SaleDTO[] }) | null {
+  id: string,
+  sp?: URLSearchParams
+): (CustomerDTO & { sales: SaleDTO[]; salesTotal: number }) | null {
   const c = store.customers.find((x) => x.id === id);
   if (!c) return null;
-  const sales = store.sales
-    .filter((s) => s.customerPhone === c.phone)
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map(shapeSale);
-  return { ...shapeCustomer(c), sales };
+  const from = sp?.get("from") ? new Date(sp.get("from")!) : null;
+  const to = sp?.get("to") ? new Date(sp.get("to")!) : null;
+
+  const matched = store.sales
+    .filter((s) => {
+      if (s.customerPhone !== c.phone) return false;
+      if (from && s.createdAt < from) return false;
+      if (to && s.createdAt > to) return false;
+      return true;
+    })
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  const pageRaw = Number(sp?.get("page"));
+  let paged = matched;
+  if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+    const perPage = Math.min(Number(sp?.get("perPage")) || 20, 200);
+    paged = matched.slice((pageRaw - 1) * perPage, pageRaw * perPage);
+  }
+
+  return {
+    ...shapeCustomer(c),
+    sales: paged.map(shapeSale),
+    salesTotal: matched.length,
+  };
 }
 
 export function mockCreateCustomer(input: CustomerInput): CustomerDTO {
@@ -3065,7 +3113,9 @@ export function mockCreateDamaged(input: DamagedInput): DamagedItemDTO {
   return shapeDamaged(row);
 }
 
-export function mockDefectReport(sp: URLSearchParams): DefectReport {
+export function mockDefectReport(
+  sp: URLSearchParams
+): DefectReport | DefectReportPage {
   const branch = sp.get("branch") as BranchValue | null;
   const from = sp.get("from") ? new Date(sp.get("from")!) : null;
   const to = sp.get("to") ? new Date(sp.get("to")!) : null;
@@ -3078,7 +3128,25 @@ export function mockDefectReport(sp: URLSearchParams): DefectReport {
   const items = rows
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
     .map(shapeDamaged);
-  return buildDefectReport(items);
+  const report = buildDefectReport(items);
+
+  const pageRaw = Number(sp.get("page"));
+  if (Number.isInteger(pageRaw) && pageRaw >= 1) {
+    const perPage = Math.min(Number(sp.get("perPage")) || 20, 200);
+    const pageItems = report.items.slice(
+      (pageRaw - 1) * perPage,
+      pageRaw * perPage
+    );
+    return {
+      ...report,
+      items: pageItems,
+      total: report.items.length,
+      page: pageRaw,
+      perPage,
+    };
+  }
+
+  return report;
 }
 
 export function mockUnlockSale(

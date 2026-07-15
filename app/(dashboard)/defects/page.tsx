@@ -16,6 +16,11 @@ import { useFetch } from "@/lib/use-fetch";
 import { apiPost, uploadImage } from "@/lib/client";
 import { getSession } from "@/lib/auth";
 import { logActivity } from "@/lib/activity";
+import { useHistoryPagination } from "@/lib/use-history-pagination";
+import {
+  HistoryDateFilter,
+  HistoryPager,
+} from "@/components/ui/history-toolbar";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
@@ -28,14 +33,20 @@ import {
   DEFECT_REASON_LABELS,
   type DefectReasonValue,
 } from "@/lib/constants";
-import type { DefectReport, ProductDTO, VariantDTO } from "@/lib/types";
+import type {
+  DefectReportPage,
+  ProductDTO,
+  VariantDTO,
+} from "@/lib/types";
 
 export default function DefectsPage() {
+  const { from, to, setFrom, setTo, page, setPage, pageSize, params, hasDateFilter, clearDates } =
+    useHistoryPagination();
   const {
     data: report,
     loading: reportLoading,
     refetch: refetchReport,
-  } = useFetch<DefectReport>("/api/damaged");
+  } = useFetch<DefectReportPage>(`/api/damaged?${params.toString()}`);
 
   return (
     <div>
@@ -52,10 +63,25 @@ export default function DefectsPage() {
 
         {/* التقرير */}
         <div className="lg:col-span-3">
+          <div className="mb-4">
+            <HistoryDateFilter
+              from={from}
+              to={to}
+              onFrom={setFrom}
+              onTo={setTo}
+              onClear={clearDates}
+              hasDateFilter={hasDateFilter}
+            />
+          </div>
           {reportLoading ? (
             <PageLoader />
           ) : (
-            <DefectReportView report={report} />
+            <DefectReportView
+              report={report}
+              page={page}
+              pageSize={pageSize}
+              onPage={setPage}
+            />
           )}
         </div>
       </div>
@@ -400,8 +426,18 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
 // ----------------------------------------------------
 //  عرض التقرير
 // ----------------------------------------------------
-function DefectReportView({ report }: { report: DefectReport | null }) {
-  if (!report || report.items.length === 0) {
+function DefectReportView({
+  report,
+  page,
+  pageSize,
+  onPage,
+}: {
+  report: DefectReportPage | null;
+  page: number;
+  pageSize: number;
+  onPage: (page: number) => void;
+}) {
+  if (!report || report.total === 0) {
     return (
       <EmptyState
         icon={<PackageX className="h-7 w-7" />}
@@ -435,7 +471,7 @@ function DefectReportView({ report }: { report: DefectReport | null }) {
         />
         <StatCard
           title="عدد السجلات"
-          value={formatNumber(report.items.length)}
+          value={formatNumber(report.total)}
           icon={<ClipboardList className="h-5 w-5" />}
           tone="none"
         />
@@ -446,8 +482,8 @@ function DefectReportView({ report }: { report: DefectReport | null }) {
         <h3 className="mb-3 text-sm font-bold text-text">توزيع أسباب التلف</h3>
         <div className="space-y-2">
           {report.reasonBreakdown.map((r) => {
-            const pct = report.items.length
-              ? Math.round((r.count / report.items.length) * 100)
+            const pct = report.total
+              ? Math.round((r.count / report.total) * 100)
               : 0;
             return (
               <div key={r.reason}>
@@ -518,6 +554,14 @@ function DefectReportView({ report }: { report: DefectReport | null }) {
               </div>
             </div>
           ))}
+        </div>
+        <div className="px-4 pb-3">
+          <HistoryPager
+            page={page}
+            perPage={pageSize}
+            total={report.total}
+            onPage={onPage}
+          />
         </div>
       </Card>
     </div>

@@ -11,12 +11,18 @@ import {
 } from "lucide-react";
 import { apiGet, apiPut } from "@/lib/client";
 import { Spinner } from "@/components/ui/spinner";
+import { useHistoryPagination } from "@/lib/use-history-pagination";
+import {
+  HistoryDateFilter,
+  HistoryPager,
+} from "@/components/ui/history-toolbar";
 import { BRANCH_LABELS } from "@/lib/constants";
 import { formatNumber, formatDateTime } from "@/lib/format";
 import type {
   LowStockItem,
   LowStockResponse,
   AccessRequestDTO,
+  Paginated,
 } from "@/lib/types";
 
 const LOW_STOCK_POLL_MS = 30000;
@@ -61,8 +67,13 @@ export function NotificationsBell() {
 
   // ---- طلبات دخول الكاشير ----
   const [requests, setRequests] = useState<AccessRequestDTO[]>([]);
+  const [reqTotal, setReqTotal] = useState(0);
   const [reqLoading, setReqLoading] = useState(false);
   const [acting, setActing] = useState<string | null>(null);
+  // ترقيم/فلترة موحّدة لقائمة الطلبات (آخر 20 + السابق/التالي + نطاق زمني)
+  const { from, to, setFrom, setTo, page, setPage, pageSize, params, hasDateFilter, clearDates } =
+    useHistoryPagination();
+  const reqQuery = params.toString();
 
   useEffect(() => setDismissed(loadDismissed()), []);
 
@@ -77,14 +88,15 @@ export function NotificationsBell() {
 
   const loadRequests = useCallback(async () => {
     try {
-      const rows = await apiGet<AccessRequestDTO[]>(
-        "/api/access-requests?status=PENDING&limit=50"
+      const res = await apiGet<Paginated<AccessRequestDTO>>(
+        `/api/access-requests?status=PENDING&${reqQuery}`
       );
-      setRequests(rows);
+      setRequests(res.items);
+      setReqTotal(res.total);
     } catch {
       /* تجاهل أخطاء الاستطلاع المؤقتة */
     }
-  }, []);
+  }, [reqQuery]);
 
   // استطلاع دوري لكل مصدر بمعدّله الخاص
   useEffect(() => {
@@ -123,7 +135,7 @@ export function NotificationsBell() {
     (i) => !dismissed.includes(alertKey(i))
   );
   const stockCount = visibleStock.length;
-  const reqCount = requests.length;
+  const reqCount = reqTotal;
   const total = stockCount + reqCount;
 
   function dismissStock(item: LowStockItem) {
@@ -143,6 +155,9 @@ export function NotificationsBell() {
     try {
       await apiPut(`/api/access-requests/${id}`, { status });
       setRequests((prev) => prev.filter((r) => r.id !== id));
+      setReqTotal((t) => Math.max(0, t - 1));
+      // أعِد جلب الصفحة الحالية لتعبئة الفراغ من الطلبات الأقدم
+      void loadRequests();
     } catch {
       /* تجاهل — سيُعاد الاستطلاع */
     } finally {
@@ -184,7 +199,7 @@ export function NotificationsBell() {
           </div>
 
           <div className="max-h-[26rem] overflow-y-auto">
-            {total === 0 ? (
+            {total === 0 && !hasDateFilter ? (
               <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-sm text-muted">
                 <PackageCheck className="h-7 w-7 text-success" />
                 لا توجد إشعارات جديدة
@@ -192,7 +207,7 @@ export function NotificationsBell() {
             ) : (
               <>
                 {/* قسم: طلبات دخول الكاشير */}
-                {reqCount > 0 && (
+                {(reqCount > 0 || hasDateFilter) && (
                   <section>
                     <div className="flex items-center gap-2 bg-[var(--surface-2)] px-4 py-2 text-xs font-bold text-muted">
                       <UserPlus className="h-3.5 w-3.5" />
@@ -201,6 +216,22 @@ export function NotificationsBell() {
                         {reqCount}
                       </span>
                     </div>
+                    {/* فلتر النطاق الزمني الموحّد */}
+                    <div className="border-b border-[var(--border)] px-4 py-2.5">
+                      <HistoryDateFilter
+                        from={from}
+                        to={to}
+                        onFrom={setFrom}
+                        onTo={setTo}
+                        onClear={clearDates}
+                        hasDateFilter={hasDateFilter}
+                      />
+                    </div>
+                    {requests.length === 0 && (
+                      <p className="px-4 py-4 text-center text-xs text-muted">
+                        لا توجد طلبات ضمن النطاق المحدد
+                      </p>
+                    )}
                     {requests.map((r) => (
                       <div
                         key={r.id}
@@ -241,6 +272,14 @@ export function NotificationsBell() {
                         </div>
                       </div>
                     ))}
+                    <div className="px-4 pb-2">
+                      <HistoryPager
+                        page={page}
+                        perPage={pageSize}
+                        total={reqTotal}
+                        onPage={setPage}
+                      />
+                    </div>
                   </section>
                 )}
 
