@@ -30,6 +30,7 @@ import { BarcodeScanner } from "@/components/barcode-scanner";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { QuickAddProductModal } from "@/components/quick-add-product-modal";
 import { Modal } from "@/components/ui/modal";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { Card } from "@/components/ui/card";
 import { Spinner, PageLoader } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -329,10 +330,15 @@ function PosRegister({
     };
   }, [branch]);
 
+  // بوابة البحث: لا نجلب حتى يبلغ البحث حرفين (نفس بوابة القائمة المنسدلة) —
+  // بدل جلب كل منتجات الفرع عند التحميل. الحالة الافتراضية تعرض «الأكثر مبيعاً».
+  const canSearch = debounced.length >= 2;
   const normalizedSearch = normalizeArabic(debounced);
-  const url = `/api/products?branch=${branch}${
-    debounced ? `&search=${encodeURIComponent(normalizedSearch)}` : ""
-  }`;
+  const url = canSearch
+    ? `/api/products?branch=${branch}&search=${encodeURIComponent(
+        normalizedSearch
+      )}&limit=50`
+    : null;
   const { data, loading, error, refetch } = useFetch<ProductDTO[]>(url);
   const results = data ?? [];
   // النتائج بعد تطبيق فلاتر الفئة/البراند من الشريط
@@ -949,7 +955,16 @@ function PosRegister({
               </button>
             </div>
 
-            {loading ? (
+            {!canSearch ? (
+              // الحالة الافتراضية (قبل الكتابة): «الأكثر مبيعاً» + دعوة للمسح
+              // بدل تحميل كل منتجات الفرع.
+              <PosDefaultState
+                bestsellers={bestsellers}
+                cart={cart}
+                onAdd={addVariant}
+                onScan={() => setScannerOpen(true)}
+              />
+            ) : loading ? (
               <PageLoader label="جاري البحث..." />
             ) : error ? (
               <div className="rounded-lg border border-danger/40 bg-[rgba(217,83,79,0.08)] p-4 text-sm text-danger">
@@ -966,11 +981,7 @@ function PosRegister({
               <EmptyState
                 icon={<Package className="h-7 w-7" />}
                 title="لا توجد منتجات"
-                description={
-                  debounced
-                    ? `لا توجد منتجات مطابقة لـ "${debounced}" في هذا الفرع.`
-                    : "لا توجد منتجات في هذا الفرع بعد."
-                }
+                description={`لا توجد منتجات مطابقة لـ "${debounced}" في هذا الفرع.`}
               />
             ) : (
               <>
@@ -1731,10 +1742,6 @@ function PosFilterBar({
   onCategory: (c: CategoryValue | "ALL") => void;
   onBrand: (b: string | null) => void;
 }) {
-  // عدد شرائح البراند المعروضة قبل زر «المزيد»
-  const MAX_BRAND_CHIPS = 10;
-  const [showAllBrands, setShowAllBrands] = useState(false);
-
   // شرائح البراند تظهر فقط بعد اختيار فئة (لا تُعرض عند «الكل»)
   const showBrands = category !== "ALL";
   const { data: brandsData } = useFetch<BrandDTO[]>(
@@ -1744,15 +1751,6 @@ function PosFilterBar({
     const names = Array.from(new Set((brandsData ?? []).map((b) => b.name)));
     return names.sort(compareBrands);
   }, [brandsData]);
-
-  // عند تغيّر الفئة: أعِد طيّ القائمة إلى أول 10
-  useEffect(() => {
-    setShowAllBrands(false);
-  }, [category]);
-
-  const hasMore = brands.length > MAX_BRAND_CHIPS;
-  const visibleBrands =
-    showAllBrands || !hasMore ? brands : brands.slice(0, MAX_BRAND_CHIPS);
 
   return (
     <div className="mb-4 space-y-2">
@@ -1778,43 +1776,69 @@ function PosFilterBar({
       {/* الصف الثاني: شرائح البراند — بعد اختيار فئة فقط، مرتبة أبجدياً،
           بحد أقصى 10 شرائح وزر «المزيد» عند وجود المزيد */}
       {showBrands && brands.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => onBrand(null)}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-              brand === null
-                ? "border-accent bg-accent-soft text-accent"
-                : "text-muted hover:text-text"
-            )}
-          >
-            الكل
-          </button>
-          {visibleBrands.map((b) => (
-            <button
-              key={b}
-              type="button"
-              onClick={() => onBrand(b)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
-                brand === b
-                  ? "border-accent bg-accent-soft text-accent"
-                  : "text-muted hover:text-text"
-              )}
-            >
-              {b}
-            </button>
-          ))}
-          {hasMore && !showAllBrands && (
-            <button
-              type="button"
-              onClick={() => setShowAllBrands(true)}
-              className="rounded-full border border-dashed px-3 py-1 text-xs font-medium text-accent transition-colors hover:bg-accent-soft"
-            >
-              المزيد ({formatNumber(brands.length - MAX_BRAND_CHIPS)})
-            </button>
-          )}
+        <SearchableSelect
+          className="sm:max-w-xs"
+          value={brand ?? ""}
+          onChange={(v) => onBrand(v || null)}
+          options={brands.map((b) => ({ value: b, label: b }))}
+          placeholder="كل البراندات"
+          searchPlaceholder="ابحث عن براند…"
+          ariaLabel="فلترة بالبراند"
+          emptyMessage="لا توجد براندات"
+        />
+      )}
+    </div>
+  );
+}
+
+// الحالة الافتراضية لنقطة البيع قبل الكتابة: دعوة للبحث/المسح + «الأكثر مبيعاً».
+// تحل محل تحميل كامل كتالوج الفرع عند فتح الصفحة.
+function PosDefaultState({
+  bestsellers,
+  cart,
+  onAdd,
+  onScan,
+}: {
+  bestsellers: ProductDTO[];
+  cart: CartItem[];
+  onAdd: (p: ProductDTO, v: ProductDTO["variants"][0]) => void;
+  onScan: () => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed bg-bg p-6 text-center">
+        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft text-accent">
+          <Search className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-text">ابحث عن منتج للبدء</p>
+          <p className="mt-1 text-xs text-muted">
+            اكتب حرفين على الأقل بالاسم أو البراند أو الكود، أو امسح الباركود.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onScan}
+          className="btn btn-secondary h-9 text-xs"
+        >
+          <ScanLine className="h-4 w-4" />
+          مسح الباركود
+        </button>
+      </div>
+
+      {bestsellers.length > 0 && (
+        <div>
+          <h3 className="mb-2 text-xs font-bold text-muted">الأكثر مبيعاً</h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {bestsellers.map((p) => (
+              <SearchResult
+                key={`bs-${p.id}`}
+                product={p}
+                cart={cart}
+                onAdd={onAdd}
+              />
+            ))}
+          </div>
         </div>
       )}
     </div>

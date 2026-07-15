@@ -8,6 +8,10 @@ import { buildVariantSku, uniquifySku } from "@/lib/sku";
 import { normalizeArabic } from "@/lib/normalize";
 import { expandBrandQuery } from "@/lib/brand-map";
 import { cached } from "@/lib/cache";
+import {
+  selectStatusProductIds,
+  type StatusQueryFilters,
+} from "@/lib/product-status-query";
 
 // نافذة احتساب «الأكثر مبيعاً» — 90 يوماً متجدّدة (بدلاً من كامل التاريخ).
 const BESTSELLER_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
@@ -70,6 +74,15 @@ export async function GET(req: Request) {
     const withSales = searchParams.get("withSales") === "1";
     const sort = searchParams.get("sort");
     const bestselling = sort === "bestselling";
+    const mostSold = sort === "mostSold";
+    const lowestQty = sort === "lowestQty";
+    // فلتر حالة المخزون (تبويبات صفحة المخزون) + فلتر المسودات
+    const statusParam = searchParams.get("status");
+    const status =
+      statusParam === "low" || statusParam === "out" ? statusParam : null;
+    const draftsOnly = searchParams.get("drafts") === "1";
+    // إرفاق أعداد التبويبات (all/low/out) وإجمالي المسودات مع الاستجابة المرقّمة
+    const withCounts = searchParams.get("withCounts") === "1";
     const limitRaw = Number(searchParams.get("limit"));
     const limit =
       Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : null;
@@ -89,6 +102,7 @@ export async function GET(req: Request) {
 
     if (category) where.category = category as Category;
     if (brand) where.brand = brand;
+    if (draftsOnly) where.isDraft = true;
 
     // فلترة على مستوى المقاسات (الفرع/المقاس)
     const variantWhere: Prisma.ProductVariantWhereInput = {};
@@ -121,7 +135,7 @@ export async function GET(req: Request) {
     } satisfies Prisma.ProductInclude;
 
     let soldMap: Map<string, number> | null = null;
-    if (withSales || bestselling) {
+    if (withSales || bestselling || mostSold) {
       // تجميع الكميات المباعة خلال آخر 90 يوماً فقط، مع تخزين مؤقت للنتيجة
       // (تُستدعى مع كل تحميل للمخزون وكل جلب لـ«الأكثر مبيعاً» في نقطة البيع).
       const cutoff = new Date(Date.now() - BESTSELLER_WINDOW_MS);
@@ -138,19 +152,52 @@ export async function GET(req: Request) {
       soldMap = new Map(grouped.map((g) => [g.productId, g._sum.quantity ?? 0]));
     }
 
-    // مسار سريع للترقيم على مستوى قاعدة البيانات (skip/take + count) — يُطبَّق
-    // عندما لا يوجد بحث نصّي دقيق أو ترتيب «الأكثر مبيعاً» يحتاج معالجة في JS.
-    if (paginated && !searchTerms && !bestselling) {
-      const [total, rows] = await Promise.all([
-        prisma.product.count({ where }),
+    // فلاتر حالة المخزون المشتركة (للقائمة وأعداد التبويبات)
+    const statusFilters: StatusQueryFilters = {
+      category,
+      brand,
+      branch,
+      size,
+      drafts: draftsOnly,
+    };
+
+    // معالجة في JS مطلوبة للبحث النصي الدقيق أو الترتيب المحسوب
+    // (الأكثر مبيعاً/الأقل كمية) الذي لا يُعبَّر عنه بـ orderBy مباشر.
+    const needsJs = !!searchTerms || bestselling || mostSold || lowestQty;
+
+    // مسار سريع للترقيم على مستوى قاعدة البيانات (skip/take + count).
+    if (paginated && !needsJs) {
+      // معرّفات الحالة (للتصفية والعدّ) + إجمالي المسودات — بالتوازي.
+      const [lowIds, outIds, draftsTotal] = await Promise.all([
+        withCounts || status === "low"
+          ? selectStatusProductIds("low", statusFilters)
+          : Promise.resolve<string[] | null>(null),
+        withCounts || status === "out"
+          ? selectStatusProductIds("out", statusFilters)
+          : Promise.resolve<string[] | null>(null),
+        withCounts
+          ? prisma.product.count({ where: { isDraft: true } })
+          : Promise.resolve(0),
+      ]);
+
+      const statusIds =
+        status === "low" ? lowIds : status === "out" ? outIds : null;
+      const listWhere: Prisma.ProductWhereInput = statusIds
+        ? { ...where, id: { in: statusIds } }
+        : where;
+
+      const [total, rows, allCount] = await Promise.all([
+        prisma.product.count({ where: listWhere }),
         prisma.product.findMany({
-          where,
+          where: listWhere,
           include: productInclude,
           orderBy: { createdAt: "desc" },
           skip: (page - 1) * perPage,
           take: perPage,
         }),
+        withCounts ? prisma.product.count({ where }) : Promise.resolve(0),
       ]);
+
       return ok(
         {
           items: rows.map((p) =>
@@ -159,6 +206,16 @@ export async function GET(req: Request) {
           total,
           page,
           perPage,
+          ...(withCounts
+            ? {
+                counts: {
+                  all: allCount,
+                  low: lowIds?.length ?? 0,
+                  out: outIds?.length ?? 0,
+                  draftsTotal,
+                },
+              }
+            : {}),
         },
         200,
         CACHE_NONE
@@ -185,17 +242,55 @@ export async function GET(req: Request) {
         })
       : allProducts;
 
-    // ترتيب «الأكثر مبيعاً»: حسب إجمالي الكمية المباعة تنازلياً (المنتجات التي بيعت فقط)
-    let output = products;
+    // مُحدِّدات الحالة على الأصناف المحمّلة (مطابقة لتعريف lib/low-stock ونطاق
+    // الفرع/المقاس — الأصناف مُصفّاة على النطاق ضمن productInclude عند وجود فلتر).
+    const isOut = (p: (typeof products)[number]) =>
+      p.variants.some((v) => v.quantity === 0);
+    const isLow = (p: (typeof products)[number]) =>
+      p.variants.some(
+        (v) => v.quantity > 0 && v.alertOnLowStock && v.quantity <= v.minQuantity
+      );
+
+    // أعداد التبويبات تُحسب قبل تطبيق فلتر الحالة (all يتجاهل الحالة).
+    const counts = withCounts
+      ? {
+          all: products.length,
+          low: products.filter(isLow).length,
+          out: products.filter(isOut).length,
+          draftsTotal: await prisma.product.count({ where: { isDraft: true } }),
+        }
+      : null;
+
+    // فلتر الحالة النشط
+    let output =
+      status === "low"
+        ? products.filter(isLow)
+        : status === "out"
+          ? products.filter(isOut)
+          : products;
+
+    // الترتيب المحسوب في JS
     if (bestselling && soldMap) {
+      // «الأكثر مبيعاً» لنقطة البيع: المنتجات المباعة فقط تنازلياً.
       const sold = soldMap;
-      output = [...products]
+      output = [...output]
         .filter((p) => (sold.get(p.id) ?? 0) > 0)
         .sort((a, b) => (sold.get(b.id) ?? 0) - (sold.get(a.id) ?? 0));
+    } else if (mostSold && soldMap) {
+      // ترتيب المخزون بالأكثر مبيعاً: كل المنتجات (غير المباعة في النهاية).
+      const sold = soldMap;
+      output = [...output].sort(
+        (a, b) => (sold.get(b.id) ?? 0) - (sold.get(a.id) ?? 0)
+      );
+    } else if (lowestQty) {
+      const qty = (p: (typeof output)[number]) =>
+        p.variants.reduce((s, v) => s + v.quantity, 0);
+      output = [...output].sort((a, b) => qty(a) - qty(b));
     }
+
     if (limit) output = output.slice(0, limit);
 
-    // ترقيم في الذاكرة للمسارات التي تُصفّى/تُرتّب في JS (بحث دقيق/الأكثر مبيعاً)
+    // ترقيم في الذاكرة للمسارات التي تُصفّى/تُرتّب في JS (بحث دقيق/ترتيب محسوب)
     if (paginated) {
       const total = output.length;
       const items = output
@@ -203,7 +298,11 @@ export async function GET(req: Request) {
         .map((p) =>
           toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
         );
-      return ok({ items, total, page, perPage }, 200, CACHE_NONE);
+      return ok(
+        { items, total, page, perPage, ...(counts ? { counts } : {}) },
+        200,
+        CACHE_NONE
+      );
     }
 
     return ok(

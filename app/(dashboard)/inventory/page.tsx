@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -33,19 +33,25 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { CategoryBadge, StockBadge, Badge, DraftBadge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import type { BrandDTO, ProductDTO, ProductInput } from "@/lib/types";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import type {
+  BrandDTO,
+  ProductDTO,
+  ProductInput,
+  ProductListPage,
+} from "@/lib/types";
 import {
+  ALL_SIZES,
   BRANCHES,
   BRANCH_LABELS,
   CATEGORIES,
   CATEGORY_LABELS,
+  sizesForCategory,
   type BranchValue,
   type CategoryValue,
 } from "@/lib/constants";
 import { cn } from "@/lib/cn";
 import { formatNumber } from "@/lib/format";
-import { matchesWithBrandAliases } from "@/lib/brand-map";
-import { isLowStockVariant } from "@/lib/low-stock";
 
 interface Filters {
   search: string;
@@ -65,19 +71,19 @@ const EMPTY_FILTERS: Filters = {
   size: "",
 };
 
+// عدد العناصر في صفحة الخادم الواحدة. القيمة > 50 لتفعيل النافذة الافتراضية
+// في عرض القائمة (virtualization) على الصفحة الحالية فقط.
+const PER_PAGE = 60;
+
 export default function InventoryPage() {
   const router = useRouter();
-  const { data, loading, error, refetch } = useFetch<ProductDTO[]>(
-    "/api/products?withSales=1"
-  );
-  const { data: brandsData, refetch: refetchBrands } =
-    useFetch<BrandDTO[]>("/api/brands");
 
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [draftsOnly, setDraftsOnly] = useState(false);
   const [status, setStatus] = useState<StatusFilter>("all");
   const [sort, setSort] = useState<SortKey>("newest");
   const [view, setView] = useState<"grid" | "list">("grid");
+  const [page, setPage] = useState(1);
   const [toDelete, setToDelete] = useState<ProductDTO | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -93,10 +99,67 @@ export default function InventoryPage() {
     localStorage.setItem("eb-inv-view", view);
   }, [view]);
 
-  const products = data ?? [];
-
-  // البحث النصي يُؤجَّل 300ms حتى لا تُعاد التصفية وإعادة العرض مع كل ضغطة مفتاح.
+  // البحث النصي يُؤجَّل 300ms حتى لا يُطلق طلباً مع كل ضغطة مفتاح.
   const debouncedSearch = useDebouncedValue(filters.search, 300);
+
+  // أي تغيير في الفلاتر/الترتيب/الحالة يعيدنا للصفحة الأولى.
+  useEffect(() => {
+    setPage(1);
+  }, [
+    debouncedSearch,
+    filters.branch,
+    filters.category,
+    filters.brand,
+    filters.size,
+    status,
+    draftsOnly,
+    sort,
+  ]);
+
+  // بناء رابط الطلب مع الترقيم على مستوى الخادم (search/category/brand/branch/
+  // size/sort/page/perPage) بدل تحميل كل المنتجات وتصفيتها في المتصفح.
+  const query = useMemo(() => {
+    const p = new URLSearchParams();
+    p.set("withSales", "1");
+    p.set("withCounts", "1");
+    p.set("page", String(page));
+    p.set("perPage", String(PER_PAGE));
+    const q = debouncedSearch.trim();
+    if (q) p.set("search", q);
+    if (filters.branch) p.set("branch", filters.branch);
+    if (filters.category) p.set("category", filters.category);
+    if (filters.brand) p.set("brand", filters.brand);
+    if (filters.size) p.set("size", filters.size);
+    if (status !== "all") p.set("status", status);
+    if (draftsOnly) p.set("drafts", "1");
+    if (sort === "mostSold") p.set("sort", "mostSold");
+    else if (sort === "lowestQty") p.set("sort", "lowestQty");
+    return p.toString();
+  }, [page, debouncedSearch, filters, status, draftsOnly, sort]);
+
+  const { data, loading, error, refetch } = useFetch<ProductListPage>(
+    `/api/products?${query}`
+  );
+  const { data: brandsData, refetch: refetchBrands } =
+    useFetch<BrandDTO[]>("/api/brands");
+
+  // قائمة كل المنتجات تُحمَّل عند فتح نافذة الاستيراد فقط (لمطابقة الأصناف
+  // الموجودة أثناء الاستيراد) — بدل تحميلها دائماً مع الصفحة.
+  const { data: importProductsData } = useFetch<ProductDTO[]>(
+    importOpen ? "/api/products" : null
+  );
+  const importProducts = importProductsData ?? [];
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const counts = data?.counts;
+  const statusCounts = {
+    all: counts?.all ?? 0,
+    low: counts?.low ?? 0,
+    out: counts?.out ?? 0,
+  };
+  const draftsCount = counts?.draftsTotal ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
 
   const brandOptions = useMemo(() => {
     const list = (brandsData ?? [])
@@ -105,97 +168,27 @@ export default function InventoryPage() {
     return [...new Set(list)].sort();
   }, [brandsData, filters.category]);
 
-  const sizes = useMemo(
+  // خيارات المقاس من القائمة المعيارية (حسب الفئة) بدل اشتقاقها من كل المنتجات.
+  const sizes = useMemo<readonly string[]>(
     () =>
-      [
-        ...new Set(products.flatMap((p) => p.variants.map((v) => v.size))),
-      ].sort(),
-    [products]
-  );
-
-  // هل يظهر هذا الصنف ضمن فلاتر الفرع/المقاس الحالية؟
-  const variantInScope = useCallback(
-    (v: ProductDTO["variants"][number]) =>
-      (!filters.branch || v.branch === filters.branch) &&
-      (!filters.size || v.size === filters.size),
-    [filters.branch, filters.size]
-  );
-
-  // منخفض المخزون = صنف مُفعَّل له التنبيه وبلغ الحد الأدنى (وما زال متوفراً).
-  // نستخدم المُحدِّد الموحّد isLowStockVariant، مع استثناء المنفَد (كمية صفر)
-  // لأنه يُعرَض في تبويب «نفذ المخزون» المستقل.
-  const isLow = useCallback(
-    (p: ProductDTO) =>
-      p.variants.some(
-        (v) => variantInScope(v) && v.quantity > 0 && isLowStockVariant(v)
-      ),
-    [variantInScope]
-  );
-  // نفذ المخزون = صنف كميته صفر
-  const isOut = useCallback(
-    (p: ProductDTO) =>
-      p.variants.some((v) => variantInScope(v) && v.quantity === 0),
-    [variantInScope]
-  );
-
-  // مجموعة أساسية بكل الفلاتر عدا فلتر الحالة (لحساب أعداد التبويبات)
-  const base = useMemo(() => {
-    const q = debouncedSearch.trim();
-    return products.filter((p) => {
-      if (draftsOnly && !p.isDraft) return false;
-      if (
-        q &&
-        !matchesWithBrandAliases(
-          [p.name, p.brand, p.sku, p.barcode],
-          q
-        )
-      )
-        return false;
-      if (filters.category && p.category !== filters.category) return false;
-      if (filters.brand && p.brand !== filters.brand) return false;
-      const variantMatch = p.variants.some(variantInScope);
-      if ((filters.branch || filters.size) && !variantMatch) return false;
-      return true;
-    });
-  }, [
-    products,
-    debouncedSearch,
-    filters.category,
-    filters.brand,
-    filters.branch,
-    filters.size,
-    draftsOnly,
-    variantInScope,
-  ]);
-
-  const statusCounts = useMemo(
-    () => ({
-      all: base.length,
-      low: base.filter(isLow).length,
-      out: base.filter(isOut).length,
-    }),
-    [base, isLow, isOut]
-  );
-
-  const filtered = useMemo(() => {
-    const result = base.filter((p) =>
-      status === "low" ? isLow(p) : status === "out" ? isOut(p) : true
-    );
-
-    if (sort === "mostSold")
-      result.sort((a, b) => (b.soldCount ?? 0) - (a.soldCount ?? 0));
-    else if (sort === "lowestQty")
-      result.sort((a, b) => a.totalQuantity - b.totalQuantity);
-    return result;
-  }, [base, status, isLow, isOut, sort]);
-
-  const draftsCount = useMemo(
-    () => products.filter((p) => p.isDraft).length,
-    [products]
+      filters.category
+        ? sizesForCategory(filters.category as CategoryValue)
+        : ALL_SIZES,
+    [filters.category]
   );
 
   const hasActiveFilters =
     Object.values(filters).some(Boolean) || draftsOnly || status !== "all";
+
+  // التمرير لأعلى عند تغيير الصفحة (نتجاهل أول عرض).
+  const firstRender = useRef(true);
+  useEffect(() => {
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page]);
 
   async function handleDelete() {
     if (!toDelete) return;
@@ -205,7 +198,9 @@ export default function InventoryPage() {
       void logActivity(ACTIVITY_ACTIONS.DELETE_PRODUCT, toDelete.name);
       toast.success("تم حذف المنتج بنجاح");
       setToDelete(null);
-      refetch();
+      // إن كان آخر عنصر في صفحة > 1، ارجع صفحة (سيعيد التأثير الجلب).
+      if (items.length === 1 && page > 1) setPage((p) => p - 1);
+      else refetch();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "تعذّر حذف المنتج");
     } finally {
@@ -250,16 +245,16 @@ export default function InventoryPage() {
     }
   }, [router]);
 
-  // نافذة افتراضية لعرض القائمة (list view) عند تجاوز 50 منتجاً.
-  const listVirtualize = view === "list" && filtered.length > 50;
+  // نافذة افتراضية لعرض القائمة (list view) على الصفحة الحالية فقط عند تجاوز 50.
+  const listVirtualize = view === "list" && items.length > 50;
   const listVirtual = useVirtualWindow({
-    count: filtered.length,
+    count: items.length,
     rowHeight: 72,
     enabled: listVirtualize,
   });
   const visibleListItems = listVirtualize
-    ? filtered.slice(listVirtual.start, listVirtual.end)
-    : filtered;
+    ? items.slice(listVirtual.start, listVirtual.end)
+    : items;
 
   return (
     <div>
@@ -328,6 +323,7 @@ export default function InventoryPage() {
                 ...f,
                 category: e.target.value,
                 brand: "", // إعادة ضبط البراند عند تغيير الفئة
+                size: "", // والمقاس (قائمة المقاسات تعتمد على الفئة)
               }))
             }
           >
@@ -339,22 +335,18 @@ export default function InventoryPage() {
             ))}
           </select>
 
-          {/* البراند (حسب الفئة) + زر إضافة */}
+          {/* البراند (حسب الفئة) — قائمة قابلة للبحث + زر إضافة */}
           <div className="flex gap-2">
-            <select
-              className="input"
+            <SearchableSelect
+              className="flex-1"
               value={filters.brand}
-              onChange={(e) =>
-                setFilters((f) => ({ ...f, brand: e.target.value }))
-              }
-            >
-              <option value="">كل البراندات</option>
-              {brandOptions.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => setFilters((f) => ({ ...f, brand: v }))}
+              options={brandOptions.map((b) => ({ value: b, label: b }))}
+              placeholder="كل البراندات"
+              searchPlaceholder="ابحث عن براند…"
+              ariaLabel="فلترة بالبراند"
+              emptyMessage="لا توجد براندات"
+            />
             <button
               type="button"
               className="btn btn-secondary flex-shrink-0"
@@ -492,21 +484,21 @@ export default function InventoryPage() {
         </Card>
       )}
 
-      {!loading && !error && filtered.length === 0 && (
+      {!loading && !error && items.length === 0 && (
         <EmptyState
           icon={<Package className="h-7 w-7" />}
           title={
-            products.length === 0
+            !hasActiveFilters && total === 0
               ? "لا توجد منتجات بعد"
               : "لا توجد نتائج مطابقة"
           }
           description={
-            products.length === 0
+            !hasActiveFilters && total === 0
               ? "ابدأ بإضافة أول منتج إلى المخزون."
               : "جرّب تعديل الفلاتر أو كلمة البحث."
           }
           action={
-            products.length === 0 ? (
+            !hasActiveFilters && total === 0 ? (
               <Link href="/inventory/new" className="btn btn-primary">
                 <Plus className="h-4 w-4" />
                 إضافة منتج
@@ -516,36 +508,21 @@ export default function InventoryPage() {
         />
       )}
 
-      {!loading && filtered.length > 0 && view === "grid" && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {filtered.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              branchFilter={filters.branch as BranchValue | ""}
-              duplicating={duplicatingId === product.id}
-              onDelete={openDelete}
-              onDuplicate={handleDuplicate}
-            />
-          ))}
-        </div>
-      )}
+      {!loading && !error && items.length > 0 && (
+        <>
+          {/* عدّاد النتائج ونطاق الصفحة الحالية */}
+          <div className="mb-3 flex items-center justify-between text-xs text-muted nums">
+            <span>
+              عرض {formatNumber((page - 1) * PER_PAGE + 1)}–
+              {formatNumber((page - 1) * PER_PAGE + items.length)} من{" "}
+              {formatNumber(total)}
+            </span>
+          </div>
 
-      {!loading && filtered.length > 0 && view === "list" && (
-        <Card className="p-0">
-          <div
-            ref={listVirtual.scrollRef}
-            className={cn(listVirtualize && "max-h-[70vh] overflow-y-auto")}
-          >
-            <div
-              className="divide-y divide-[var(--border)]"
-              style={{
-                paddingTop: listVirtual.padTop,
-                paddingBottom: listVirtual.padBottom,
-              }}
-            >
-              {visibleListItems.map((product) => (
-                <ProductListRow
+          {view === "grid" && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {items.map((product) => (
+                <ProductCard
                   key={product.id}
                   product={product}
                   branchFilter={filters.branch as BranchValue | ""}
@@ -555,8 +532,61 @@ export default function InventoryPage() {
                 />
               ))}
             </div>
-          </div>
-        </Card>
+          )}
+
+          {view === "list" && (
+            <Card className="p-0">
+              <div
+                ref={listVirtual.scrollRef}
+                className={cn(listVirtualize && "max-h-[70vh] overflow-y-auto")}
+              >
+                <div
+                  className="divide-y divide-[var(--border)]"
+                  style={{
+                    paddingTop: listVirtual.padTop,
+                    paddingBottom: listVirtual.padBottom,
+                  }}
+                >
+                  {visibleListItems.map((product) => (
+                    <ProductListRow
+                      key={product.id}
+                      product={product}
+                      branchFilter={filters.branch as BranchValue | ""}
+                      duplicating={duplicatingId === product.id}
+                      onDelete={openDelete}
+                      onDuplicate={handleDuplicate}
+                    />
+                  ))}
+                </div>
+              </div>
+            </Card>
+          )}
+
+          {/* ترقيم الصفحات */}
+          {totalPages > 1 && (
+            <div className="mt-6 flex items-center justify-center gap-3">
+              <button
+                type="button"
+                className="btn btn-secondary h-9 px-4 text-sm"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+              >
+                السابق
+              </button>
+              <span className="text-sm text-muted nums">
+                صفحة {formatNumber(page)} من {formatNumber(totalPages)}
+              </span>
+              <button
+                type="button"
+                className="btn btn-secondary h-9 px-4 text-sm"
+                disabled={page >= totalPages}
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              >
+                التالي
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <ConfirmDialog
@@ -573,7 +603,7 @@ export default function InventoryPage() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={refetch}
-        products={products}
+        products={importProducts}
       />
 
       {filters.category && (

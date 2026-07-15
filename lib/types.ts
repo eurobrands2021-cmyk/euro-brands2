@@ -46,6 +46,25 @@ export interface ProductDTO {
   updatedAt: string;
 }
 
+// أعداد تبويبات حالة المخزون (تُرجَع مع الاستجابة المرقّمة عند withCounts=1).
+// all/low/out تحترم الفلاتر الحالية (عدا فلتر الحالة)، بينما draftsTotal هو
+// إجمالي المسودات في المتجر (مستقل عن الفلاتر) — لشارة زر «مسودات».
+export interface ProductCounts {
+  all: number;
+  low: number;
+  out: number;
+  draftsTotal: number;
+}
+
+// استجابة قائمة المنتجات المرقّمة (عند تمرير page). counts تُرفَق عند withCounts=1.
+export interface ProductListPage {
+  items: ProductDTO[];
+  total: number;
+  page: number;
+  perPage: number;
+  counts?: ProductCounts;
+}
+
 export interface BrandDTO {
   id: string;
   name: string;

@@ -54,6 +54,7 @@ import type {
   LowStockResponse,
   ProductDTO,
   ProductInput,
+  ProductListPage,
   ProductTypeDTO,
   ProductTypeInput,
   ReportsData,
@@ -946,24 +947,57 @@ function soldCountByProduct(): Map<string, number> {
   return m;
 }
 
-export function mockListProducts(sp: URLSearchParams): ProductDTO[] {
+export function mockListProducts(
+  sp: URLSearchParams
+): ProductDTO[] | ProductListPage {
   const search = sp.get("search")?.trim().toLowerCase();
   const branch = sp.get("branch") as BranchValue | null;
   const category = sp.get("category");
   const brand = sp.get("brand");
   const size = sp.get("size");
   const withSales = sp.get("withSales") === "1";
-  const bestselling = sp.get("sort") === "bestselling";
+  const sort = sp.get("sort");
+  const bestselling = sort === "bestselling";
+  const mostSold = sort === "mostSold";
+  const lowestQty = sort === "lowestQty";
+  const draftsOnly = sp.get("drafts") === "1";
+  const statusParam = sp.get("status");
+  const status =
+    statusParam === "low" || statusParam === "out" ? statusParam : null;
+  const withCounts = sp.get("withCounts") === "1";
   const limitRaw = Number(sp.get("limit"));
   const limit =
     Number.isFinite(limitRaw) && limitRaw > 0 ? Math.floor(limitRaw) : null;
+  const pageRaw = Number(sp.get("page"));
+  const perPageRaw = Number(sp.get("perPage"));
+  const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+  const page = paginated ? pageRaw : 1;
+  const perPage = Math.min(
+    Number.isInteger(perPageRaw) && perPageRaw > 0 ? perPageRaw : 50,
+    200
+  );
   const hasVariantFilter = !!(branch || size);
-  const soldMap = withSales || bestselling ? soldCountByProduct() : null;
+  const soldMap =
+    withSales || bestselling || mostSold ? soldCountByProduct() : null;
 
   const matchVariant = (v: MVariant) =>
     (!branch || v.branch === branch) && (!size || v.size === size);
 
-  const filtered = store.products.filter((p) => {
+  // مُحدِّدات الحالة على مستوى المنتج ضمن نطاق الفرع/المقاس (مطابقة للخادم).
+  const inScope = (v: MVariant) => matchVariant(v);
+  const isOut = (p: MProduct) =>
+    p.variants.some((v) => inScope(v) && v.quantity === 0);
+  const isLow = (p: MProduct) =>
+    p.variants.some(
+      (v) =>
+        inScope(v) &&
+        v.quantity > 0 &&
+        (v.alertOnLowStock ?? false) &&
+        v.quantity <= v.minQuantity
+    );
+
+  const base = store.products.filter((p) => {
+    if (draftsOnly && !(p.isDraft ?? false)) return false;
     if (category && p.category !== category) return false;
     if (brand && p.brand !== brand) return false;
     if (search) {
@@ -982,23 +1016,66 @@ export function mockListProducts(sp: URLSearchParams): ProductDTO[] {
     return true;
   });
 
-  // «الأكثر مبيعاً»: المنتجات المباعة فقط مرتبة تنازلياً حسب الكمية المباعة
-  let ordered =
-    bestselling && soldMap
-      ? filtered
-          .filter((p) => (soldMap.get(p.id) ?? 0) > 0)
-          .sort((a, b) => (soldMap.get(b.id) ?? 0) - (soldMap.get(a.id) ?? 0))
-      : [...filtered].sort(
-          (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
-        );
+  const counts = withCounts
+    ? {
+        all: base.length,
+        low: base.filter(isLow).length,
+        out: base.filter(isOut).length,
+        draftsTotal: store.products.filter((p) => p.isDraft ?? false).length,
+      }
+    : null;
+
+  // فلتر الحالة النشط
+  const filtered =
+    status === "low"
+      ? base.filter(isLow)
+      : status === "out"
+        ? base.filter(isOut)
+        : base;
+
+  // الترتيب
+  let ordered: MProduct[];
+  if (bestselling && soldMap) {
+    ordered = filtered
+      .filter((p) => (soldMap.get(p.id) ?? 0) > 0)
+      .sort((a, b) => (soldMap.get(b.id) ?? 0) - (soldMap.get(a.id) ?? 0));
+  } else if (mostSold && soldMap) {
+    ordered = [...filtered].sort(
+      (a, b) => (soldMap.get(b.id) ?? 0) - (soldMap.get(a.id) ?? 0)
+    );
+  } else if (lowestQty) {
+    const qty = (p: MProduct) =>
+      p.variants.reduce((s, v) => s + v.quantity, 0);
+    ordered = [...filtered].sort((a, b) => qty(a) - qty(b));
+  } else {
+    ordered = [...filtered].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+  }
 
   if (limit) ordered = ordered.slice(0, limit);
 
-  return ordered.map((p) => {
+  const shape = (p: MProduct) => {
     const dto = shapeProduct(p, hasVariantFilter ? matchVariant : undefined);
     if (soldMap) dto.soldCount = soldMap.get(p.id) ?? 0;
     return dto;
-  });
+  };
+
+  if (paginated) {
+    const total = ordered.length;
+    const items = ordered
+      .slice((page - 1) * perPage, (page - 1) * perPage + perPage)
+      .map(shape);
+    return {
+      items,
+      total,
+      page,
+      perPage,
+      ...(counts ? { counts } : {}),
+    };
+  }
+
+  return ordered.map(shape);
 }
 
 export function mockGetProduct(id: string): ProductDTO | null {
