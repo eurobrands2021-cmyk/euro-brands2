@@ -8,8 +8,26 @@ import {
   mockListCustomers,
   mockCreateCustomer,
 } from "@/lib/mock-store";
-import { matchesWithBrandAliases } from "@/lib/brand-map";
+import { normalizeArabic } from "@/lib/normalize";
+import { expandBrandQuery } from "@/lib/brand-map";
+import { foldSql, likePattern } from "@/lib/sql-search";
 import type { CustomerListResponse } from "@/lib/types";
+
+// معرّفات العملاء المطابقين للبحث (الاسم أو الهاتف) — تضييق على مستوى SQL
+// (تطبيع عربي خام + مرادفات) بدل تحميل كل العملاء إلى الذاكرة. يُرجَع مصفوفة
+// معرّفات فقط لنُصفّح بعدها على مستوى قاعدة البيانات (skip/take).
+async function searchCustomerIds(terms: string[]): Promise<string[]> {
+  if (terms.length === 0) return [];
+  const patterns = terms.map(likePattern);
+  const folded = foldSql(
+    `(coalesce("name",'') || ' ' || coalesce("phone",''))`
+  );
+  const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+    SELECT "id" FROM "Customer"
+    WHERE ${folded} ILIKE ANY(${patterns}::text[])
+  `);
+  return rows.map((r) => r.id);
+}
 
 export const dynamic = "force-dynamic";
 
@@ -51,14 +69,21 @@ export async function GET(req: Request) {
     let total: number;
 
     if (search) {
-      // بحث موحّد عربي↔إنجليزي: نطبّع النص ونطابق الاسم/الهاتف بعد الجلب
-      // (توحيد الهمزة/«ال» + مرادفات البراند) ثم نصفّح النتيجة في الذاكرة.
-      const all = await prisma.customer.findMany({ orderBy });
-      const matched = all.filter((c) =>
-        matchesWithBrandAliases([c.name, c.phone], search)
-      );
-      total = matched.length;
-      customers = matched.slice((page - 1) * pageSize, page * pageSize);
+      // بحث موحّد عربي↔إنجليزي: نُضيّق المرشّحين على مستوى SQL (تطبيع خام +
+      // مرادفات) للحصول على المعرّفات فقط، ثم نُصفّح على مستوى قاعدة البيانات
+      // (skip/take) بدل تحميل كل العملاء إلى الذاكرة.
+      const nq = normalizeArabic(search);
+      const ids = nq ? await searchCustomerIds(expandBrandQuery(nq)) : [];
+      const where: Prisma.CustomerWhereInput = { id: { in: ids } };
+      [customers, total] = await Promise.all([
+        prisma.customer.findMany({
+          where,
+          orderBy,
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+        prisma.customer.count({ where }),
+      ]);
     } else {
       [customers, total] = await Promise.all([
         prisma.customer.findMany({

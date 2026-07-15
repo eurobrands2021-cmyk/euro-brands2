@@ -145,20 +145,52 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
 
   const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
+  const [debounced, setDebounced] = useState("");
+  // المنتجات المُضافة من البحث (تُراكَم حتى تبقى أصنافها متاحة للتبديل والتحقق)
+  const [picked, setPicked] = useState<ProductDTO[]>([]);
 
-  // منتجات الفرع الحالي (تُعاد الجلب عند تغيير الفرع)
-  const { data: products } = useFetch<ProductDTO[]>(
-    `/api/products?branch=${branch}`
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // أصناف الفاتورة الحالية تُجلب بمعرّفات منتجاتها فقط (بحث موجّه) بدل كتالوج
+  // الفرع كاملاً — فقط للفرع الأصلي (تغيير الفرع يمسح العناصر).
+  const initialIds = useMemo(
+    () => [...new Set(sale.items.map((it) => it.productId))],
+    [sale.items]
   );
-  const productList = useMemo(() => products ?? [], [products]);
+  const lookupUrl =
+    branch === sale.branch && initialIds.length
+      ? `/api/products?branch=${branch}&ids=${initialIds.join(",")}`
+      : null;
+  const { data: lookupProducts } = useFetch<ProductDTO[]>(lookupUrl);
 
-  // خريطة الأصناف المتاحة في الفرع
+  // بحث عند الطلب لإضافة المنتجات (بوابة حرفين + limit) بدل كتالوج الفرع كاملاً
+  const searchUrl =
+    debounced.length >= 2
+      ? `/api/products?branch=${branch}&search=${encodeURIComponent(
+          debounced
+        )}&limit=8`
+      : null;
+  const { data: searchData, loading: searchLoading } =
+    useFetch<ProductDTO[]>(searchUrl);
+  const searchResults = searchData ?? [];
+
+  // خريطة الأصناف المعروفة: أصناف الفاتورة (بمعرّفاتها) + ما أُضيف من البحث.
+  const resolved = useMemo(() => {
+    const m = new Map<string, ProductDTO>();
+    for (const p of lookupProducts ?? []) m.set(p.id, p);
+    for (const p of picked) m.set(p.id, p);
+    return m;
+  }, [lookupProducts, picked]);
+
   const variantMap = useMemo(() => {
     const m = new Map<string, { product: ProductDTO; variant: ProductDTO["variants"][number] }>();
-    for (const p of productList)
+    for (const p of resolved.values())
       for (const v of p.variants) m.set(v.id, { product: p, variant: v });
     return m;
-  }, [productList]);
+  }, [resolved]);
 
   // كميات العناصر الأصلية (تُعاد للمخزون عند الحفظ، فتزيد المتاح لنفس الصنف)
   const originalQty = useMemo(() => {
@@ -224,9 +256,12 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
   }
 
   function addProduct(p: ProductDTO) {
-    // اختر أول صنف متاح، وإلا أول صنف
-    const v =
-      p.variants.find((x) => availableFor(x.id) > 0) ?? p.variants[0];
+    // سجّل المنتج ليبقى متاحاً للتبديل/التحقق لاحقاً
+    setPicked((prev) => (prev.some((x) => x.id === p.id) ? prev : [...prev, p]));
+    // نحسب المتاح من أصناف المنتج المُمرَّر مباشرةً (قد لا يكون في الخريطة بعد)
+    const availOf = (v: ProductDTO["variants"][number]) =>
+      v.quantity + (originalQty.get(v.id) ?? 0);
+    const v = p.variants.find((x) => availOf(x) > 0) ?? p.variants[0];
     if (!v) return;
     setItems((prev) => {
       const existing = prev.findIndex((it) => it.variantId === v.id);
@@ -235,10 +270,7 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
           i === existing
             ? {
                 ...it,
-                quantity: Math.min(
-                  it.quantity + 1,
-                  Math.max(1, availableFor(v.id))
-                ),
+                quantity: Math.min(it.quantity + 1, Math.max(1, availOf(v))),
               }
             : it
         );
@@ -261,19 +293,8 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
       ];
     });
     setSearch("");
+    setDebounced(""); // أغلق قائمة البحث فوراً
   }
-
-  const searchResults = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return [];
-    return productList
-      .filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q)
-      )
-      .slice(0, 8);
-  }, [search, productList]);
 
   // الإجماليات
   const totalAmount = useMemo(
@@ -416,11 +437,17 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          {searchResults.length > 0 && (
+          {debounced.length >= 2 && (searchLoading || searchResults.length > 0) && (
             <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg border bg-surface shadow-card">
+              {searchLoading && (
+                <p className="px-3 py-2 text-center text-sm text-muted">
+                  جارٍ البحث…
+                </p>
+              )}
               {searchResults.map((p) => {
+                // المتاح يُحسب من أصناف نتيجة البحث نفسها (مسحوبة لهذا الفرع)
                 const avail = p.variants.reduce(
-                  (s, v) => s + availableFor(v.id),
+                  (s, v) => s + v.quantity + (originalQty.get(v.id) ?? 0),
                   0
                 );
                 return (

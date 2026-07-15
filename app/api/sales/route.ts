@@ -61,7 +61,17 @@ export async function GET(req: Request) {
     const search = searchParams.get("search")?.trim();
     const payment = searchParams.get("payment");
     const status = searchParams.get("status");
-    const limit = Math.min(Number(searchParams.get("limit")) || 500, 1000);
+    const limit = Math.min(Number(searchParams.get("limit")) || 500, 100000);
+
+    // ترقيم اختياري: يُفعَّل بوجود page ويُرجع { sales, total, page, pageSize,
+    // summary }. غيابه يُبقي السلوك القديم (مصفوفة) — يُستخدم في التصدير.
+    const pageRaw = Number(searchParams.get("page"));
+    const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+    const page = paginated ? pageRaw : 1;
+    const pageSize = Math.min(
+      Math.max(Number(searchParams.get("pageSize")) || 50, 1),
+      200
+    );
 
     const where: Prisma.SaleWhereInput = {};
     if (branch) where.branch = branch as Branch;
@@ -103,14 +113,69 @@ export async function GET(req: Request) {
       where.OR = or;
     }
 
-    const sales = await prisma.sale.findMany({
-      where,
-      include: saleInclude,
-      orderBy: { createdAt: "desc" },
-      take: limit,
-    });
+    // ملخّص الإجماليات محسوب على مستوى الخادم فوق كامل المجموعة المفلترة
+    // (لا الصفحة الحالية) — تجميعان: غير الملغية + الملغية.
+    async function computeSummary() {
+      const activeWhere: Prisma.SaleWhereInput = {
+        AND: [where, { status: { not: "CANCELLED" } }],
+      };
+      const cancelledWhere: Prisma.SaleWhereInput = {
+        AND: [where, { status: "CANCELLED" }],
+      };
+      const [active, cancelled] = await Promise.all([
+        prisma.sale.aggregate({
+          where: activeWhere,
+          _sum: { finalAmount: true, totalAmount: true, remainingAmount: true },
+          _count: true,
+        }),
+        prisma.sale.aggregate({
+          where: cancelledWhere,
+          _sum: { finalAmount: true },
+          _count: true,
+        }),
+      ]);
+      const r2 = (n: number) => Math.round(n * 100) / 100;
+      return {
+        totalSales: r2(active._sum.finalAmount ?? 0),
+        count: active._count,
+        discounts: r2(
+          (active._sum.totalAmount ?? 0) - (active._sum.finalAmount ?? 0)
+        ),
+        remaining: r2(active._sum.remainingAmount ?? 0),
+        cancelledCount: cancelled._count,
+        cancelledValue: r2(cancelled._sum.finalAmount ?? 0),
+      };
+    }
 
-    return ok(sales.map(toSaleDTO), 200, CACHE_NONE);
+    // المسار القديم (بدون page) — مصفوفة كاملة للتصدير
+    if (!paginated) {
+      const sales = await prisma.sale.findMany({
+        where,
+        include: saleInclude,
+        orderBy: { createdAt: "desc" },
+        take: limit,
+      });
+      return ok(sales.map(toSaleDTO), 200, CACHE_NONE);
+    }
+
+    // المسار المرقّم — صفحة + إجمالي + ملخّص كامل
+    const [sales, total, summary] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: saleInclude,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.sale.count({ where }),
+      computeSummary(),
+    ]);
+
+    return ok(
+      { sales: sales.map(toSaleDTO), total, page, pageSize, summary },
+      200,
+      CACHE_NONE
+    );
   } catch (error) {
     return handleServerError(error);
   }

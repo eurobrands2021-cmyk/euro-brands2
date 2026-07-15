@@ -12,7 +12,7 @@ import {
   CheckCircle2,
   ArrowDownLeft,
 } from "lucide-react";
-import { startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay, subDays, format } from "date-fns";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
 import { apiPost } from "@/lib/client";
@@ -40,7 +40,7 @@ import {
   formatNumber,
   formatSaleNumber,
 } from "@/lib/format";
-import type { SaleDTO } from "@/lib/types";
+import type { DeliveryListResponse, SaleDTO } from "@/lib/types";
 
 const STATUS_STYLE: Record<DeliveryStatusValue, string> = {
   NEW: "bg-[rgba(79,156,249,0.14)] text-[#4f9cf9]",
@@ -60,14 +60,25 @@ const STATUS_ROW: Record<DeliveryStatusValue, string> = {
   RETURNED: "bg-[rgba(217,83,79,0.08)]",
 };
 
+const PAGE_SIZE = 20;
+// العرض الافتراضي: الطلبات النشطة خلال آخر 30 يوماً.
+const DEFAULT_STATUS = "ACTIVE";
+const DEFAULT_FROM = format(subDays(new Date(), 29), "yyyy-MM-dd");
+const DEFAULT_TO = format(new Date(), "yyyy-MM-dd");
+
 export default function DeliveryPage() {
   const [branch, setBranch] = useState("");
-  const [status, setStatus] = useState("");
+  const [status, setStatus] = useState(DEFAULT_STATUS);
   const [method, setMethod] = useState("");
   const [source, setSource] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(DEFAULT_FROM);
+  const [to, setTo] = useState(DEFAULT_TO);
+  const [page, setPage] = useState(1);
   const [updating, setUpdating] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPage(1);
+  }, [branch, status, method, source, from, to]);
 
   const url = useMemo(() => {
     const params = new URLSearchParams();
@@ -77,36 +88,39 @@ export default function DeliveryPage() {
     if (source) params.set("source", source);
     if (from) params.set("from", startOfDay(new Date(from)).toISOString());
     if (to) params.set("to", endOfDay(new Date(to)).toISOString());
-    const qs = params.toString();
-    return `/api/delivery${qs ? `?${qs}` : ""}`;
-  }, [branch, status, method, source, from, to]);
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    return `/api/delivery?${params.toString()}`;
+  }, [branch, status, method, source, from, to, page]);
 
-  const { data, loading, error, refetch } = useFetch<SaleDTO[]>(url);
-  const orders = data ?? [];
+  const { data, loading, error, refetch } = useFetch<DeliveryListResponse>(url);
+  const orders = data?.orders ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // ملخّص الحالات من الخادم فوق النطاق كاملاً (لا الصفحة الحالية)
+  const summary = data?.summary ?? {
+    total: 0,
+    inTransit: 0,
+    delivered: 0,
+    returned: 0,
+  };
 
-  const summary = useMemo(() => {
-    const total = orders.length;
-    let inTransit = 0;
-    let delivered = 0;
-    let returned = 0;
-    for (const o of orders) {
-      const s = o.deliveryStatus;
-      if (s === "DELIVERED") delivered++;
-      else if (s === "RETURNED") returned++;
-      else if (s) inTransit++;
-    }
-    return { total, inTransit, delivered, returned };
-  }, [orders]);
-
-  const hasFilters = !!(branch || status || method || source || from || to);
+  const hasFilters = !!(
+    branch ||
+    method ||
+    source ||
+    status !== DEFAULT_STATUS ||
+    from !== DEFAULT_FROM ||
+    to !== DEFAULT_TO
+  );
 
   function clearFilters() {
     setBranch("");
-    setStatus("");
+    setStatus(DEFAULT_STATUS);
     setMethod("");
     setSource("");
-    setFrom("");
-    setTo("");
+    setFrom(DEFAULT_FROM);
+    setTo(DEFAULT_TO);
   }
 
   async function changeStatus(id: string, newStatus: DeliveryStatusValue) {
@@ -157,6 +171,7 @@ export default function DeliveryPage() {
             value={status}
             onChange={(e) => setStatus(e.target.value)}
           >
+            <option value="ACTIVE">الطلبات النشطة</option>
             <option value="">كل الحالات</option>
             {DELIVERY_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -275,6 +290,32 @@ export default function DeliveryPage() {
               onChange={(s) => changeStatus(o.id, s)}
             />
           ))}
+
+          {/* التصفح */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between gap-2 pt-2 text-sm">
+              <span className="text-muted nums">
+                صفحة {formatNumber(page)} من {formatNumber(totalPages)} ·{" "}
+                {formatNumber(total)} طلب
+              </span>
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-secondary h-9 px-3 text-xs"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  السابق
+                </button>
+                <button
+                  className="btn btn-secondary h-9 px-3 text-xs"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  التالي
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

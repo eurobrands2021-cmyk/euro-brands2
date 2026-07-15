@@ -5,6 +5,7 @@ import {
   eachDayOfInterval,
   format,
 } from "date-fns";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { ok, handleServerError, CACHE_LISTING } from "@/lib/api";
 import { cached } from "@/lib/cache";
@@ -29,6 +30,27 @@ const PAYMENT_LABELS: Record<PaymentKey, string> = {
   VODAFONE_CASH: TRANSFER_METHOD_LABELS.VODAFONE_CASH,
   INSTAPAY: TRANSFER_METHOD_LABELS.INSTAPAY,
 };
+
+// صفوف تجميعات المخزون الخام (من groupBy/SQL بدل تحميل الجداول كاملة)
+interface StockRollupRow {
+  branch: string;
+  category: string;
+  brand: string | null;
+  qty: number;
+  value: number;
+}
+interface OutOfStockRow {
+  id: string;
+  name: string;
+  brand: string;
+  category: string;
+}
+interface SlowMovingRow {
+  id: string;
+  name: string;
+  brand: string;
+  quantity: number;
+}
 
 // GET /api/dashboard?from=&to= — إحصائيات لوحة التحكم الموحّدة
 export async function GET(req: Request) {
@@ -69,7 +91,11 @@ export async function GET(req: Request) {
       remainingAgg,
       weeklySales,
       lowStockVariants,
-      allProducts,
+      stockRollup,
+      variantsCount,
+      productsCount,
+      outOfStockRows,
+      newProductRows,
       newCustomersCount,
       damagedRows,
       transferRows,
@@ -125,17 +151,44 @@ export async function GET(req: Request) {
       }),
       // أصناف منخفضة المخزون — التعريف الموحّد (alertOnLowStock + minQuantity)
       fetchLowStockVariants(100),
+      // تجميعات المخزون على مستوى قاعدة البيانات (كمية + قيمة) مجمّعة حسب
+      // الفرع/الفئة/البراند — بدل تحميل كل المنتجات وأصنافها إلى الذاكرة.
+      prisma.$queryRaw<StockRollupRow[]>(Prisma.sql`
+        SELECT v."branch"::text     AS branch,
+               p."category"::text   AS category,
+               p."brand"            AS brand,
+               SUM(v."quantity")::int AS qty,
+               SUM(v."quantity" * v."price")::double precision AS value
+        FROM "ProductVariant" v
+        JOIN "Product" p ON p."id" = v."productId"
+        GROUP BY v."branch", p."category", p."brand"
+      `),
+      // عدد الأصناف (SKU) الكلي
+      prisma.productVariant.count(),
+      // عدد المنتجات الكلي
+      prisma.product.count(),
+      // المنفَد: منتجات إجمالي مخزونها صفر (بما فيها ما بلا أصناف)
+      prisma.$queryRaw<OutOfStockRow[]>(Prisma.sql`
+        SELECT p."id", p."name", p."brand", p."category"::text AS category
+        FROM "Product" p
+        LEFT JOIN "ProductVariant" v ON v."productId" = p."id"
+        GROUP BY p."id", p."name", p."brand", p."category"
+        HAVING COALESCE(SUM(v."quantity"), 0) <= 0
+        ORDER BY p."name" ASC
+        LIMIT 100
+      `),
+      // المنتجات الجديدة في الفترة — استعلام موجّه (لا مسح كامل الجدول)
       prisma.product.findMany({
+        where: { createdAt: { gte: from, lte: to } },
         select: {
           id: true,
           name: true,
           brand: true,
           category: true,
           createdAt: true,
-          variants: {
-            select: { quantity: true, price: true, branch: true },
-          },
         },
+        orderBy: { createdAt: "desc" },
+        take: 100,
       }),
       // العملاء الجدد في الفترة — نعتمد على Customer.createdAt (الجدول يسجّله
       // أصلاً) بدلاً من مسح كل سجل المبيعات قبل بداية الفترة.
@@ -347,22 +400,31 @@ export async function GET(req: Request) {
           ? 100
           : 0;
 
-    // منتجات راكدة (بلا مبيعات في الفترة)
-    const slowMoving = allProducts
-      .filter((p) => {
-        const stock = p.variants.reduce((s, v) => s + v.quantity, 0);
-        return !productMap.has(p.id) && stock > 0;
-      })
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        brand: p.brand,
-        quantity: p.variants.reduce((s, v) => s + v.quantity, 0),
-      }))
-      .slice(0, 50);
+    // منتجات راكدة (بلا مبيعات في الفترة) — منتجات لها مخزون ولم تُبَع في الفترة.
+    // نستبعد المُباعة (معرّفات productMap) على مستوى SQL بدل مسح كل المنتجات.
+    const soldIds = [...productMap.keys()];
+    const slowRows = await prisma.$queryRaw<SlowMovingRow[]>(Prisma.sql`
+      SELECT p."id", p."name", p."brand", SUM(v."quantity")::int AS quantity
+      FROM "Product" p
+      JOIN "ProductVariant" v ON v."productId" = p."id"
+      ${
+        soldIds.length
+          ? Prisma.sql`WHERE p."id" NOT IN (${Prisma.join(soldIds)})`
+          : Prisma.empty
+      }
+      GROUP BY p."id", p."name", p."brand"
+      HAVING SUM(v."quantity") > 0
+      ORDER BY p."name" ASC
+      LIMIT 50
+    `);
+    const slowMoving = slowRows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      brand: r.brand,
+      quantity: Number(r.quantity),
+    }));
 
-    // ---- تقارير المخزون والجرد ----
-    const productInfo = new Map<string, { name: string; brand: string }>();
+    // ---- تقارير المخزون والجرد (من تجميعات SQL بدل تحميل الجداول) ----
     const stockBranchMap = new Map<BranchValue, { quantity: number; value: number }>();
     for (const b of BRANCHES) stockBranchMap.set(b, { quantity: 0, value: 0 });
     const stockCategoryMap = new Map<
@@ -372,60 +434,59 @@ export async function GET(req: Request) {
     const stockBrandMap = new Map<string, { quantity: number; value: number }>();
 
     let inventoryValue = 0;
-    let variantsCount = 0;
-    const outOfStock: DashboardStats["outOfStock"] = [];
+    for (const row of stockRollup) {
+      const qty = Number(row.qty);
+      const value = Number(row.value);
+      inventoryValue += value;
 
-    for (const p of allProducts) {
-      productInfo.set(p.id, { name: p.name, brand: p.brand });
-      let productStock = 0;
-      for (const v of p.variants) {
-        variantsCount += 1;
-        productStock += v.quantity;
-        const value = v.quantity * v.price;
-        inventoryValue += value;
-
-        const sb = stockBranchMap.get(v.branch as BranchValue);
-        if (sb) {
-          sb.quantity += v.quantity;
-          sb.value += value;
-        }
-
-        const sc = stockCategoryMap.get(p.category as CategoryValue) ?? {
-          quantity: 0,
-          value: 0,
-        };
-        sc.quantity += v.quantity;
-        sc.value += value;
-        stockCategoryMap.set(p.category as CategoryValue, sc);
-
-        if (p.brand) {
-          const sbr = stockBrandMap.get(p.brand) ?? { quantity: 0, value: 0 };
-          sbr.quantity += v.quantity;
-          sbr.value += value;
-          stockBrandMap.set(p.brand, sbr);
-        }
+      const sb = stockBranchMap.get(row.branch as BranchValue);
+      if (sb) {
+        sb.quantity += qty;
+        sb.value += value;
       }
-      if (productStock <= 0) {
-        outOfStock.push({
-          id: p.id,
-          name: p.name,
-          brand: p.brand,
-          category: p.category as CategoryValue,
-        });
+
+      const sc = stockCategoryMap.get(row.category as CategoryValue) ?? {
+        quantity: 0,
+        value: 0,
+      };
+      sc.quantity += qty;
+      sc.value += value;
+      stockCategoryMap.set(row.category as CategoryValue, sc);
+
+      if (row.brand) {
+        const sbr = stockBrandMap.get(row.brand) ?? { quantity: 0, value: 0 };
+        sbr.quantity += qty;
+        sbr.value += value;
+        stockBrandMap.set(row.brand, sbr);
       }
     }
 
-    const newProducts = allProducts
-      .filter((p) => p.createdAt >= from && p.createdAt <= to)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        brand: p.brand,
-        category: p.category as CategoryValue,
-        createdAt: p.createdAt.toISOString(),
-      }))
-      .slice(0, 100);
+    const outOfStock: DashboardStats["outOfStock"] = outOfStockRows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      brand: r.brand,
+      category: r.category as CategoryValue,
+    }));
+
+    const newProducts = newProductRows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      brand: p.brand,
+      category: p.category as CategoryValue,
+      createdAt: p.createdAt.toISOString(),
+    }));
+
+    // أسماء منتجات الديفو تُجلب بمعرّفاتها فقط (استعلام موجّه) بدل خريطة كل المنتجات
+    const damagedProductIds = [...new Set(damagedRows.map((d) => d.productId))];
+    const infoRows = damagedProductIds.length
+      ? await prisma.product.findMany({
+          where: { id: { in: damagedProductIds } },
+          select: { id: true, name: true, brand: true },
+        })
+      : [];
+    const productInfo = new Map(
+      infoRows.map((p) => [p.id, { name: p.name, brand: p.brand }])
+    );
 
     // الديفو — ربط اسم المنتج من خريطة المنتجات
     const damagedItems: DashboardStats["damagedItems"] = damagedRows.map((d) => {
@@ -563,7 +624,7 @@ export async function GET(req: Request) {
       slowMoving,
 
       inventoryValue: round2(inventoryValue),
-      productsCount: allProducts.length,
+      productsCount,
       variantsCount,
       outOfStock: outOfStock.slice(0, 100),
       stockByBranch: [...stockBranchMap.entries()].map(([branch, v]) => ({

@@ -49,6 +49,7 @@ import type {
   DamagedItemDTO,
   DashboardStats,
   DefectReport,
+  DeliveryListResponse,
   ImportResult,
   ImportRow,
   LowStockResponse,
@@ -60,6 +61,7 @@ import type {
   ReportsData,
   SaleDTO,
   SaleInput,
+  SalesListResponse,
   VariantDTO,
   VipCustomerDTO,
 } from "./types";
@@ -955,6 +957,10 @@ export function mockListProducts(
   const category = sp.get("category");
   const brand = sp.get("brand");
   const size = sp.get("size");
+  const idsParam = sp.get("ids");
+  const ids = idsParam
+    ? new Set(idsParam.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
   const withSales = sp.get("withSales") === "1";
   const sort = sp.get("sort");
   const bestselling = sort === "bestselling";
@@ -997,10 +1003,11 @@ export function mockListProducts(
     );
 
   const base = store.products.filter((p) => {
+    if (ids && !ids.has(p.id)) return false;
     if (draftsOnly && !(p.isDraft ?? false)) return false;
     if (category && p.category !== category) return false;
     if (brand && p.brand !== brand) return false;
-    if (search) {
+    if (search && !ids) {
       const variantSkus = p.variants
         .map((v) => v.sku ?? "")
         .filter(Boolean)
@@ -1896,14 +1903,20 @@ export function mockUpdateCustomer(
 // ----------------------------------------------------
 //  عمليات الفواتير
 // ----------------------------------------------------
-export function mockListSales(sp: URLSearchParams): SaleDTO[] {
+export function mockListSales(
+  sp: URLSearchParams
+): SaleDTO[] | SalesListResponse {
   const branch = sp.get("branch") as BranchValue | null;
   const from = sp.get("from") ? new Date(sp.get("from")!) : null;
   const to = sp.get("to") ? new Date(sp.get("to")!) : null;
   const search = sp.get("search")?.trim();
   const payment = sp.get("payment"); // CASH/VISA/VODAFONE_CASH/INSTAPAY
   const status = sp.get("status"); // COMPLETED/CANCELLED/REMAINING
-  const limit = Math.min(Number(sp.get("limit")) || 500, 1000);
+  const limit = Math.min(Number(sp.get("limit")) || 500, 100000);
+  const pageRaw = Number(sp.get("page"));
+  const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+  const page = paginated ? pageRaw : 1;
+  const pageSize = Math.min(Math.max(Number(sp.get("pageSize")) || 50, 1), 200);
 
   const productName = (variantId: string) =>
     findVariant(variantId)?.product.name ?? "";
@@ -1938,10 +1951,51 @@ export function mockListSales(sp: URLSearchParams): SaleDTO[] {
     );
   }
 
-  return list
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .slice(0, limit)
+  const sorted = list.sort(
+    (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+  );
+
+  if (!paginated) {
+    return sorted.slice(0, limit).map(shapeSale);
+  }
+
+  // ملخّص كامل المجموعة المفلترة (لا الصفحة الحالية)
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  let totalSales = 0;
+  let count = 0;
+  let discounts = 0;
+  let remaining = 0;
+  let cancelledCount = 0;
+  let cancelledValue = 0;
+  for (const s of sorted) {
+    if (s.status === "CANCELLED") {
+      cancelledCount++;
+      cancelledValue += s.finalAmount;
+    } else {
+      count++;
+      totalSales += s.finalAmount;
+      discounts += s.totalAmount - s.finalAmount;
+      remaining += s.remainingAmount;
+    }
+  }
+  const total = sorted.length;
+  const pageItems = sorted
+    .slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize)
     .map(shapeSale);
+  return {
+    sales: pageItems,
+    total,
+    page,
+    pageSize,
+    summary: {
+      totalSales: r2(totalSales),
+      count,
+      discounts: r2(discounts),
+      remaining: r2(remaining),
+      cancelledCount,
+      cancelledValue: r2(cancelledValue),
+    },
+  };
 }
 
 export function mockGetSale(id: string): SaleDTO | null {
@@ -2076,25 +2130,64 @@ export function mockCreateSale(input: SaleInput): SaleDTO {
 }
 
 // قائمة طلبات التوصيل (للفلاتر)
-export function mockListDelivery(sp: URLSearchParams): SaleDTO[] {
+const ACTIVE_DELIVERY_STATUSES: DeliveryStatusValue[] = [
+  "NEW",
+  "PREPARING",
+  "READY",
+  "OUT_FOR_DELIVERY",
+];
+
+export function mockListDelivery(
+  sp: URLSearchParams
+): SaleDTO[] | DeliveryListResponse {
   const branch = sp.get("branch") as BranchValue | null;
-  const status = sp.get("status") as DeliveryStatusValue | null;
+  const status = sp.get("status");
   const method = sp.get("method") as DeliveryMethodValue | null;
   const source = sp.get("source");
   const from = sp.get("from") ? new Date(sp.get("from")!) : null;
   const to = sp.get("to") ? new Date(sp.get("to")!) : null;
+  const pageRaw = Number(sp.get("page"));
+  const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+  const page = paginated ? pageRaw : 1;
+  const pageSize = Math.min(Math.max(Number(sp.get("pageSize")) || 20, 1), 100);
 
-  let list = store.sales.filter((s) => s.isDelivery);
-  if (branch) list = list.filter((s) => s.branch === branch);
-  if (status) list = list.filter((s) => s.deliveryStatus === status);
-  if (method) list = list.filter((s) => s.deliveryMethod === method);
-  if (source) list = list.filter((s) => s.orderSource === source);
-  if (from) list = list.filter((s) => s.createdAt >= from);
-  if (to) list = list.filter((s) => s.createdAt <= to);
+  // القاعدة بدون فلتر الحالة (لأعداد الحالات)
+  let base = store.sales.filter((s) => s.isDelivery);
+  if (branch) base = base.filter((s) => s.branch === branch);
+  if (method) base = base.filter((s) => s.deliveryMethod === method);
+  if (source) base = base.filter((s) => s.orderSource === source);
+  if (from) base = base.filter((s) => s.createdAt >= from);
+  if (to) base = base.filter((s) => s.createdAt <= to);
 
-  return list
-    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-    .map(shapeSale);
+  // فلتر الحالة للقائمة
+  const matchesStatus = (s: (typeof base)[number]) =>
+    status === "ACTIVE"
+      ? ACTIVE_DELIVERY_STATUSES.includes(s.deliveryStatus as DeliveryStatusValue)
+      : status
+        ? s.deliveryStatus === status
+        : true;
+
+  const list = base
+    .filter(matchesStatus)
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  if (!paginated) return list.map(shapeSale);
+
+  const inTransit = base.filter((s) =>
+    ACTIVE_DELIVERY_STATUSES.includes(s.deliveryStatus as DeliveryStatusValue)
+  ).length;
+  const delivered = base.filter((s) => s.deliveryStatus === "DELIVERED").length;
+  const returned = base.filter((s) => s.deliveryStatus === "RETURNED").length;
+
+  return {
+    orders: list
+      .slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize)
+      .map(shapeSale),
+    total: list.length,
+    page,
+    pageSize,
+    summary: { total: base.length, inTransit, delivered, returned },
+  };
 }
 
 // تحديث حالة التوصيل — مع إعادة الكميات للمخزون عند «مرتجع»

@@ -18,11 +18,11 @@ import {
   XCircle,
   SlidersHorizontal,
 } from "lucide-react";
-import { startOfDay, endOfDay } from "date-fns";
+import { startOfDay, endOfDay, subDays, format } from "date-fns";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
 import { useVirtualWindow } from "@/lib/use-virtual-window";
-import { apiPost } from "@/lib/client";
+import { apiGet, apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
@@ -49,7 +49,7 @@ import {
   generateSalesPdf,
   paymentLabel,
 } from "@/lib/sales-export";
-import type { SaleDTO } from "@/lib/types";
+import type { SaleDTO, SalesListResponse } from "@/lib/types";
 
 const PAYMENT_FILTERS = [
   { value: "CASH", label: "كاش" },
@@ -69,14 +69,20 @@ function rowTone(s: SaleDTO): string {
   return "bg-[rgba(59,154,110,0.05)]";
 }
 
+const PAGE_SIZE = 50;
+// الفلتر الافتراضي: آخر 30 يوماً — لتحديد حجم الاستعلام الأولي.
+const DEFAULT_FROM = format(subDays(new Date(), 29), "yyyy-MM-dd");
+const DEFAULT_TO = format(new Date(), "yyyy-MM-dd");
+
 export default function SalesPage() {
   const [search, setSearch] = useState("");
   const [debounced, setDebounced] = useState("");
   const [branch, setBranch] = useState("");
   const [payment, setPayment] = useState("");
   const [status, setStatus] = useState("");
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(DEFAULT_FROM);
+  const [to, setTo] = useState(DEFAULT_TO);
+  const [page, setPage] = useState(1);
   const [cancelTarget, setCancelTarget] = useState<SaleDTO | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -87,7 +93,13 @@ export default function SalesPage() {
     return () => clearTimeout(t);
   }, [search]);
 
-  const url = useMemo(() => {
+  // أي تغيير في الفلاتر يعيدنا للصفحة الأولى
+  useEffect(() => {
+    setPage(1);
+  }, [debounced, branch, payment, status, from, to]);
+
+  // معاملات الفلاتر المشتركة (للقائمة والتصدير) — بدون ترقيم
+  const filterParams = useMemo(() => {
     const params = new URLSearchParams();
     if (branch) params.set("branch", branch);
     if (debounced) params.set("search", debounced);
@@ -95,13 +107,29 @@ export default function SalesPage() {
     if (status) params.set("status", status);
     if (from) params.set("from", startOfDay(new Date(from)).toISOString());
     if (to) params.set("to", endOfDay(new Date(to)).toISOString());
-    const qs = params.toString();
-    return `/api/sales${qs ? `?${qs}` : ""}`;
+    return params;
   }, [branch, debounced, payment, status, from, to]);
 
-  const { data, loading, error, refetch } = useFetch<SaleDTO[]>(url);
-  const sales = data ?? [];
-  const summary = useMemo(() => computeSalesSummary(sales), [sales]);
+  const url = useMemo(() => {
+    const params = new URLSearchParams(filterParams);
+    params.set("page", String(page));
+    params.set("pageSize", String(PAGE_SIZE));
+    return `/api/sales?${params.toString()}`;
+  }, [filterParams, page]);
+
+  const { data, loading, error, refetch } = useFetch<SalesListResponse>(url);
+  const sales = data?.sales ?? [];
+  const total = data?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // الملخّص من الخادم فوق كامل المجموعة المفلترة (لا الصفحة الحالية)
+  const summary = data?.summary ?? {
+    totalSales: 0,
+    count: 0,
+    discounts: 0,
+    remaining: 0,
+    cancelledCount: 0,
+    cancelledValue: 0,
+  };
 
   // نافذة افتراضية لجدول سطح المكتب عند تجاوز 50 فاتورة (قوائم طويلة).
   const VIRT_THRESHOLD = 50;
@@ -114,15 +142,22 @@ export default function SalesPage() {
   const visibleSales = virtualize
     ? sales.slice(virtual.start, virtual.end)
     : sales;
-  const hasFilters = !!(search || branch || payment || status || from || to);
+  const hasFilters = !!(
+    search ||
+    branch ||
+    payment ||
+    status ||
+    from !== DEFAULT_FROM ||
+    to !== DEFAULT_TO
+  );
 
   function clearFilters() {
     setSearch("");
     setBranch("");
     setPayment("");
     setStatus("");
-    setFrom("");
-    setTo("");
+    setFrom(DEFAULT_FROM);
+    setTo(DEFAULT_TO);
   }
 
   async function doCancel() {
@@ -150,11 +185,16 @@ export default function SalesPage() {
   }
 
   async function exportFile(kind: "excel" | "pdf") {
-    if (sales.length === 0) return toast.error("لا توجد فواتير للتصدير");
+    if (total === 0) return toast.error("لا توجد فواتير للتصدير");
     setExporting(kind);
     try {
-      if (kind === "excel") await generateSalesExcel(sales, summary);
-      else await generateSalesPdf(sales, summary);
+      // التصدير يشمل كامل المجموعة المفلترة (لا الصفحة الحالية فقط)
+      const params = new URLSearchParams(filterParams);
+      params.set("limit", "100000");
+      const allSales = await apiGet<SaleDTO[]>(`/api/sales?${params.toString()}`);
+      const fullSummary = computeSalesSummary(allSales);
+      if (kind === "excel") await generateSalesExcel(allSales, fullSummary);
+      else await generateSalesPdf(allSales, fullSummary);
     } catch {
       toast.error("تعذّر التصدير");
     } finally {
@@ -171,7 +211,7 @@ export default function SalesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => exportFile("excel")}
-              disabled={exporting !== null || sales.length === 0}
+              disabled={exporting !== null || total === 0}
               className="btn btn-secondary"
             >
               {exporting === "excel" ? (
@@ -183,7 +223,7 @@ export default function SalesPage() {
             </button>
             <button
               onClick={() => exportFile("pdf")}
-              disabled={exporting !== null || sales.length === 0}
+              disabled={exporting !== null || total === 0}
               className="btn btn-secondary"
             >
               {exporting === "pdf" ? (
@@ -522,6 +562,32 @@ export default function SalesPage() {
               </div>
             ))}
           </div>
+
+          {/* التصفح */}
+          {totalPages > 1 && (
+            <div className="mt-3 flex items-center justify-between gap-2 border-t px-1 pt-3 text-sm sm:px-3">
+              <span className="text-muted nums">
+                صفحة {formatNumber(page)} من {formatNumber(totalPages)} ·{" "}
+                {formatNumber(total)} فاتورة
+              </span>
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-secondary h-9 px-3 text-xs"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  السابق
+                </button>
+                <button
+                  className="btn btn-secondary h-9 px-3 text-xs"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  التالي
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
       )}
 

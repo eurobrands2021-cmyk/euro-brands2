@@ -21,7 +21,6 @@ import { Card, StatCard } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NumberInput } from "@/components/ui/inputs";
-import { matchesWithBrandAliases } from "@/lib/brand-map";
 import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
 import {
   BRANCH_LABELS,
@@ -32,9 +31,6 @@ import {
 import type { DefectReport, ProductDTO, VariantDTO } from "@/lib/types";
 
 export default function DefectsPage() {
-  const { data: products, loading: productsLoading } = useFetch<ProductDTO[]>(
-    "/api/products"
-  );
   const {
     data: report,
     loading: reportLoading,
@@ -51,11 +47,7 @@ export default function DefectsPage() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
         {/* نموذج تسجيل التلف */}
         <div className="lg:col-span-2">
-          <RecordDefectCard
-            products={products ?? []}
-            loading={productsLoading}
-            onRecorded={refetchReport}
-          />
+          <RecordDefectCard onRecorded={refetchReport} />
         </div>
 
         {/* التقرير */}
@@ -74,16 +66,9 @@ export default function DefectsPage() {
 // ----------------------------------------------------
 //  نموذج تسجيل التلف
 // ----------------------------------------------------
-function RecordDefectCard({
-  products,
-  loading,
-  onRecorded,
-}: {
-  products: ProductDTO[];
-  loading: boolean;
-  onRecorded: () => void;
-}) {
+function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
   const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
   const [product, setProduct] = useState<ProductDTO | null>(null);
   const [variantId, setVariantId] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -94,13 +79,19 @@ function RecordDefectCard({
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const results = useMemo(() => {
-    const q = query.trim();
-    if (!q) return [];
-    return products
-      .filter((p) => matchesWithBrandAliases([p.name, p.brand, p.sku], q))
-      .slice(0, 8);
-  }, [products, query]);
+  // بحث عند الطلب (بوابة حرفين + limit) بدل تحميل الكتالوج كاملاً — نفس نمط
+  // بحث نقطة البيع. لا نجلب إلا عند الكتابة.
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(query.trim()), 300);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const searchUrl =
+    debounced.length >= 2
+      ? `/api/products?search=${encodeURIComponent(debounced)}&limit=8`
+      : null;
+  const { data: searchData, loading } = useFetch<ProductDTO[]>(searchUrl);
+  const results = searchData ?? [];
 
   const variant: VariantDTO | null = useMemo(
     () => product?.variants.find((v) => v.id === variantId) ?? null,
@@ -205,12 +196,15 @@ function RecordDefectCard({
               placeholder="ابحث بالاسم أو البراند (عربي/إنجليزي)…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              disabled={loading}
             />
           </div>
-          {query.trim() && (
+          {query.trim().length >= 2 && (
             <div className="mt-2 max-h-64 overflow-auto rounded-lg border">
-              {results.length === 0 ? (
+              {loading ? (
+                <p className="p-3 text-center text-sm text-muted">
+                  جارٍ البحث…
+                </p>
+              ) : results.length === 0 ? (
                 <p className="p-3 text-center text-sm text-muted">
                   لا توجد نتائج
                 </p>

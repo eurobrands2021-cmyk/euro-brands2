@@ -5,16 +5,9 @@ import {
   TRANSFER_METHOD_LABELS,
   SALE_STATUS_LABELS,
 } from "@/lib/constants";
-import type { SaleDTO } from "@/lib/types";
+import type { SaleDTO, SalesSummary } from "@/lib/types";
 
-export interface SalesSummary {
-  totalSales: number;
-  count: number;
-  discounts: number;
-  remaining: number;
-  cancelledCount: number;
-  cancelledValue: number;
-}
+export type { SalesSummary } from "@/lib/types";
 
 export function computeSalesSummary(sales: SaleDTO[]): SalesSummary {
   let totalSales = 0;

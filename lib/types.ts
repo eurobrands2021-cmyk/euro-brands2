@@ -173,6 +173,43 @@ export interface DeliveryInput {
   trackingNumber?: string | null;
 }
 
+// ملخّص إجماليات سجل الفواتير — يُحسب على مستوى الخادم فوق كامل المجموعة
+// المفلترة (لا الصفحة الحالية فقط).
+export interface SalesSummary {
+  totalSales: number;
+  count: number;
+  discounts: number;
+  remaining: number;
+  cancelledCount: number;
+  cancelledValue: number;
+}
+
+// استجابة سجل الفواتير المرقّمة: صفحة الفواتير + الإجمالي + الملخّص الكامل.
+export interface SalesListResponse {
+  sales: SaleDTO[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: SalesSummary;
+}
+
+// ملخّص أعداد حالات التوصيل — يُحسب على مستوى الخادم فوق كامل المجموعة المفلترة.
+export interface DeliverySummary {
+  total: number;
+  inTransit: number;
+  delivered: number;
+  returned: number;
+}
+
+// استجابة الطلبات المرقّمة: صفحة الطلبات + الإجمالي + ملخّص الحالات.
+export interface DeliveryListResponse {
+  orders: SaleDTO[];
+  total: number;
+  page: number;
+  pageSize: number;
+  summary: DeliverySummary;
+}
+
 // مدخلات إنشاء/تعديل المنتج
 export interface VariantInput {
   id?: string; // موجود عند التعديل، غير موجود عند الإضافة

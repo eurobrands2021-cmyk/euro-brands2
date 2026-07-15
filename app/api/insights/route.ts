@@ -23,15 +23,40 @@ async function gatherData(
   const [sales, products] = await Promise.all([
     prisma.sale.findMany({
       where: { createdAt: { gte: from }, status: { not: "CANCELLED" } },
-      include: {
+      // نختار الحقول اللازمة فقط للتحليل بدل صفوف كاملة
+      select: {
+        branch: true,
+        finalAmount: true,
+        totalAmount: true,
+        createdAt: true,
         items: {
-          include: {
+          select: {
+            productId: true,
+            quantity: true,
+            subtotal: true,
             product: { select: { name: true, brand: true, category: true } },
           },
         },
       },
     }),
-    prisma.product.findMany({ include: { variants: true } }),
+    // نحمّل الحقول الدنيا اللازمة للتحليل (مخزون/قلة مخزون) بدل صفوف المنتجات
+    // والأصناف كاملة.
+    prisma.product.findMany({
+      select: {
+        id: true,
+        name: true,
+        brand: true,
+        category: true,
+        variants: {
+          select: {
+            quantity: true,
+            minQuantity: true,
+            branch: true,
+            size: true,
+          },
+        },
+      },
+    }),
   ]);
 
   const normSales: NormSale[] = sales.map((s) => ({

@@ -26,7 +26,7 @@ import {
   type CategoryValue,
 } from "@/lib/constants";
 import { cn } from "@/lib/cn";
-import type { BrandDTO, ProductDTO, ProductTypeDTO } from "@/lib/types";
+import type { BrandDTO, ProductListPage, ProductTypeDTO } from "@/lib/types";
 
 // تبويب «البراندات والأنواع» في الإعدادات (للمدير فقط):
 // إدارة الفئات (قراءة فقط) + البراندات + أنواع المنتجات.
@@ -154,10 +154,14 @@ function BrandsSection() {
   async function requestDelete(b: BrandDTO) {
     setCheckingDelete(b.id);
     try {
-      const products = await apiGet<ProductDTO[]>(
-        `/api/products?category=${b.category}&brand=${encodeURIComponent(b.name)}`
+      // عدّ خفيف عبر الترقيم (نطلب صفحة واحدة بعنصر واحد ونقرأ total) بدل جلب
+      // كل المنتجات المطابقة إلى الذاكرة لمجرد العدّ.
+      const res = await apiGet<ProductListPage>(
+        `/api/products?category=${b.category}&brand=${encodeURIComponent(
+          b.name
+        )}&page=1&perPage=1`
       );
-      setPendingDelete({ brand: b, productCount: products.length });
+      setPendingDelete({ brand: b, productCount: res.total });
     } catch {
       // تعذّر الفحص — نتابع الحذف دون عدد دقيق
       setPendingDelete({ brand: b, productCount: -1 });

@@ -12,7 +12,24 @@ import { MOCK_MODE, mockListDelivery } from "@/lib/mock-store";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/delivery — كل فواتير التوصيل مع الفلاتر
+// الحالات «النشطة» (قيد التوصيل) — كل ما عدا «تم التوصيل» و«مرتجع».
+const ACTIVE_STATUSES: DeliveryStatus[] = [
+  "NEW",
+  "PREPARING",
+  "READY",
+  "OUT_FOR_DELIVERY",
+];
+
+const deliveryInclude = {
+  items: {
+    include: {
+      product: { select: { name: true, brand: true } },
+      variant: { select: { size: true, color: true, sku: true } },
+    },
+  },
+} satisfies Prisma.SaleInclude;
+
+// GET /api/delivery — فواتير التوصيل مع الفلاتر والترقيم وأعداد الحالات
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -25,31 +42,87 @@ export async function GET(req: Request) {
     const from = searchParams.get("from");
     const to = searchParams.get("to");
 
-    const where: Prisma.SaleWhereInput = { isDelivery: true };
-    if (branch) where.branch = branch as Branch;
-    if (status) where.deliveryStatus = status as DeliveryStatus;
-    if (methodParam) where.deliveryMethod = methodParam as DeliveryMethod;
-    if (source) where.orderSource = source as OrderSource;
+    const pageRaw = Number(searchParams.get("page"));
+    const paginated = Number.isInteger(pageRaw) && pageRaw >= 1;
+    const page = paginated ? pageRaw : 1;
+    const pageSize = Math.min(
+      Math.max(Number(searchParams.get("pageSize")) || 20, 1),
+      100
+    );
+
+    // القاعدة (بدون فلتر الحالة) — تُستخدم لأعداد الحالات كي تبقى البطاقات
+    // نظرة شاملة على النطاق المحدد بغض النظر عن فلتر الحالة المُختار للقائمة.
+    const baseWhere: Prisma.SaleWhereInput = { isDelivery: true };
+    if (branch) baseWhere.branch = branch as Branch;
+    if (methodParam) baseWhere.deliveryMethod = methodParam as DeliveryMethod;
+    if (source) baseWhere.orderSource = source as OrderSource;
     if (from || to) {
-      where.createdAt = {};
-      if (from) where.createdAt.gte = new Date(from);
-      if (to) where.createdAt.lte = new Date(to);
+      baseWhere.createdAt = {};
+      if (from) baseWhere.createdAt.gte = new Date(from);
+      if (to) baseWhere.createdAt.lte = new Date(to);
     }
 
-    const sales = await prisma.sale.findMany({
-      where,
-      include: {
-        items: {
-          include: {
-            product: { select: { name: true, brand: true } },
-            variant: { select: { size: true, color: true, sku: true } },
-          },
+    // فلتر الحالة للقائمة (ACTIVE = مجموعة الحالات النشطة)
+    const statusCond: Prisma.SaleWhereInput =
+      status === "ACTIVE"
+        ? { deliveryStatus: { in: ACTIVE_STATUSES } }
+        : status
+          ? { deliveryStatus: status as DeliveryStatus }
+          : {};
+    const listWhere: Prisma.SaleWhereInput = { AND: [baseWhere, statusCond] };
+
+    // المسار القديم (بدون page) — مصفوفة كاملة (للتوافق)
+    if (!paginated) {
+      const sales = await prisma.sale.findMany({
+        where: listWhere,
+        include: deliveryInclude,
+        orderBy: { createdAt: "desc" },
+        take: 500,
+      });
+      return ok(sales.map(toSaleDTO), 200, CACHE_NONE);
+    }
+
+    // أعداد الحالات محسوبة على مستوى الخادم فوق القاعدة (النطاق) كاملةً
+    const [orders, total, delivered, returned, inTransit] = await Promise.all([
+      prisma.sale.findMany({
+        where: listWhere,
+        include: deliveryInclude,
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.sale.count({ where: listWhere }),
+      prisma.sale.count({
+        where: { AND: [baseWhere, { deliveryStatus: "DELIVERED" }] },
+      }),
+      prisma.sale.count({
+        where: { AND: [baseWhere, { deliveryStatus: "RETURNED" }] },
+      }),
+      prisma.sale.count({
+        where: { AND: [baseWhere, { deliveryStatus: { in: ACTIVE_STATUSES } }] },
+      }),
+    ]);
+
+    // «الإجمالي» في البطاقات = كل طلبات النطاق (نظرة شاملة، غير محكومة بفلتر
+    // الحالة)؛ بينما total هو عدد نتائج القائمة الحالية.
+    const summaryTotal = await prisma.sale.count({ where: baseWhere });
+
+    return ok(
+      {
+        orders: orders.map(toSaleDTO),
+        total,
+        page,
+        pageSize,
+        summary: {
+          total: summaryTotal,
+          inTransit,
+          delivered,
+          returned,
         },
       },
-      orderBy: { createdAt: "desc" },
-      take: 500,
-    });
-    return ok(sales.map(toSaleDTO), 200, CACHE_NONE);
+      200,
+      CACHE_NONE
+    );
   } catch (error) {
     return handleServerError(error);
   }

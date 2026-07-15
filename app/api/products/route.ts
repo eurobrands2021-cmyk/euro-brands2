@@ -12,6 +12,7 @@ import {
   selectStatusProductIds,
   type StatusQueryFilters,
 } from "@/lib/product-status-query";
+import { foldSql, likePattern } from "@/lib/sql-search";
 
 // نافذة احتساب «الأكثر مبيعاً» — 90 يوماً متجدّدة (بدلاً من كامل التاريخ).
 const BESTSELLER_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
@@ -19,25 +20,7 @@ const BESTSELLER_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
 // حدّ أقصى افتراضي لحجم الصفحة عند تفعيل الترقيم (skip/take).
 const MAX_PAGE_SIZE = 200;
 
-// ---- بحث نصي عربي على مستوى SQL ----
-// تطبيع خام داخل Postgres يوازي normalizeArabic (توحيد الهمزة/الأرقام،
-// حذف التطويل/التشكيل، تقليص الفراغات) لكنه *لا* يزيل «ال» التعريف. هذا يجعله
-// مجموعة فائقة (superset): يطابق كل ما تطابقه الدالة في JS وربما أكثر، ثم
-// نُطبّق normalizeArabic الدقيق في JS على المرشّحين لضمان نتائج مطابقة تماماً.
-const FOLD_FROM = "آأإؤئى٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹ـء";
-const FOLD_TO = "اااويي01234567890123456789";
-
-// تعبير SQL يطبّع نصاً معطى (يُمرَّر كتعبير عمود خام)
-function foldSql(columnExpr: string) {
-  return Prisma.raw(
-    `regexp_replace(regexp_replace(translate(lower(${columnExpr}), '${FOLD_FROM}', '${FOLD_TO}'), '[ً-ْٰ]', '', 'g'), '\\s+', ' ', 'g')`
-  );
-}
-
-// يبني نمط ILIKE آمناً (تهريب الرموز الخاصة % _ \)
-function likePattern(term: string): string {
-  return `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
-}
+// أدوات البحث النصي العربي على مستوى SQL مشتركة في lib/sql-search.
 
 // يُرجع معرّفات المنتجات المطابقة لأي من عبارات البحث الموسّعة، بحثاً في
 // الاسم/البراند/الكود/الباركود وأكواد الأصناف — كلّه داخل SQL بدل تحميل
@@ -71,6 +54,12 @@ export async function GET(req: Request) {
     const category = searchParams.get("category");
     const brand = searchParams.get("brand");
     const size = searchParams.get("size");
+    // بحث مُوجَّه بمعرّفات محددة (لصفحة تعديل الفاتورة: تُجلب أصناف الفاتورة
+    // فقط بدل كتالوج الفرع كاملاً). مصفوفة معرّفات مفصولة بفواصل.
+    const idsParam = searchParams.get("ids");
+    const ids = idsParam
+      ? idsParam.split(",").map((s) => s.trim()).filter(Boolean)
+      : null;
     const withSales = searchParams.get("withSales") === "1";
     const sort = searchParams.get("sort");
     const bestselling = sort === "bestselling";
@@ -103,6 +92,8 @@ export async function GET(req: Request) {
     if (category) where.category = category as Category;
     if (brand) where.brand = brand;
     if (draftsOnly) where.isDraft = true;
+    // جلب مُوجَّه بمعرّفات (يتجاهل البحث النصي عند وجوده)
+    if (ids) where.id = { in: ids };
 
     // فلترة على مستوى المقاسات (الفرع/المقاس)
     const variantWhere: Prisma.ProductVariantWhereInput = {};
@@ -118,7 +109,7 @@ export async function GET(req: Request) {
     // فائقة) بدل تحميل كل المنتجات وتصفيتها في الذاكرة. النتيجة النهائية تبقى
     // محكومة بـ normalizeArabic الدقيق أدناه لضمان تطابق النتائج تماماً.
     let searchTerms: string[] | null = null;
-    if (search) {
+    if (search && !ids) {
       const nq = normalizeArabic(search);
       if (nq) {
         searchTerms = expandBrandQuery(nq);
