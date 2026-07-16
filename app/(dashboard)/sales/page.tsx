@@ -26,7 +26,8 @@ import { apiGet, apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
-import { PageLoader, Spinner } from "@/components/ui/spinner";
+import { Spinner } from "@/components/ui/spinner";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { BranchBadge } from "@/components/ui/badge";
@@ -355,7 +356,7 @@ export default function SalesPage() {
         </div>
       )}
 
-      {loading && <PageLoader />}
+      {loading && <TableSkeleton />}
       {error && (
         <Card className="p-6 text-center text-danger">
           تعذّر تحميل الفواتير: {error}

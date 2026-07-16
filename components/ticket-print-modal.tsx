@@ -336,7 +336,7 @@ export function TicketPrintModal({
                       type="checkbox"
                       checked={settings.fields[key]}
                       onChange={() => toggleField(key)}
-                      className="h-4 w-4 accent-[#6c63ff]"
+                      className="h-4 w-4 accent-[var(--accent)]"
                     />
                     {FIELD_LABELS[key]}
                   </label>

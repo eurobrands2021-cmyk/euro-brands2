@@ -19,7 +19,7 @@ import { apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
-import { PageLoader } from "@/components/ui/spinner";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BranchBadge } from "@/components/ui/badge";
 import { cn } from "@/lib/cn";
@@ -261,7 +261,7 @@ export default function DeliveryPage() {
         </div>
       )}
 
-      {loading && <PageLoader />}
+      {loading && <TableSkeleton />}
       {error && (
         <Card className="p-6 text-center text-danger">
           تعذّر تحميل الطلبات: {error}

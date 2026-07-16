@@ -28,7 +28,7 @@ import { AddBrandModal } from "@/components/add-brand-modal";
 import { PrintQrButton } from "@/components/print-qr-button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
-import { PageLoader } from "@/components/ui/spinner";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CollapsiblePanel } from "@/components/ui/collapsible-panel";
 import { CategoryBadge, StockBadge, Badge, DraftBadge } from "@/components/ui/badge";
@@ -477,7 +477,7 @@ export default function InventoryPage() {
         })}
       </div>
 
-      {loading && <PageLoader />}
+      {loading && <TableSkeleton />}
       {error && (
         <Card className="p-6 text-center text-danger">
           تعذّر تحميل المنتجات: {error}

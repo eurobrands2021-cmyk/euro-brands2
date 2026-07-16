@@ -1112,7 +1112,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                           type="checkbox"
                           checked={selected}
                           onChange={() => toggleSelect(row.clientId)}
-                          className="h-4 w-4 accent-[#6c63ff]"
+                          className="h-4 w-4 accent-[var(--accent)]"
                         />
                         {BRANCH_LABELS[row.branch]} · {row.size || "—"}
                         {row.color ? ` · ${row.color}` : ""}

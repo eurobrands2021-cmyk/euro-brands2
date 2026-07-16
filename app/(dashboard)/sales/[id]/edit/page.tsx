@@ -776,7 +776,7 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
             type="checkbox"
             checked={isDelivery}
             onChange={(e) => setIsDelivery(e.target.checked)}
-            className="h-4 w-4 accent-[var(--accent,#6c63ff)]"
+            className="h-4 w-4 accent-[var(--accent)]"
           />
           <span className="flex items-center gap-1.5 text-base font-bold text-text">
             <Truck className="h-4 w-4" />

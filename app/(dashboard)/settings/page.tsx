@@ -16,6 +16,7 @@ import toast from "react-hot-toast";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
+import { RowsSkeleton } from "@/components/ui/skeleton";
 import { useFetch } from "@/lib/use-fetch";
 import { AdminRecoverySetupCard } from "@/components/admin-recovery-setup";
 import { InvoiceTemplateSettingsCard } from "@/components/invoice-template-settings";
@@ -263,7 +264,7 @@ function ActivityViewer() {
       </div>
 
       {loading ? (
-        <p className="py-8 text-center text-sm text-muted">جارٍ التحميل…</p>
+        <RowsSkeleton rows={6} />
       ) : logs.length === 0 ? (
         <p className="py-8 text-center text-sm text-muted">
           لا توجد سجلات مطابقة

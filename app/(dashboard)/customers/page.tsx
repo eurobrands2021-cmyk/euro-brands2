@@ -6,7 +6,7 @@ import { Search, Users, ChevronRight, ChevronLeft } from "lucide-react";
 import { useFetch } from "@/lib/use-fetch";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
-import { PageLoader } from "@/components/ui/spinner";
+import { TableSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { BranchBadge } from "@/components/ui/badge";
 import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
@@ -70,7 +70,7 @@ export default function CustomersPage() {
         </div>
       </Card>
 
-      {loading && <PageLoader />}
+      {loading && <TableSkeleton />}
       {error && (
         <Card className="p-6 text-center text-danger">
           تعذّر تحميل العملاء: {error}

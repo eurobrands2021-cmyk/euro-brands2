@@ -24,6 +24,7 @@ import {
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
 import { PageLoader } from "@/components/ui/spinner";
+import { RowsSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
 import { NumberInput } from "@/components/ui/inputs";
 import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
@@ -227,9 +228,7 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
           {query.trim().length >= 2 && (
             <div className="mt-2 max-h-64 overflow-auto rounded-lg border">
               {loading ? (
-                <p className="p-3 text-center text-sm text-muted">
-                  جارٍ البحث…
-                </p>
+                <RowsSkeleton rows={3} className="p-2" />
               ) : results.length === 0 ? (
                 <p className="p-3 text-center text-sm text-muted">
                   لا توجد نتائج

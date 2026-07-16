@@ -5,6 +5,7 @@ import { Target, Pencil, Check, X, ArrowUpRight, ArrowDownRight } from "lucide-r
 import { useFetch } from "@/lib/use-fetch";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { Skeleton } from "@/components/ui/skeleton";
 import type { HomeStats } from "@/lib/types";
 
 const GOAL_KEY = "dailyGoal";
@@ -194,15 +195,23 @@ function TodayVsYesterdayCard({
       <div className="mt-5 grid grid-cols-2 gap-4">
         <div className="rounded-xl bg-[var(--surface-2)] p-4 text-center">
           <p className="text-sm text-muted">اليوم</p>
-          <p className="mt-1.5 text-xl font-extrabold text-text nums sm:text-2xl">
-            {loading ? "…" : formatCurrency(today)}
-          </p>
+          {loading ? (
+            <Skeleton className="mx-auto mt-2 h-7 w-24" />
+          ) : (
+            <p className="mt-1.5 text-xl font-extrabold text-text nums sm:text-2xl">
+              {formatCurrency(today)}
+            </p>
+          )}
         </div>
         <div className="rounded-xl bg-[var(--surface-2)] p-4 text-center">
           <p className="text-sm text-muted">أمس</p>
-          <p className="mt-1.5 text-xl font-extrabold text-text nums sm:text-2xl">
-            {loading ? "…" : formatCurrency(yesterday)}
-          </p>
+          {loading ? (
+            <Skeleton className="mx-auto mt-2 h-7 w-24" />
+          ) : (
+            <p className="mt-1.5 text-xl font-extrabold text-text nums sm:text-2xl">
+              {formatCurrency(yesterday)}
+            </p>
+          )}
         </div>
       </div>
 

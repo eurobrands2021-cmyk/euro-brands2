@@ -86,10 +86,10 @@ export function WeekComparisonChart({
             type="monotone"
             name="الأسبوع السابق"
             dataKey="lastWeek"
-            stroke="#9295a8"
+            stroke="var(--muted)"
             strokeWidth={2}
             strokeDasharray="5 4"
-            dot={{ r: 2.5, fill: "#9295a8" }}
+            dot={{ r: 2.5, fill: "var(--muted)" }}
             activeDot={{ r: 4 }}
           />
         </LineChart>

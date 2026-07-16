@@ -68,6 +68,18 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--muted);
   }
+
+  /* حلقة تركيز واضحة للتنقّل بلوحة المفاتيح — تظهر فقط عند التنقّل بالكيبورد
+     (تغطي الأزرار وروابط التنقّل والبطاقات القابلة للنقر والأزرار الأيقونية) */
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+  /* الحقول لها مؤشّر تركيز خاص بها (حدّ ملوّن) فلا نضيف حلقة مزدوجة */
+  .input:focus-visible {
+    outline: none;
+  }
 }
 
 @layer components {

@@ -1270,7 +1270,7 @@ function PosRegister({
                   type="checkbox"
                   checked={deliveryOn}
                   onChange={(e) => setDeliveryOn(e.target.checked)}
-                  className="h-4 w-4 accent-[#6c63ff]"
+                  className="h-4 w-4 accent-[var(--accent)]"
                 />
                 <Truck className="h-4 w-4 text-accent" />
                 توصيل
@@ -1368,7 +1368,7 @@ function PosRegister({
                   type="checkbox"
                   checked={partialOn}
                   onChange={(e) => setPartialOn(e.target.checked)}
-                  className="h-4 w-4 accent-[#6c63ff]"
+                  className="h-4 w-4 accent-[var(--accent)]"
                 />
                 دفع جزئي
               </label>

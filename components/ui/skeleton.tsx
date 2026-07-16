@@ -25,3 +25,53 @@ export function ChartSkeleton({ className }: { className?: string }) {
     </div>
   );
 }
+
+// هيكل بديل لصفحات القوائم/الجداول أثناء الجلب — بطاقة بصفوف متلألئة
+// بديل موحّد لِـ PageLoader على صفحات: العملاء، الطلبات، المخزون، الفواتير
+export function TableSkeleton({
+  rows = 8,
+  className,
+}: {
+  rows?: number;
+  className?: string;
+}) {
+  return (
+    <div className={cn("card overflow-hidden", className)} aria-hidden>
+      {/* ترويسة الجدول */}
+      <div className="flex items-center gap-4 border-b bg-[var(--surface-2)] px-4 py-3">
+        <Skeleton className="h-3.5 flex-1 max-w-[40%]" />
+        <Skeleton className="hidden h-3.5 w-24 sm:block" />
+        <Skeleton className="hidden h-3.5 w-20 sm:block" />
+        <Skeleton className="h-3.5 w-16" />
+      </div>
+      {/* الصفوف */}
+      <div className="divide-y divide-[var(--border)]">
+        {Array.from({ length: rows }).map((_, i) => (
+          <div key={i} className="flex items-center gap-4 px-4 py-4">
+            <Skeleton className="h-4 flex-1 max-w-[40%]" />
+            <Skeleton className="hidden h-4 w-24 sm:block" />
+            <Skeleton className="hidden h-4 w-20 sm:block" />
+            <Skeleton className="h-4 w-16" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// هيكل صفوف بسيط بلا بطاقة — يُوضَع داخل حاوية قائمة موجودة (سجل النشاط، نتائج البحث)
+export function RowsSkeleton({
+  rows = 5,
+  className,
+}: {
+  rows?: number;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-2", className)} aria-hidden>
+      {Array.from({ length: rows }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full" />
+      ))}
+    </div>
+  );
+}
