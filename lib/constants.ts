@@ -143,12 +143,28 @@ export const SHOE_SIZES = [
   "45",
 ] as const;
 
+// أحجام العطور القياسية (المقاس = السعة بالملّي لتر) + «أخرى» لحجم مخصّص.
+export const PERFUME_SIZES = [
+  "30ml",
+  "50ml",
+  "75ml",
+  "100ml",
+  "125ml",
+  "150ml",
+  "200ml",
+] as const;
+
 // كل المقاسات المتاحة في القوائم المنسدلة
-export const ALL_SIZES = [...CLOTHING_SIZES, ...SHOE_SIZES];
+export const ALL_SIZES = [
+  ...CLOTHING_SIZES,
+  ...SHOE_SIZES,
+  ...PERFUME_SIZES,
+];
 
 // المقاسات المقترحة بناءً على الفئة
 export function sizesForCategory(category: CategoryValue): readonly string[] {
   if (category === "SHOES") return SHOE_SIZES;
+  if (category === "PERFUMES") return PERFUME_SIZES;
   return CLOTHING_SIZES;
 }
 
@@ -212,6 +228,26 @@ export const COMMON_COLORS = [
   "فضي",
   "نبيتي",
 ] as const;
+
+// لون تقريبي (hex) لكل اسم لعرض نقطة معاينة بجوار قائمة الألوان.
+export const COLOR_HEX: Record<string, string> = {
+  أسود: "#000000",
+  أبيض: "#ffffff",
+  رمادي: "#9ca3af",
+  كحلي: "#1e293b",
+  أزرق: "#2563eb",
+  أحمر: "#dc2626",
+  أخضر: "#16a34a",
+  أصفر: "#eab308",
+  برتقالي: "#f97316",
+  بني: "#8b5e3c",
+  بيج: "#e3d5b8",
+  وردي: "#ec4899",
+  بنفسجي: "#7c3aed",
+  ذهبي: "#d4af37",
+  فضي: "#c0c0c0",
+  نبيتي: "#7f1d1d",
+};
 
 // ----------------------------------------------------
 //  أنواع المنتجات الافتراضية (القائمة الموحّدة)

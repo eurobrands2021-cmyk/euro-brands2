@@ -35,6 +35,7 @@ import { ProductFilterBar } from "@/components/product-filter-bar";
 import { Card } from "@/components/ui/card";
 import { Spinner, PageLoader } from "@/components/ui/spinner";
 import { EmptyState } from "@/components/ui/empty-state";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
 import {
   NumberInput,
   PhoneInput,
@@ -1241,7 +1242,10 @@ function PosRegister({
 
             {/* الخصم */}
             <div className="mt-4">
-              <label className="label">الخصم</label>
+              <label className="label inline-flex items-center gap-1">
+                الخصم
+                <InfoTooltip text="«نسبة %» تخصم نسبة من الإجمالي، و«مبلغ ثابت» يخصم قيمة بالجنيه." />
+              </label>
               <div className="flex gap-2">
                 <select
                   className="input w-auto flex-shrink-0"

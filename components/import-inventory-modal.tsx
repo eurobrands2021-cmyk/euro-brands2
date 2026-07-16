@@ -12,14 +12,18 @@ import {
 import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
+import { SizeSelect, ColorSelect } from "@/components/ui/variant-selects";
 import { apiPost } from "@/lib/client";
 import { cn } from "@/lib/cn";
 import { normalizeArabic } from "@/lib/normalize";
 import {
+  ALL_SIZES,
   BRANCHES,
   BRANCH_LABELS,
   CATEGORIES,
   CATEGORY_LABELS,
+  COMMON_COLORS,
+  sizesForCategory,
   type BranchValue,
   type CategoryValue,
 } from "@/lib/constants";
@@ -268,14 +272,19 @@ export function ImportInventoryModal({
       ws["!view"] = { freeze: { xSplit: 0, ySplit: 1, topLeftCell: "A2" } };
 
       // قوائم تحقّق منسدلة على الأعمدة المرتبطة بقيم محددة بعد إعادة الترتيب:
-      //   C = الفئة، E = اللون، G = الفرع.
+      //   C = الفئة، E = اللون، F = المقاس، G = الفرع.
       // ملاحظة: نسخة SheetJS المجتمعية (xlsx 0.18.5) تتجاهل هذه الخاصية عند
       // الكتابة، لذا لن تظهر القوائم فعلياً إلا بترقية SheetJS Pro. نتركها هنا
-      // لتوثيق النية وتفعيلها تلقائياً عند الترقية. اللون حر فلا قائمة قيم له.
+      // لتوثيق النية وتفعيلها تلقائياً عند الترقية. قائمة المقاسات تجمع كل
+      // الفئات (ملابس/أحذية/عطور) لأن تحقّق Excel لا يتغيّر حسب الفئة.
       const catList = `"${CATEGORIES.map((c) => CATEGORY_LABELS[c]).join(",")}"`;
       const branchList = `"${BRANCHES.map((b) => BRANCH_LABELS[b]).join(",")}"`;
+      const colorList = `"${COMMON_COLORS.join(",")}"`;
+      const sizeList = `"${ALL_SIZES.join(",")}"`;
       ws["!dataValidation"] = [
         { sqref: "C2:C1000", type: "list", formula1: catList },
+        { sqref: "E2:E1000", type: "list", formula1: colorList },
+        { sqref: "F2:F1000", type: "list", formula1: sizeList },
         { sqref: "G2:G1000", type: "list", formula1: branchList },
       ];
 
@@ -579,6 +588,10 @@ function EditableCell({
   );
 }
 
+// نمط خلية القائمة المنسدلة داخل الجدول — يحاكي شكل EditableCell (بلا حدود حتى المرور).
+const CELL_SELECT =
+  "w-full rounded border border-transparent bg-transparent px-1.5 py-1 text-xs text-text outline-none transition-colors hover:border-[var(--border)] focus:border-accent focus:bg-surface";
+
 function PreviewRowView({
   row,
   index,
@@ -590,6 +603,9 @@ function PreviewRowView({
   onEdit: (i: number, field: EditableField, v: string) => void;
   onAction: (i: number, a: ImportAction) => void;
 }) {
+  // مقاسات الفئة المكتشفة للصف — تعرض أحجام العطور عند الفئة «عطور».
+  const rowCategory = CATEGORY_BY_LABEL[row.categoryLabel];
+  const sizeOptions = sizesForCategory(rowCategory ?? "CLOTHES");
   // لون الصف حسب الحالة: أصفر (تحديث)، أخضر (جديد)، أحمر (خطأ)
   const tone =
     row.status === "error"
@@ -638,16 +654,20 @@ function PreviewRowView({
       <td className="px-2 py-1.5 text-muted">{row.categoryLabel || "—"}</td>
       <td className="px-2 py-1.5 text-muted">{row.branchLabel || "—"}</td>
       <td className="px-2 py-1.5">
-        <EditableCell
+        <SizeSelect
           value={row.size}
+          options={sizeOptions}
           onChange={(v) => onEdit(index, "size", v)}
-          className="nums"
+          selectClassName={cn(CELL_SELECT, "nums")}
+          placeholder="—"
+          customPlaceholder="مقاس مخصّص"
         />
       </td>
       <td className="px-2 py-1.5">
-        <EditableCell
+        <ColorSelect
           value={row.color}
           onChange={(v) => onEdit(index, "color", v)}
+          selectClassName={CELL_SELECT}
         />
       </td>
       <td className="px-2 py-1.5">

@@ -5,6 +5,8 @@ import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
 import { Spinner } from "@/components/ui/spinner";
 import { NumberInput, TextOnlyInput } from "@/components/ui/inputs";
+import { FieldLabel } from "@/components/ui/info-tooltip";
+import { SizeSelect, ColorSelect } from "@/components/ui/variant-selects";
 import { useFetch } from "@/lib/use-fetch";
 import { apiPost } from "@/lib/client";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
@@ -12,7 +14,6 @@ import {
   BRANCH_LABELS,
   CATEGORIES,
   CATEGORY_LABELS,
-  COMMON_COLORS,
   sizesForCategory,
   type BranchValue,
   type CategoryValue,
@@ -45,8 +46,6 @@ export function QuickAddProductModal({
   const [category, setCategory] = useState<CategoryValue>("CLOTHES");
   const [productTypeId, setProductTypeId] = useState("");
   const [size, setSize] = useState("");
-  // وضع «مقاس مخصص» (أخرى) — يكشف حقل إدخال حر عندما لا تكفي القائمة القياسية
-  const [customSizeMode, setCustomSizeMode] = useState(false);
   const [color, setColor] = useState("");
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -94,7 +93,6 @@ export function QuickAddProductModal({
       setCategory("CLOTHES");
       setProductTypeId("");
       setSize("");
-      setCustomSizeMode(false);
       setColor("");
       setPrice("");
       setQuantity("1");
@@ -109,7 +107,6 @@ export function QuickAddProductModal({
     setBrand("");
     setProductTypeId("");
     setSize("");
-    setCustomSizeMode(false);
     setAddingBrand(false);
     setNewBrand("");
   }
@@ -325,58 +322,29 @@ export function QuickAddProductModal({
         </div>
 
         <div>
-          <label className="label">المقاس *</label>
-          <select
-            className="input"
-            value={customSizeMode ? "__other__" : size}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v === "__other__") {
-                setCustomSizeMode(true);
-                setSize("");
-              } else {
-                setCustomSizeMode(false);
-                setSize(v);
-              }
-            }}
+          <FieldLabel
+            help={
+              category === "PERFUMES"
+                ? "حجم العطر بالملّي لتر، أو «أخرى» لحجم مخصّص."
+                : "مقاس الصنف؛ اختر «أخرى» لإدخال مقاس غير قياسي."
+            }
           >
-            <option value="">اختر المقاس</option>
-            {sizesForCategory(category).map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-            {/* مقاس محفوظ خارج القائمة القياسية يبقى ظاهراً */}
-            {size && !customSizeMode && !sizesForCategory(category).includes(size) && (
-              <option value={size}>{size}</option>
-            )}
-            <option value="__other__">أخرى…</option>
-          </select>
-          {customSizeMode && (
-            <input
-              className="input mt-2"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-              placeholder="اكتب مقاساً مخصصاً (مثال: 3XL أو 46)"
-              autoFocus
-            />
-          )}
+            المقاس *
+          </FieldLabel>
+          <SizeSelect
+            value={size}
+            options={sizesForCategory(category)}
+            onChange={setSize}
+            customPlaceholder="اكتب مقاساً مخصصاً (مثال: 3XL أو 46)"
+            autoFocusCustom
+          />
         </div>
 
         <div>
-          <label className="label">اللون</label>
-          <select
-            className="input"
-            value={color}
-            onChange={(e) => setColor(e.target.value)}
-          >
-            <option value="">— بدون لون —</option>
-            {COMMON_COLORS.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
+          <FieldLabel help="اختر من الألوان الموحّدة لتوحيد التسمية عبر المخزون.">
+            اللون
+          </FieldLabel>
+          <ColorSelect value={color} onChange={setColor} />
         </div>
 
         <div>

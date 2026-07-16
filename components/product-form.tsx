@@ -24,6 +24,8 @@ import toast from "react-hot-toast";
 import { Card } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
 import { NumberInput, TextOnlyInput } from "@/components/ui/inputs";
+import { InfoTooltip, FieldLabel } from "@/components/ui/info-tooltip";
+import { SizeSelect, ColorSelect } from "@/components/ui/variant-selects";
 import { AddBrandModal } from "@/components/add-brand-modal";
 import { AddProductTypeModal } from "@/components/add-product-type-modal";
 import { MarkdownField } from "@/components/markdown-field";
@@ -98,17 +100,39 @@ function emptyRow(branch: BranchValue = "HADAYEK"): VariantRow {
 
 function VariantField({
   label,
+  help,
   children,
 }: {
   label: string;
+  help?: string;
   children: ReactNode;
 }) {
   return (
     <div>
-      <span className="mb-1 block text-xs font-medium text-muted sm:hidden">
-        {label}
-      </span>
+      <div className="mb-1 flex items-center gap-1">
+        <span className="text-xs font-medium text-muted">{label}</span>
+        {help && <InfoTooltip text={help} />}
+      </div>
       {children}
+    </div>
+  );
+}
+
+// عنوان قسم داخل البطاقة مع خط فاصل خفيف — لتجميع الحقول بصرياً.
+function SectionHeader({
+  title,
+  help,
+  className,
+}: {
+  title: string;
+  help?: string;
+  className?: string;
+}) {
+  return (
+    <div className={cn("mb-3 flex items-center gap-2", className)}>
+      <h3 className="text-sm font-bold text-text">{title}</h3>
+      {help && <InfoTooltip text={help} />}
+      <span className="h-px flex-1 bg-[var(--border)]" />
     </div>
   );
 }
@@ -638,12 +662,13 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
       {/* الخطوة 1: المعلومات الأساسية */}
       {!quickMode && step === 1 && (
         <Card className="p-4">
-          <h2 className="mb-3 text-base font-bold text-text">
-            المعلومات الأساسية
-          </h2>
+          {/* قسم: معلومات أساسية (الاسم، الفئة، النوع، البراند) */}
+          <SectionHeader title="معلومات أساسية" />
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="label">اسم المنتج *</label>
+              <FieldLabel help="يُولَّد تلقائياً من «النوع + البراند»؛ يمكنك تعديله يدوياً.">
+                اسم المنتج *
+              </FieldLabel>
               <TextOnlyInput
                 className="input"
                 value={name}
@@ -653,7 +678,9 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
             </div>
 
             <div>
-              <label className="label">البراند *</label>
+              <FieldLabel help="الشركة المصنّعة للمنتج؛ القائمة تعرض براندات هذه الفئة فقط.">
+                البراند *
+              </FieldLabel>
               <div className="flex gap-2">
                 <select
                   className="input"
@@ -688,7 +715,9 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
             </div>
 
             <div>
-              <label className="label">الفئة *</label>
+              <FieldLabel help="تحدّد قائمة المقاسات المتاحة (ملابس، أحذية، عطور بالملّي…).">
+                الفئة *
+              </FieldLabel>
               <select
                 className="input"
                 value={category}
@@ -709,7 +738,9 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
             </div>
 
             <div>
-              <label className="label">نوع المنتج</label>
+              <FieldLabel help="كود النوع يُستخدم بادئةً لتوليد كود SKU التلقائي لكل صنف.">
+                نوع المنتج
+              </FieldLabel>
               <div className="flex gap-2">
                 <select
                   className="input"
@@ -734,7 +765,7 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                   جديد
                 </button>
               </div>
-              {typesError ? (
+              {typesError && (
                 <p className="mt-1 text-xs text-danger">
                   تعذّر تحميل أنواع المنتجات.{" "}
                   <button
@@ -745,15 +776,17 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
                     إعادة المحاولة
                   </button>
                 </p>
-              ) : (
-                <p className="mt-1 text-xs text-muted">
-                  كود النوع يُستخدم بادئةً لتوليد SKU التلقائي لكل صنف.
-                </p>
               )}
             </div>
+          </div>
 
+          {/* قسم: تفاصيل إضافية (الباركود، الوصف) */}
+          <SectionHeader title="تفاصيل إضافية" className="mt-5" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
-              <label className="label">الباركود</label>
+              <FieldLabel help="باركود المصنّع على العبوة (اختياري) — غير كود SKU الداخلي.">
+                الباركود
+              </FieldLabel>
               <input
                 className="input nums"
                 value={barcode}
@@ -763,7 +796,9 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
             </div>
 
             <div className="sm:col-span-2">
-              <label className="label">الوصف</label>
+              <FieldLabel help="وصف يظهر في صفحة المنتج العامة (يدعم تنسيق ماركداون).">
+                الوصف
+              </FieldLabel>
               <MarkdownField value={description} onChange={setDescription} />
             </div>
           </div>
@@ -812,151 +847,169 @@ export function ProductForm({ initial }: { initial?: ProductDTO }) {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="hidden gap-2 px-1 text-xs font-medium text-muted sm:grid sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_auto]">
-              <span>الفرع</span>
-              <span>المقاس</span>
-              <span>اللون</span>
-              <span>الكمية</span>
-              <span>الحد الأدنى</span>
-              <span>السعر</span>
-              <span></span>
-            </div>
-
-            {variants.map((row) => (
+          <div className="space-y-4">
+            {variants.map((row, idx) => (
               <div
                 key={row.clientId}
-                className="rounded-lg border p-3 sm:p-2.5"
+                className="rounded-[var(--radius)] border bg-[var(--surface-2)]/40 p-3 sm:p-4"
               >
-              <div
-                className="grid grid-cols-2 gap-3 sm:grid-cols-[1.1fr_0.8fr_0.9fr_0.7fr_0.8fr_0.9fr_auto] sm:h-9 sm:items-center sm:gap-2"
-              >
-                <VariantField label="الفرع">
-                  <select
-                    className="input sm:h-9 sm:py-1"
-                    value={row.branch}
-                    onChange={(e) =>
-                      updateRow(row.clientId, {
-                        branch: e.target.value as BranchValue,
-                        ...(row.skuManual ? {} : { sku: "" }),
-                      })
+                {/* رأس الصف: رقم الصنف وملخّصه + زر الحذف */}
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <span className="flex items-center gap-2 text-sm font-bold text-text">
+                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-accent-soft text-xs text-accent">
+                      {idx + 1}
+                    </span>
+                    <span className="text-muted">
+                      {BRANCH_LABELS[row.branch]}
+                      {row.size ? ` · ${row.size}` : ""}
+                      {row.color ? ` · ${row.color}` : ""}
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setVariants((rows) =>
+                        rows.length === 1
+                          ? rows
+                          : rows.filter((r) => r.clientId !== row.clientId)
+                      )
+                    }
+                    disabled={variants.length === 1}
+                    className="btn btn-ghost h-8 gap-1.5 px-2 text-xs text-danger hover:bg-[rgba(217,83,79,0.12)] disabled:opacity-30"
+                    aria-label="حذف الصف"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    <span>حذف</span>
+                  </button>
+                </div>
+
+                {/* مجموعة: المقاس واللون (المواصفات) */}
+                <p className="mb-2 text-xs font-medium text-muted">
+                  المقاس واللون
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <VariantField label="الفرع" help="الفرع الذي يتوفر فيه هذا الصنف.">
+                    <select
+                      className="input"
+                      value={row.branch}
+                      onChange={(e) =>
+                        updateRow(row.clientId, {
+                          branch: e.target.value as BranchValue,
+                          ...(row.skuManual ? {} : { sku: "" }),
+                        })
+                      }
+                    >
+                      {BRANCHES.map((b) => (
+                        <option key={b} value={b}>
+                          {BRANCH_LABELS[b]}
+                        </option>
+                      ))}
+                    </select>
+                  </VariantField>
+
+                  <VariantField
+                    label="المقاس"
+                    help={
+                      category === "PERFUMES"
+                        ? "حجم العطر بالملّي لتر، أو «أخرى» لحجم مخصّص."
+                        : "مقاس الصنف؛ اختر «أخرى» لإدخال مقاس غير قياسي."
                     }
                   >
-                    {BRANCHES.map((b) => (
-                      <option key={b} value={b}>
-                        {BRANCH_LABELS[b]}
-                      </option>
-                    ))}
-                  </select>
-                </VariantField>
+                    <SizeSelect
+                      value={row.size}
+                      options={sizeOptions}
+                      placeholder="المقاس"
+                      onChange={(v) =>
+                        updateRow(row.clientId, {
+                          size: v,
+                          ...(row.skuManual ? {} : { sku: "" }),
+                        })
+                      }
+                    />
+                  </VariantField>
 
-                <VariantField label="المقاس">
-                  <select
-                    className="input sm:h-9 sm:py-1"
-                    value={row.size}
-                    onChange={(e) =>
-                      updateRow(row.clientId, {
-                        size: e.target.value,
-                        ...(row.skuManual ? {} : { sku: "" }),
-                      })
-                    }
+                  <VariantField
+                    label="اللون"
+                    help="اختر من الألوان الموحّدة لتوحيد التسمية عبر المخزون."
                   >
-                    <option value="">المقاس</option>
-                    {sizeOptions.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                    {row.size && !sizeOptions.includes(row.size) && (
-                      <option value={row.size}>{row.size}</option>
-                    )}
-                  </select>
-                </VariantField>
+                    <ColorSelect
+                      value={row.color}
+                      onChange={(v) =>
+                        updateRow(row.clientId, {
+                          color: v,
+                          ...(row.skuManual ? {} : { sku: "" }),
+                        })
+                      }
+                    />
+                  </VariantField>
+                </div>
 
-                <VariantField label="اللون">
-                  <input
-                    className="input sm:h-9 sm:py-1"
-                    value={row.color}
-                    onChange={(e) =>
-                      updateRow(row.clientId, {
-                        color: e.target.value,
-                        ...(row.skuManual ? {} : { sku: "" }),
-                      })
-                    }
-                    placeholder="أحمر / أسود..."
-                  />
-                </VariantField>
+                {/* مجموعة: الكمية والسعر */}
+                <p className="mb-2 mt-4 text-xs font-medium text-muted">
+                  الكمية والسعر
+                </p>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <VariantField label="الكمية" help="عدد القطع المتوفرة حالياً لهذا الصنف.">
+                    <NumberInput
+                      className="input nums"
+                      value={row.quantity}
+                      onChange={(v) => updateRow(row.clientId, { quantity: v })}
+                    />
+                  </VariantField>
 
-                <VariantField label="الكمية">
-                  <NumberInput
-                    className="input nums sm:h-9 sm:py-1"
-                    value={row.quantity}
-                    onChange={(v) => updateRow(row.clientId, { quantity: v })}
-                  />
-                </VariantField>
+                  <VariantField label="السعر (ج.م)" help="سعر بيع القطعة الواحدة.">
+                    <NumberInput
+                      decimal
+                      className="input nums"
+                      value={row.price}
+                      onChange={(v) => updateRow(row.clientId, { price: v })}
+                    />
+                  </VariantField>
 
-                <VariantField label="الحد الأدنى">
-                  <NumberInput
-                    className="input nums sm:h-9 sm:py-1"
-                    value={row.minQuantity}
-                    onChange={(v) => updateRow(row.clientId, { minQuantity: v })}
-                  />
-                </VariantField>
+                  <VariantField
+                    label="الحد الأدنى"
+                    help="عند وصول الكمية لهذا الرقم يُعتبر الصنف قارب على النفاد."
+                  >
+                    <NumberInput
+                      className="input nums"
+                      value={row.minQuantity}
+                      onChange={(v) =>
+                        updateRow(row.clientId, { minQuantity: v })
+                      }
+                    />
+                  </VariantField>
+                </div>
 
-                <VariantField label="السعر (ج.م)">
-                  <NumberInput
-                    decimal
-                    className="input nums sm:h-9 sm:py-1"
-                    value={row.price}
-                    onChange={(v) => updateRow(row.clientId, { price: v })}
-                  />
-                </VariantField>
-
-                <button
-                  type="button"
-                  onClick={() =>
-                    setVariants((rows) =>
-                      rows.length === 1
-                        ? rows
-                        : rows.filter((r) => r.clientId !== row.clientId)
-                    )
-                  }
-                  disabled={variants.length === 1}
-                  className="btn btn-ghost col-span-2 h-11 w-full gap-2 text-danger hover:bg-[rgba(217,83,79,0.12)] disabled:opacity-30 sm:col-span-1 sm:h-9 sm:w-9 sm:!px-0"
-                  aria-label="حذف الصف"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  <span className="sm:hidden">حذف الصف</span>
-                </button>
-              </div>
-
-              {/* التحكم في كود SKU: توليد تلقائي أو إدخال يدوي */}
-              <SkuControl
-                row={row}
-                autoPreview={rowSku(row)}
-                onPatch={(patch) => updateRow(row.clientId, patch)}
-              />
-
-              {/* تفعيل تنبيه الجرس عند بلوغ الحد الأدنى لهذا الصنف */}
-              <label
-                className={cn(
-                  "mt-2.5 flex cursor-pointer select-none items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors sm:mt-2",
-                  row.alertOnLowStock
-                    ? "border-accent bg-accent-soft text-accent"
-                    : "border-[var(--border)] text-muted hover:text-text"
-                )}
-              >
-                <input
-                  type="checkbox"
-                  checked={row.alertOnLowStock}
-                  onChange={(e) =>
-                    updateRow(row.clientId, { alertOnLowStock: e.target.checked })
-                  }
-                  className="h-4 w-4 accent-[var(--accent)]"
+                {/* التحكم في كود SKU: توليد تلقائي أو إدخال يدوي — مفصول بصرياً */}
+                <SkuControl
+                  row={row}
+                  autoPreview={rowSku(row)}
+                  onPatch={(patch) => updateRow(row.clientId, patch)}
                 />
-                <Bell className="h-3.5 w-3.5 shrink-0" />
-                تنبيهني عند الحد الأدنى
-              </label>
+
+                {/* تفعيل تنبيه الجرس عند بلوغ الحد الأدنى لهذا الصنف */}
+                <label
+                  className={cn(
+                    "mt-2.5 flex cursor-pointer select-none items-center gap-2 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+                    row.alertOnLowStock
+                      ? "border-accent bg-accent-soft text-accent"
+                      : "border-[var(--border)] text-muted hover:text-text"
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    checked={row.alertOnLowStock}
+                    onChange={(e) =>
+                      updateRow(row.clientId, {
+                        alertOnLowStock: e.target.checked,
+                      })
+                    }
+                    className="h-4 w-4 accent-[var(--accent)]"
+                  />
+                  <Bell className="h-3.5 w-3.5 shrink-0" />
+                  تنبيهني عند الحد الأدنى
+                  <InfoTooltip text="يظهر تنبيه في الجرس عند بلوغ الكمية الحد الأدنى." />
+                </label>
               </div>
             ))}
           </div>
@@ -1402,6 +1455,7 @@ function SkuControl({
         <span className="flex items-center gap-1 text-xs font-medium text-muted">
           <Tag className="h-3.5 w-3.5" />
           كود SKU
+          <InfoTooltip text="كود داخلي فريد للصنف يُستخدم للكاشير والطباعة. «توليد تلقائي» يبنيه من النوع والمقاس واللون، أو أدخله يدوياً." />
         </span>
         <div className="inline-flex rounded-md border p-0.5 text-[11px]">
           <button
@@ -1624,41 +1678,40 @@ function QuickAddForm({
             </div>
 
             <div>
-              <label className="label">المقاس *</label>
-              <select
-                className="input"
+              <FieldLabel
+                help={
+                  category === "PERFUMES"
+                    ? "حجم العطر بالملّي لتر، أو «أخرى» لحجم مخصّص."
+                    : "مقاس الصنف؛ اختر «أخرى» لإدخال مقاس غير قياسي."
+                }
+              >
+                المقاس *
+              </FieldLabel>
+              <SizeSelect
                 value={row.size}
-                onChange={(e) =>
+                options={sizeOptions}
+                placeholder="المقاس"
+                onChange={(v) =>
                   onPatchRow({
-                    size: e.target.value,
+                    size: v,
                     ...(row.skuManual ? {} : { sku: "" }),
                   })
                 }
-              >
-                <option value="">المقاس</option>
-                {sizeOptions.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-                {row.size && !sizeOptions.includes(row.size) && (
-                  <option value={row.size}>{row.size}</option>
-                )}
-              </select>
+              />
             </div>
 
             <div>
-              <label className="label">اللون</label>
-              <input
-                className="input"
+              <FieldLabel help="اختر من الألوان الموحّدة لتوحيد التسمية عبر المخزون.">
+                اللون
+              </FieldLabel>
+              <ColorSelect
                 value={row.color}
-                onChange={(e) =>
+                onChange={(v) =>
                   onPatchRow({
-                    color: e.target.value,
+                    color: v,
                     ...(row.skuManual ? {} : { sku: "" }),
                   })
                 }
-                placeholder="أحمر / أسود…"
               />
             </div>
 
