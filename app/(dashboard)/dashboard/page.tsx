@@ -605,6 +605,77 @@ function renderSection(key: string, data: DashboardStats): React.ReactNode {
         </SectionCard>
       );
 
+    case "returnsToday":
+      return (
+        <StatCard
+          tone="warning"
+          title="المرتجعات اليوم"
+          value={formatNumber(data.returnsToday.count)}
+          subtitle={`القيمة المُستردة: ${formatCurrency(data.returnsToday.value)}`}
+          icon={<RotateCcw className="h-5 w-5" />}
+        />
+      );
+    case "returnsSummary": {
+      const rs = data.returnsSummary;
+      const hasReturns = rs.returnCount + rs.exchangeCount > 0;
+      return (
+        <SectionCard
+          title="المرتجعات والاستبدال (ملخّص الفترة)"
+          icon={<RotateCcw />}
+        >
+          {hasReturns ? (
+            <>
+              <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  { label: "عمليات إرجاع", value: formatNumber(rs.returnCount) },
+                  {
+                    label: "عمليات استبدال",
+                    value: formatNumber(rs.exchangeCount),
+                  },
+                  {
+                    label: "صافي المُسترَد",
+                    value: formatCurrency(rs.netRefunded),
+                  },
+                  {
+                    label: "فروق استبدال محصّلة",
+                    value: formatCurrency(rs.exchangeUpcharge),
+                  },
+                ].map((s) => (
+                  <div
+                    key={s.label}
+                    className="rounded-[var(--radius-md)] bg-[var(--surface-2)] p-3 text-center"
+                  >
+                    <p className="text-xs text-muted">{s.label}</p>
+                    <p className="mt-1 text-lg font-extrabold text-text nums">
+                      {s.value}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {rs.topReturnedProducts.length > 0 ? (
+                <SimpleTable
+                  headers={[
+                    "المنتج",
+                    "البراند",
+                    "الكمية المُرتجعة",
+                    "قيمة الإرجاع",
+                  ]}
+                  rows={rs.topReturnedProducts.map((p) => [
+                    p.name,
+                    p.brand,
+                    formatNumber(p.qty),
+                    formatCurrency(p.refund),
+                  ])}
+                />
+              ) : null}
+            </>
+          ) : (
+            <EmptyBlock />
+          )}
+        </SectionCard>
+      );
+    }
+
     // ==== تقارير المنتجات والجرد ====
     case "inventoryValue":
       return (

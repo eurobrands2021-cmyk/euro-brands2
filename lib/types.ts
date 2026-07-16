@@ -583,6 +583,22 @@ export interface DashboardStats {
     maxInvoice: number; // أعلى فاتورة
   }[];
 
+  // المرتجعات — بطاقة «اليوم» + ملخّص الفترة (القسم + التصدير)
+  returnsToday: { count: number; value: number }; // عدد وقيمة مرتجعات اليوم
+  returnsSummary: {
+    returnCount: number; // عدد عمليات الإرجاع في الفترة
+    exchangeCount: number; // عدد عمليات الاستبدال في الفترة
+    refundTotal: number; // إجمالي المُسترَد (نقد خارج)
+    exchangeUpcharge: number; // فروق استبدال محصّلة (نقد داخل)
+    netRefunded: number; // صافي المُسترَد = refundTotal − exchangeUpcharge
+    topReturnedProducts: {
+      name: string;
+      brand: string;
+      qty: number;
+      refund: number;
+    }[];
+  };
+
   // حقول إضافية للتصدير (PDF/Excel)
   grossSales: number;
   discountTotal: number;

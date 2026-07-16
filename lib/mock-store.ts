@@ -2720,6 +2720,46 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
   const netCashToday = computeNetCash(todaySales, todayRefundCash);
   const rangeRefundByBranch = groupReturnCashByBranch(returnRows(from, to));
 
+  // ملخّص المرتجعات (الفترة) + بطاقة اليوم
+  const rangeReturnsList = store.returns.filter(
+    (r) => r.createdAt >= from && r.createdAt <= to
+  );
+  const todayReturnsList = store.returns.filter(
+    (r) => r.createdAt >= todayStart && r.createdAt <= todayEnd
+  );
+  let retCount = 0;
+  let exchCount = 0;
+  const retProdMap = new Map<
+    string,
+    { name: string; brand: string; qty: number; refund: number }
+  >();
+  for (const r of rangeReturnsList) {
+    if (r.type === "EXCHANGE") exchCount++;
+    else retCount++;
+    for (const it of r.items) {
+      const ref = findVariant(it.variantId);
+      const name = ref?.product.name ?? "—";
+      const brand = ref?.product.brand ?? "";
+      const k = `${name}|${brand}`;
+      const e = retProdMap.get(k) ?? { name, brand, qty: 0, refund: 0 };
+      e.qty += it.quantity;
+      e.refund = round2(e.refund + it.refundAmount);
+      retProdMap.set(k, e);
+    }
+  }
+  const rangeRefundCash = sumReturnCash(returnRows(from, to));
+  const returnsSummary = {
+    returnCount: retCount,
+    exchangeCount: exchCount,
+    refundTotal: rangeRefundCash.refunds,
+    exchangeUpcharge: rangeRefundCash.exchangeUpcharge,
+    netRefunded: round2(rangeRefundCash.refunds - rangeRefundCash.exchangeUpcharge),
+    topReturnedProducts: [...retProdMap.values()]
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 10),
+  };
+  const returnsToday = { count: todayReturnsList.length, value: refundsToday };
+
   // إجمالي الرصيد المتبقي (كل الوقت)
   const remainingTotal = round2(
     store.sales
@@ -2835,6 +2875,8 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
     todayChangePct,
     refundsToday,
     netCashToday,
+    returnsToday,
+    returnsSummary,
     rangeSales: round2(rangeTotal),
     rangeSalesCount: inRange.length,
     avgInvoice: inRange.length ? round2(rangeTotal / inRange.length) : 0,

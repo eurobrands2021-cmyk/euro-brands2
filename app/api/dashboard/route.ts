@@ -233,7 +233,7 @@ export async function GET(req: Request) {
           },
         })
         .catch(() => []),
-      // مرتجعات الفترة (لصافي نقدية كل فرع) — استعلام دفاعي
+      // مرتجعات الفترة (لصافي نقدية كل فرع + ملخّص المرتجعات) — استعلام دفاعي
       prisma.return
         .findMany({
           where: { createdAt: { gte: from, lte: to } },
@@ -242,7 +242,17 @@ export async function GET(req: Request) {
             type: true,
             refundTotal: true,
             exchangeDifference: true,
+            items: {
+              select: {
+                quantity: true,
+                refundAmount: true,
+                variant: {
+                  select: { product: { select: { name: true, brand: true } } },
+                },
+              },
+            },
           },
+          take: 2000,
         })
         .catch(() => []),
     ]);
@@ -435,6 +445,45 @@ export async function GET(req: Request) {
       rangeReturnsRows as ReturnCashRow[]
     );
 
+    // ملخّص المرتجعات خلال الفترة (عدد/قيمة + أكثر المنتجات إرجاعاً)
+    const rangeRefundCash = sumReturnCash(rangeReturnsRows as ReturnCashRow[]);
+    let returnCount = 0;
+    let exchangeCount = 0;
+    const returnedProdMap = new Map<
+      string,
+      { name: string; brand: string; qty: number; refund: number }
+    >();
+    for (const r of rangeReturnsRows) {
+      if (r.type === "EXCHANGE") exchangeCount++;
+      else returnCount++;
+      for (const it of r.items ?? []) {
+        const name = it.variant?.product?.name ?? "—";
+        const brand = it.variant?.product?.brand ?? "";
+        const k = `${name}|${brand}`;
+        const e = returnedProdMap.get(k) ?? { name, brand, qty: 0, refund: 0 };
+        e.qty += it.quantity;
+        e.refund = round2(e.refund + it.refundAmount);
+        returnedProdMap.set(k, e);
+      }
+    }
+    const topReturnedProducts = [...returnedProdMap.values()]
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 10);
+    const returnsSummary = {
+      returnCount,
+      exchangeCount,
+      refundTotal: rangeRefundCash.refunds,
+      exchangeUpcharge: rangeRefundCash.exchangeUpcharge,
+      netRefunded: round2(
+        rangeRefundCash.refunds - rangeRefundCash.exchangeUpcharge
+      ),
+      topReturnedProducts,
+    };
+    const returnsTodayCard = {
+      count: todayReturnsRows.length,
+      value: refundsToday,
+    };
+
     const todayChangePct =
       yesterdaySales > 0
         ? round2(((todaySales - yesterdaySales) / yesterdaySales) * 100)
@@ -566,6 +615,8 @@ export async function GET(req: Request) {
       todayChangePct,
       refundsToday,
       netCashToday,
+      returnsToday: returnsTodayCard,
+      returnsSummary,
       rangeSales: round2(rangeTotal),
       rangeSalesCount: rangeSales.length,
       avgInvoice: rangeSales.length

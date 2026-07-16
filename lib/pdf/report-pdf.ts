@@ -272,6 +272,36 @@ function sectionHtml(key: string, data: DashboardStats, n: number): string {
           data.dailySales.map((d) => d.total)
         )
       );
+    case "returnsToday":
+      return cards(
+        summaryCard("عدد المرتجعات اليوم", num(data.returnsToday.count), C.amber) +
+          summaryCard("القيمة المُستردة", money(data.returnsToday.value), C.amber)
+      );
+    case "returnsSummary": {
+      const rs = data.returnsSummary;
+      return (
+        sectionTitle(title, n) +
+        `<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:10px;">
+          ${summaryCard("عمليات إرجاع", num(rs.returnCount), C.accent)}
+          ${summaryCard("عمليات استبدال", num(rs.exchangeCount), C.accentDark)}
+          ${summaryCard("صافي المُسترَد", money(rs.netRefunded), C.amber)}
+          ${summaryCard("فروق استبدال محصّلة", money(rs.exchangeUpcharge), C.green)}
+        </div>` +
+        (rs.topReturnedProducts.length
+          ? barTable(
+              ["المنتج", "البراند", "الكمية المُرتجعة", "قيمة الإرجاع"],
+              rs.topReturnedProducts.map((p) => [
+                p.name,
+                p.brand,
+                num(p.qty),
+                money(p.refund),
+              ]),
+              rs.topReturnedProducts.map((p) => p.qty),
+              C.amber
+            )
+          : "")
+      );
+    }
 
     // ---- المخزون والجرد ----
     case "inventoryValue":

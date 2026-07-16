@@ -94,6 +94,28 @@ function sectionRows(key: string, data: DashboardStats): Row[] {
         ...head(["اليوم", "المبيعات"]),
         ...data.dailySales.map((d) => [d.date, d.total]),
       ];
+    case "returnsToday":
+      return [
+        [title, data.returnsToday.count],
+        ["القيمة المُستردة", data.returnsToday.value],
+      ];
+    case "returnsSummary":
+      return [
+        [title],
+        ["عمليات إرجاع", data.returnsSummary.returnCount],
+        ["عمليات استبدال", data.returnsSummary.exchangeCount],
+        ["إجمالي المُسترَد", data.returnsSummary.refundTotal],
+        ["فروق استبدال محصّلة", data.returnsSummary.exchangeUpcharge],
+        ["صافي المُسترَد", data.returnsSummary.netRefunded],
+        [],
+        ["المنتج", "البراند", "الكمية المُرتجعة", "قيمة الإرجاع"],
+        ...data.returnsSummary.topReturnedProducts.map((p) => [
+          p.name,
+          p.brand,
+          p.qty,
+          p.refund,
+        ]),
+      ];
 
     // ---- المخزون والجرد ----
     case "inventoryValue":

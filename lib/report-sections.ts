@@ -22,6 +22,8 @@ export const SALES_SECTIONS: ReportSectionMeta[] = [
   { key: "discounts", label: "الخصومات الممنوحة" },
   { key: "deliveryVsPickup", label: "مبيعات التوصيل vs الاستلام" },
   { key: "dailyTrend", label: "تريند المبيعات اليومي" },
+  { key: "returnsToday", label: "المرتجعات اليوم" },
+  { key: "returnsSummary", label: "المرتجعات والاستبدال (ملخّص الفترة)" },
 ];
 
 // تبويب «تقارير المنتجات والجرد» — 13 قسماً
