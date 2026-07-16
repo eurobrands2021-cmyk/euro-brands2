@@ -20,10 +20,12 @@ import {
 import { fetchLowStockVariants } from "@/lib/low-stock-query";
 import {
   BRANCHES,
+  EXPENSE_CATEGORIES,
   PAYMENT_METHOD_LABELS,
   TRANSFER_METHOD_LABELS,
   type BranchValue,
   type CategoryValue,
+  type ExpenseCategoryValue,
 } from "@/lib/constants";
 import type { DashboardStats } from "@/lib/types";
 import { MOCK_MODE, mockDashboard } from "@/lib/mock-store";
@@ -123,7 +125,7 @@ export async function GET(req: Request) {
                   images: true,
                 },
               },
-              variant: { select: { size: true } },
+              variant: { select: { size: true, cost: true } },
             },
           },
         },
@@ -276,6 +278,7 @@ export async function GET(req: Request) {
         brand: string;
         qty: number;
         revenue: number;
+        cost: number; // تكلفة البضاعة المباعة لهذا المنتج (Part D)
         image: string | null;
       }
     >();
@@ -299,6 +302,7 @@ export async function GET(req: Request) {
     let deliveryCount = 0;
     let pickupCount = 0;
     let returnedCount = 0;
+    let cogs = 0; // إجمالي تكلفة البضاعة المباعة (Part D)
 
     const customerKey = (name: string | null, phone: string | null) =>
       `${(name ?? "").trim()}|${(phone ?? "").trim()}`;
@@ -373,15 +377,21 @@ export async function GET(req: Request) {
         c.qty += item.quantity;
         categoryMap.set(cat, c);
 
+        // تكلفة البضاعة المباعة لهذا البند = تكلفة الوحدة × الكمية (Part D)
+        const lineCost = (item.variant?.cost ?? 0) * item.quantity;
+        cogs += lineCost;
+
         const p = productMap.get(item.productId) ?? {
           name: item.product.name,
           brand: item.product.brand,
           qty: 0,
           revenue: 0,
+          cost: 0,
           image: item.product.images?.[0] ?? null,
         };
         p.qty += item.quantity;
         p.revenue += item.subtotal;
+        p.cost += lineCost;
         productMap.set(item.productId, p);
 
         const brandName = item.product.brand ?? "";
@@ -607,6 +617,25 @@ export async function GET(req: Request) {
       })
     );
 
+    // ---- Part D: الربح الحقيقي والمصروفات ----
+    const cogsTotal = round2(cogs);
+    const grossProfit = round2(rangeTotal - cogsTotal);
+    const expenseRows = await prisma.expense.findMany({
+      where: { date: { gte: from, lte: to } },
+      select: { category: true, amount: true },
+    });
+    const expCatMap = new Map<ExpenseCategoryValue, number>();
+    for (const c of EXPENSE_CATEGORIES) expCatMap.set(c, 0);
+    let expensesTotal = 0;
+    for (const e of expenseRows) {
+      expensesTotal = round2(expensesTotal + e.amount);
+      const cat = EXPENSE_CATEGORIES.includes(e.category as ExpenseCategoryValue)
+        ? (e.category as ExpenseCategoryValue)
+        : "other";
+      expCatMap.set(cat, round2((expCatMap.get(cat) ?? 0) + e.amount));
+    }
+    const netProfit = round2(grossProfit - expensesTotal);
+
     const stats: DashboardStats = {
       todaySales,
       todaySalesCount: todayAgg._count,
@@ -747,14 +776,24 @@ export async function GET(req: Request) {
         .sort((a, b) => b.value - a.value)
         .slice(0, 15),
       topProfit: [...productMap.values()]
-        .sort((a, b) => b.revenue - a.revenue)
-        .slice(0, 10)
         .map((p) => ({
           name: p.name,
           brand: p.brand,
           qty: p.qty,
           revenue: round2(p.revenue),
-        })),
+          cost: round2(p.cost),
+          profit: round2(p.revenue - p.cost),
+        }))
+        .sort((a, b) => b.profit - a.profit)
+        .slice(0, 10),
+      cogs: cogsTotal,
+      grossProfit,
+      expensesTotal,
+      netProfit,
+      expensesByCategory: [...expCatMap.entries()].map(([category, total]) => ({
+        category,
+        total,
+      })),
       newProducts,
       damagedItems,
       stockTransfers,

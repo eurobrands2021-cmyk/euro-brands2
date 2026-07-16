@@ -51,6 +51,19 @@ import {
   mockCreateReturn,
   mockListReturns,
   mockUnlockSale,
+  mockListShifts,
+  mockStartShift,
+  mockGetShift,
+  mockCloseShift,
+  mockListSuppliers,
+  mockCreateSupplier,
+  mockUpdateSupplier,
+  mockDeleteSupplier,
+  mockListStockReceipts,
+  mockCreateStockReceipt,
+  mockListExpenses,
+  mockCreateExpense,
+  mockDeleteExpense,
 } from "./mock-store";
 import {
   parseAccessRequestInput,
@@ -67,6 +80,11 @@ import {
   parseProductTypeInput,
   parseReturnInput,
   parseSaleInput,
+  parseShiftCloseInput,
+  parseShiftFinalizeInput,
+  parseSupplierInput,
+  parseStockReceiptInput,
+  parseExpenseInput,
 } from "./validate";
 import { mergeSettings } from "./settings";
 
@@ -363,6 +381,75 @@ export async function mockApi<T>(
       if (!res.ok) throw new Error(res.error);
       return res.data as T;
     }
+  }
+
+  // /api/shifts — إقفال الصندوق (Part A)
+  const shiftCloseMatch = path.match(/^\/api\/shifts\/([^/]+)\/close$/);
+  if (shiftCloseMatch && method === "POST") {
+    const res = mockCloseShift(
+      decodeURIComponent(shiftCloseMatch[1]),
+      parseShiftFinalizeInput(body)
+    );
+    if (!res.ok) throw new Error(res.error);
+    return res.data as T;
+  }
+  const shiftIdMatch = path.match(/^\/api\/shifts\/([^/]+)$/);
+  if (shiftIdMatch && method === "GET") {
+    const res = mockGetShift(decodeURIComponent(shiftIdMatch[1]));
+    if (!res) throw new Error("الشيفت غير موجود");
+    return res as T;
+  }
+  if (path === "/api/shifts") {
+    if (method === "GET") return mockListShifts(sp) as T;
+    if (method === "POST") {
+      const res = mockStartShift(parseShiftCloseInput(body));
+      if (!res.ok) throw new Error(res.error);
+      return res.data as T;
+    }
+  }
+
+  // /api/suppliers — الموردون (Part B)
+  const supplierMatch = path.match(/^\/api\/suppliers\/([^/]+)$/);
+  if (supplierMatch) {
+    const id = decodeURIComponent(supplierMatch[1]);
+    if (method === "PUT") {
+      const res = mockUpdateSupplier(id, parseSupplierInput(body));
+      if (!res) throw new Error("المورد غير موجود");
+      return res as T;
+    }
+    if (method === "DELETE") {
+      const res = mockDeleteSupplier(id);
+      if (!res.ok) throw new Error(res.error);
+      return { id } as T;
+    }
+  }
+  if (path === "/api/suppliers") {
+    if (method === "GET") return mockListSuppliers() as T;
+    if (method === "POST")
+      return mockCreateSupplier(parseSupplierInput(body)) as T;
+  }
+
+  // /api/stock-receipts — استلام البضاعة (Part B)
+  if (path === "/api/stock-receipts") {
+    if (method === "GET") return mockListStockReceipts(sp) as T;
+    if (method === "POST") {
+      const res = mockCreateStockReceipt(parseStockReceiptInput(body));
+      if (!res.ok) throw new Error(res.error);
+      return res.data as T;
+    }
+  }
+
+  // /api/expenses — المصروفات (Part C)
+  const expenseMatch = path.match(/^\/api\/expenses\/([^/]+)$/);
+  if (expenseMatch && method === "DELETE") {
+    const id = decodeURIComponent(expenseMatch[1]);
+    if (!mockDeleteExpense(id)) throw new Error("المصروف غير موجود");
+    return { id } as T;
+  }
+  if (path === "/api/expenses") {
+    if (method === "GET") return mockListExpenses(sp) as T;
+    if (method === "POST")
+      return mockCreateExpense(parseExpenseInput(body)) as T;
   }
 
   throw new Error(`وضع المعاينة: مسار غير مدعوم (${method} ${path})`);

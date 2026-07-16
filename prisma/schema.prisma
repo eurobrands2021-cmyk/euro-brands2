@@ -136,6 +136,7 @@ model ProductVariant {
   alertOnLowStock Boolean @default(false) // تفعيل جرس التنبيه عند بلوغ الحد الأدنى لهذا الصنف
   branch      Branch
   price       Float // سعر البيع لكل صنف بالجنيه المصري
+  cost        Float  @default(0) // تكلفة الوحدة (متوسط مرجّح) — تُحدَّث مع كل استلام بضاعة (Part D)
   sku         String? @unique // كود الصنف (يولَّد تلقائياً أو يُدخَل يدوياً)
   skuManual   Boolean @default(false) // علامة أن المستخدم عدّل الكود يدوياً (لا يُعاد توليده)
 
@@ -143,6 +144,7 @@ model ProductVariant {
 
   returnItems         ReturnItem[] @relation("ReturnedVariant") // أُرجِع هذا الصنف
   exchangeReturnItems ReturnItem[] @relation("ExchangeVariant") // اُستُبدِل إلى هذا الصنف
+  stockReceiptItems   StockReceiptItem[] // بنود استلام البضاعة لهذا الصنف
 
   @@unique([productId, size, branch, color])
   @@index([productId])
@@ -384,4 +386,94 @@ model ReturnItem {
   @@index([returnId])
   @@index([saleItemId])
   @@index([variantId])
+}
+
+// ----------------------------------------------------
+//  إقفال الصندوق / تسوية النقدية (Part A)
+//  «بدء الشيفت»: يفتح صف بعهدة البداية (closedAt = null).
+//  «إقفال الشيفت»: يُحسب المتوقع (عهدة + كاش مبيعات − كاش مرتجعات)، يدخل الكاشير
+//  المعدود، ويُسجَّل الفرق (زيادة/عجز) مع وقت الإقفال.
+// ----------------------------------------------------
+model ShiftClose {
+  id           String    @id @default(cuid())
+  branch       Branch
+  cashierName  String? // اسم الكاشير
+  openingCash  Float     @default(0) // عهدة بداية الشيفت
+  expectedCash Float     @default(0) // محسوب: عهدة + كاش مبيعات − كاش مرتجعات
+  countedCash  Float? // المعدود فعلياً (يدخله الكاشير عند الإقفال)
+  difference   Float     @default(0) // محسوب: countedCash − expectedCash (زيادة/عجز)
+  notes        String?
+  openedAt     DateTime  @default(now())
+  closedAt     DateTime? // null = شيفت مفتوح
+
+  @@index([branch])
+  @@index([openedAt])
+  @@index([closedAt])
+}
+
+// ----------------------------------------------------
+//  الموردون واستلام البضاعة (Part B)
+// ----------------------------------------------------
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  receipts StockReceipt[]
+
+  @@index([name])
+}
+
+model StockReceipt {
+  id            String   @id @default(cuid())
+  supplierId    String
+  supplier      Supplier @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  branch        Branch
+  invoiceNumber String? // رقم فاتورة المورد (اختياري)
+  totalCost     Float    @default(0) // إجمالي تكلفة الاستلام
+  notes         String?
+  createdBy     String? // اسم منفّذ الاستلام
+  createdAt     DateTime @default(now())
+
+  items StockReceiptItem[]
+
+  @@index([supplierId])
+  @@index([branch])
+  @@index([createdAt])
+}
+
+model StockReceiptItem {
+  id        String       @id @default(cuid())
+  receiptId String
+  receipt   StockReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+
+  quantity Int
+  unitCost Float @default(0) // تكلفة الوحدة عند هذا الاستلام
+
+  @@index([receiptId])
+  @@index([variantId])
+}
+
+// ----------------------------------------------------
+//  المصروفات (Part C)
+//  category كنص (rent / utilities / salaries / other) على نمط الجداول اللاحقة.
+// ----------------------------------------------------
+model Expense {
+  id          String   @id @default(cuid())
+  branch      Branch
+  category    String   @default("other") // rent / utilities / salaries / other
+  amount      Float    @default(0)
+  description String?
+  date        DateTime @default(now()) // تاريخ المصروف (قد يختلف عن createdAt)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([branch])
+  @@index([category])
+  @@index([date])
 }

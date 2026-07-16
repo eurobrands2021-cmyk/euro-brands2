@@ -25,8 +25,11 @@ import {
   type PaymentMethodValue,
   type TransferMethodValue,
   type SaleStatusValue,
+  type ExpenseCategoryValue,
+  EXPENSE_CATEGORIES,
 } from "./constants";
 import { ValidationError } from "./validate";
+import { computeShiftReport } from "./shift-report";
 import { buildDefectReport } from "./defect-report";
 import {
   normalizeAnswer,
@@ -69,6 +72,19 @@ import type {
   SalesListResponse,
   VariantDTO,
   VipCustomerDTO,
+  ShiftCloseDTO,
+  ShiftCloseInput,
+  ShiftFinalizeInput,
+  ShiftListResponse,
+  ShiftDetailResponse,
+  SupplierDTO,
+  SupplierInput,
+  StockReceiptDTO,
+  StockReceiptInput,
+  StockReceiptsListResponse,
+  ExpenseDTO,
+  ExpenseInput,
+  ExpensesListResponse,
 } from "./types";
 import type { ReturnTypeValue, RefundMethodValue } from "./constants";
 import { buildVariantSku, uniquifySku } from "./sku";
@@ -100,6 +116,7 @@ interface MVariant {
   alertOnLowStock: boolean;
   branch: BranchValue;
   price: number;
+  cost?: number; // تكلفة الوحدة (متوسط مرجّح) — Part D
   sku: string | null;
   skuManual: boolean;
 }
@@ -241,6 +258,54 @@ interface MCustomer {
   updatedAt: Date;
 }
 
+// ---- العمليات اليومية (Parts A–C) داخل المتجر التجريبي ----
+interface MShiftClose {
+  id: string;
+  branch: BranchValue;
+  cashierName: string | null;
+  openingCash: number;
+  expectedCash: number;
+  countedCash: number | null;
+  difference: number;
+  notes: string | null;
+  openedAt: Date;
+  closedAt: Date | null;
+}
+interface MSupplier {
+  id: string;
+  name: string;
+  phone: string | null;
+  notes: string | null;
+  createdAt: Date;
+}
+interface MStockReceiptItem {
+  id: string;
+  variantId: string;
+  quantity: number;
+  unitCost: number;
+}
+interface MStockReceipt {
+  id: string;
+  supplierId: string;
+  branch: BranchValue;
+  invoiceNumber: string | null;
+  totalCost: number;
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: Date;
+  items: MStockReceiptItem[];
+}
+interface MExpense {
+  id: string;
+  branch: BranchValue;
+  category: ExpenseCategoryValue;
+  amount: number;
+  description: string | null;
+  date: Date;
+  createdBy: string | null;
+  createdAt: Date;
+}
+
 interface Store {
   products: MProduct[];
   sales: MSale[];
@@ -251,6 +316,10 @@ interface Store {
   accessRequests: MAccessRequest[];
   damaged: MDamaged[];
   returns: MReturn[];
+  shifts: MShiftClose[];
+  suppliers: MSupplier[];
+  stockReceipts: MStockReceipt[];
+  expenses: MExpense[];
   settings: Record<string, string>;
   seq: number;
 }
@@ -283,6 +352,10 @@ function buildStore(): Store {
     accessRequests: [],
     damaged: [],
     returns: [],
+    shifts: [],
+    suppliers: [],
+    stockReceipts: [],
+    expenses: [],
     settings: {},
     seq: 0,
   };
@@ -758,6 +831,7 @@ function shapeVariant(v: MVariant): VariantDTO {
     alertOnLowStock: v.alertOnLowStock ?? false,
     branch: v.branch,
     price: v.price,
+    cost: v.cost ?? 0,
     sku: v.sku,
     skuManual: v.skuManual,
   };
@@ -2527,11 +2601,13 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
       brand: string;
       qty: number;
       revenue: number;
+      cost: number;
       image: string | null;
     }
   >();
   const brandMap = new Map<string, { qty: number; revenue: number }>();
   const sizeMap = new Map<string, { qty: number; revenue: number }>();
+  let cogs = 0; // Part D
   const customerMap = new Map<
     string,
     { name: string; phone: string | null; total: number; count: number }
@@ -2618,15 +2694,20 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
       c.qty += item.quantity;
       categoryMap.set(cat, c);
 
+      const lineCost = (ref?.variant.cost ?? 0) * item.quantity; // Part D
+      cogs += lineCost;
+
       const p = productMap.get(item.productId) ?? {
         name: ref?.product.name ?? "—",
         brand: ref?.product.brand ?? "",
         qty: 0,
         revenue: 0,
+        cost: 0,
         image: ref?.product.images?.[0] ?? null,
       };
       p.qty += item.quantity;
       p.revenue += item.subtotal;
+      p.cost += lineCost;
       productMap.set(item.productId, p);
 
       const brandName = ref?.product.brand ?? "";
@@ -2867,6 +2948,23 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
     }))
     .slice(0, 100);
 
+  // ---- Part D: مصروفات الفترة (وضع المعاينة) ----
+  const dashExpCatMap = new Map<ExpenseCategoryValue, number>();
+  for (const c of EXPENSE_CATEGORIES) dashExpCatMap.set(c, 0);
+  let dashExpensesTotal = 0;
+  for (const e of store.expenses) {
+    if (from && e.date < from) continue;
+    if (to && e.date > to) continue;
+    dashExpensesTotal = round2(dashExpensesTotal + e.amount);
+    dashExpCatMap.set(
+      e.category,
+      round2((dashExpCatMap.get(e.category) ?? 0) + e.amount)
+    );
+  }
+  const dashExpensesByCategory = [...dashExpCatMap.entries()].map(
+    ([category, total]) => ({ category, total })
+  );
+
   return {
     todaySales,
     todaySalesCount: todayList.length,
@@ -2994,14 +3092,21 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
       .sort((a, b) => b.value - a.value)
       .slice(0, 15),
     topProfit: [...productMap.values()]
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, 10)
       .map((p) => ({
         name: p.name,
         brand: p.brand,
         qty: p.qty,
         revenue: round2(p.revenue),
-      })),
+        cost: round2(p.cost),
+        profit: round2(p.revenue - p.cost),
+      }))
+      .sort((a, b) => b.profit - a.profit)
+      .slice(0, 10),
+    cogs: round2(cogs),
+    grossProfit: round2(rangeTotal - cogs),
+    expensesTotal: dashExpensesTotal,
+    netProfit: round2(rangeTotal - cogs - dashExpensesTotal),
+    expensesByCategory: dashExpensesByCategory,
     newProducts,
     damagedItems: [],
     stockTransfers: [],
@@ -3474,6 +3579,396 @@ export function mockUnlockSale(
   s.unlockedBy = by;
   s.unlockReason = reason;
   return { ok: true, sale: shapeSale(s) };
+}
+
+// ====================================================
+//  العمليات اليومية (Parts A–D) — وضع المعاينة
+// ====================================================
+
+const genId = (p: string) => `${p}_${++store.seq}`;
+
+function inRange(d: Date, from: string | null, to: string | null): boolean {
+  if (from && d < new Date(from)) return false;
+  if (to && d > new Date(to)) return false;
+  return true;
+}
+
+// ---- Part A: إقفال الصندوق ----
+function shapeShift(s: MShiftClose): ShiftCloseDTO {
+  return {
+    id: s.id,
+    branch: s.branch,
+    cashierName: s.cashierName,
+    openingCash: s.openingCash,
+    expectedCash: s.expectedCash,
+    countedCash: s.countedCash,
+    difference: s.difference,
+    notes: s.notes,
+    openedAt: s.openedAt.toISOString(),
+    closedAt: s.closedAt ? s.closedAt.toISOString() : null,
+  };
+}
+
+// حساب ملخّص الشيفت من فواتير/مرتجعات نافذة الشيفت داخل المتجر التجريبي
+function shiftReportFor(s: MShiftClose) {
+  const from = s.openedAt;
+  const to = s.closedAt ?? new Date();
+  const sales = store.sales.filter(
+    (x) =>
+      x.branch === s.branch &&
+      x.status !== "CANCELLED" &&
+      x.createdAt >= from &&
+      x.createdAt <= to
+  );
+  const returnRows: ReturnCashRow[] = store.returns
+    .filter((r) => r.branch === s.branch && r.createdAt >= from && r.createdAt <= to)
+    .map((r) => ({
+      branch: r.branch,
+      type: r.type,
+      refundTotal: r.refundTotal,
+      exchangeDifference: r.exchangeDifference,
+    }));
+  return computeShiftReport(
+    s.openingCash,
+    sales.map((x) => ({
+      paymentMethod: x.paymentMethod,
+      transferMethod: x.transferMethod,
+      finalAmount: x.finalAmount,
+    })),
+    returnRows
+  );
+}
+
+export function mockListShifts(sp: URLSearchParams): ShiftListResponse {
+  const branch = sp.get("branch");
+  const from = sp.get("from");
+  const to = sp.get("to");
+  const status = sp.get("status");
+
+  let rows = [...store.shifts];
+  if (branch) rows = rows.filter((s) => s.branch === branch);
+  if (status === "open") rows = rows.filter((s) => !s.closedAt);
+  else if (status === "closed") rows = rows.filter((s) => s.closedAt);
+  rows = rows.filter((s) => inRange(s.openedAt, from, to));
+  rows.sort((a, b) => b.openedAt.getTime() - a.openedAt.getTime());
+
+  const shifts = rows.map(shapeShift);
+  let openShift: ShiftCloseDTO | null = null;
+  if (branch) {
+    const open = store.shifts.find((s) => s.branch === branch && !s.closedAt);
+    openShift = open ? shapeShift(open) : null;
+  }
+
+  const closed = shifts.filter((s) => s.closedAt);
+  const summary = closed.reduce(
+    (acc, s) => {
+      acc.count += 1;
+      acc.totalDifference = round2(acc.totalDifference + s.difference);
+      if (s.difference > 0.001) acc.overCount += 1;
+      else if (s.difference < -0.001) acc.shortCount += 1;
+      return acc;
+    },
+    { count: 0, totalDifference: 0, overCount: 0, shortCount: 0 }
+  );
+
+  return { shifts, openShift, total: shifts.length, summary };
+}
+
+export function mockStartShift(
+  input: ShiftCloseInput
+): { ok: boolean; error?: string; status?: number; data?: ShiftCloseDTO } {
+  const existing = store.shifts.find(
+    (s) => s.branch === input.branch && !s.closedAt
+  );
+  if (existing)
+    return {
+      ok: false,
+      error: "يوجد شيفت مفتوح بالفعل لهذا الفرع — أقفله أولاً",
+      status: 409,
+    };
+  const s: MShiftClose = {
+    id: genId("shift"),
+    branch: input.branch,
+    cashierName: input.cashierName,
+    openingCash: input.openingCash,
+    expectedCash: input.openingCash,
+    countedCash: null,
+    difference: 0,
+    notes: null,
+    openedAt: new Date(),
+    closedAt: null,
+  };
+  store.shifts.push(s);
+  return { ok: true, data: shapeShift(s) };
+}
+
+export function mockGetShift(id: string): ShiftDetailResponse | null {
+  const s = store.shifts.find((x) => x.id === id);
+  if (!s) return null;
+  return { shift: shapeShift(s), report: shiftReportFor(s) };
+}
+
+export function mockCloseShift(
+  id: string,
+  input: ShiftFinalizeInput
+): { ok: boolean; error?: string; status?: number; data?: ShiftDetailResponse } {
+  const s = store.shifts.find((x) => x.id === id);
+  if (!s) return { ok: false, error: "الشيفت غير موجود", status: 404 };
+  if (s.closedAt) return { ok: false, error: "هذا الشيفت مُقفل بالفعل", status: 409 };
+  s.closedAt = new Date();
+  const report = shiftReportFor(s);
+  s.expectedCash = report.expectedCash;
+  s.countedCash = input.countedCash;
+  s.difference = round2(input.countedCash - report.expectedCash);
+  s.notes = input.notes;
+  return { ok: true, data: { shift: shapeShift(s), report } };
+}
+
+// ---- Part B: الموردون والاستلام ----
+function shapeSupplier(s: MSupplier): SupplierDTO {
+  return {
+    id: s.id,
+    name: s.name,
+    phone: s.phone,
+    notes: s.notes,
+    createdAt: s.createdAt.toISOString(),
+    receiptsCount: store.stockReceipts.filter((r) => r.supplierId === s.id)
+      .length,
+  };
+}
+
+export function mockListSuppliers(): {
+  suppliers: SupplierDTO[];
+  total: number;
+} {
+  const suppliers = [...store.suppliers]
+    .sort((a, b) => a.name.localeCompare(b.name, "ar"))
+    .map(shapeSupplier);
+  return { suppliers, total: suppliers.length };
+}
+
+export function mockCreateSupplier(input: SupplierInput): SupplierDTO {
+  const s: MSupplier = {
+    id: genId("sup"),
+    name: input.name,
+    phone: input.phone,
+    notes: input.notes,
+    createdAt: new Date(),
+  };
+  store.suppliers.push(s);
+  return shapeSupplier(s);
+}
+
+export function mockUpdateSupplier(
+  id: string,
+  input: SupplierInput
+): SupplierDTO | null {
+  const s = store.suppliers.find((x) => x.id === id);
+  if (!s) return null;
+  s.name = input.name;
+  s.phone = input.phone;
+  s.notes = input.notes;
+  return shapeSupplier(s);
+}
+
+export function mockDeleteSupplier(
+  id: string
+): { ok: boolean; error?: string; status?: number } {
+  const idx = store.suppliers.findIndex((x) => x.id === id);
+  if (idx === -1) return { ok: false, error: "المورد غير موجود", status: 404 };
+  if (store.stockReceipts.some((r) => r.supplierId === id))
+    return {
+      ok: false,
+      error: "لا يمكن حذف مورد له عمليات استلام مسجّلة",
+      status: 409,
+    };
+  store.suppliers.splice(idx, 1);
+  return { ok: true };
+}
+
+function shapeReceipt(r: MStockReceipt): StockReceiptDTO {
+  const supplier = store.suppliers.find((s) => s.id === r.supplierId);
+  const items = r.items.map((it) => {
+    const found = findVariant(it.variantId);
+    return {
+      id: it.id,
+      variantId: it.variantId,
+      productName: found?.product.name ?? "—",
+      brand: found?.product.brand ?? "",
+      size: found?.variant.size ?? "",
+      color: found?.variant.color ?? null,
+      quantity: it.quantity,
+      unitCost: it.unitCost,
+      lineTotal: round2(it.unitCost * it.quantity),
+    };
+  });
+  return {
+    id: r.id,
+    supplierId: r.supplierId,
+    supplierName: supplier?.name ?? "—",
+    branch: r.branch,
+    invoiceNumber: r.invoiceNumber,
+    totalCost: r.totalCost,
+    notes: r.notes,
+    createdBy: r.createdBy,
+    createdAt: r.createdAt.toISOString(),
+    itemsCount: items.length,
+    quantity: items.reduce((s, it) => s + it.quantity, 0),
+    items,
+  };
+}
+
+export function mockListStockReceipts(
+  sp: URLSearchParams
+): StockReceiptsListResponse {
+  const supplierId = sp.get("supplierId");
+  const branch = sp.get("branch");
+  const from = sp.get("from");
+  const to = sp.get("to");
+
+  let rows = [...store.stockReceipts];
+  if (supplierId) rows = rows.filter((r) => r.supplierId === supplierId);
+  if (branch) rows = rows.filter((r) => r.branch === branch);
+  rows = rows.filter((r) => inRange(r.createdAt, from, to));
+  rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  const receipts = rows.map(shapeReceipt);
+  const summary = receipts.reduce(
+    (acc, r) => {
+      acc.count += 1;
+      acc.totalCost = round2(acc.totalCost + r.totalCost);
+      acc.totalQuantity += r.quantity;
+      return acc;
+    },
+    { count: 0, totalCost: 0, totalQuantity: 0 }
+  );
+  return { receipts, total: receipts.length, summary };
+}
+
+export function mockCreateStockReceipt(
+  input: StockReceiptInput
+): { ok: boolean; error?: string; status?: number; data?: StockReceiptDTO } {
+  const supplier = store.suppliers.find((s) => s.id === input.supplierId);
+  if (!supplier) return { ok: false, error: "المورد غير موجود", status: 404 };
+
+  let totalCost = 0;
+  const items: MStockReceiptItem[] = [];
+  for (const line of input.items) {
+    const found = findVariant(line.variantId);
+    if (!found)
+      return {
+        ok: false,
+        error: "أحد الأصناف غير موجود في المخزون",
+        status: 422,
+      };
+    // متوسط مرجّح للتكلفة + زيادة الكمية
+    const oldQty = found.variant.quantity;
+    const oldCost = found.variant.cost ?? 0;
+    const newQty = oldQty + line.quantity;
+    found.variant.cost =
+      newQty > 0
+        ? round2((oldQty * oldCost + line.quantity * line.unitCost) / newQty)
+        : round2(line.unitCost);
+    found.variant.quantity = newQty;
+    totalCost = round2(totalCost + line.unitCost * line.quantity);
+    items.push({
+      id: genId("sri"),
+      variantId: line.variantId,
+      quantity: line.quantity,
+      unitCost: line.unitCost,
+    });
+  }
+
+  const r: MStockReceipt = {
+    id: genId("rcpt"),
+    supplierId: input.supplierId,
+    branch: input.branch,
+    invoiceNumber: input.invoiceNumber,
+    totalCost,
+    notes: input.notes,
+    createdBy: input.createdBy,
+    createdAt: new Date(),
+    items,
+  };
+  store.stockReceipts.push(r);
+  return { ok: true, data: shapeReceipt(r) };
+}
+
+// ---- Part C: المصروفات ----
+function shapeExpense(e: MExpense): ExpenseDTO {
+  return {
+    id: e.id,
+    branch: e.branch,
+    category: e.category,
+    amount: e.amount,
+    description: e.description,
+    date: e.date.toISOString(),
+    createdBy: e.createdBy,
+    createdAt: e.createdAt.toISOString(),
+  };
+}
+
+export function mockListExpenses(sp: URLSearchParams): ExpensesListResponse {
+  const branch = sp.get("branch");
+  const category = sp.get("category");
+  const from = sp.get("from");
+  const to = sp.get("to");
+
+  let rows = [...store.expenses];
+  if (branch) rows = rows.filter((e) => e.branch === branch);
+  if (category) rows = rows.filter((e) => e.category === category);
+  rows = rows.filter((e) => inRange(e.date, from, to));
+  rows.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  const expenses = rows.map(shapeExpense);
+  const catMap = new Map<ExpenseCategoryValue, number>();
+  for (const c of EXPENSE_CATEGORIES) catMap.set(c, 0);
+  const branchMap = new Map<BranchValue, number>();
+  for (const b of BRANCHES) branchMap.set(b, 0);
+  let totalAmount = 0;
+  for (const e of expenses) {
+    totalAmount = round2(totalAmount + e.amount);
+    catMap.set(e.category, round2((catMap.get(e.category) ?? 0) + e.amount));
+    branchMap.set(e.branch, round2((branchMap.get(e.branch) ?? 0) + e.amount));
+  }
+  return {
+    expenses,
+    total: expenses.length,
+    summary: {
+      count: expenses.length,
+      totalAmount,
+      byCategory: [...catMap.entries()].map(([category, total]) => ({
+        category,
+        total,
+      })),
+      byBranch: [...branchMap.entries()].map(([branch, total]) => ({
+        branch,
+        total,
+      })),
+    },
+  };
+}
+
+export function mockCreateExpense(input: ExpenseInput): ExpenseDTO {
+  const e: MExpense = {
+    id: genId("exp"),
+    branch: input.branch,
+    category: input.category,
+    amount: input.amount,
+    description: input.description,
+    date: input.date ? new Date(input.date) : new Date(),
+    createdBy: input.createdBy,
+    createdAt: new Date(),
+  };
+  store.expenses.push(e);
+  return shapeExpense(e);
+}
+
+export function mockDeleteExpense(id: string): boolean {
+  const idx = store.expenses.findIndex((x) => x.id === id);
+  if (idx === -1) return false;
+  store.expenses.splice(idx, 1);
+  return true;
 }
 
 // صورة بديلة (Data URI) لزر الرفع في وضع المعاينة — بدون اتصال شبكة

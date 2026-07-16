@@ -11,6 +11,7 @@ import type {
   SaleStatusValue,
   ReturnTypeValue,
   RefundMethodValue,
+  ExpenseCategoryValue,
 } from "./constants";
 
 // الأنواع المشتركة بين الواجهة والـ API (نسخة قابلة للتسلسل JSON)
@@ -25,6 +26,7 @@ export interface VariantDTO {
   alertOnLowStock: boolean;
   branch: BranchValue;
   price: number;
+  cost: number; // تكلفة الوحدة (متوسط مرجّح) — Part D
   sku: string | null;
   skuManual: boolean;
 }
@@ -650,7 +652,16 @@ export interface DashboardStats {
     brand: string;
     qty: number;
     revenue: number;
-  }[]; // الأكثر ربحية (تقديري بحسب الإيراد المحقّق)
+    cost: number; // تكلفة البضاعة المباعة لهذا المنتج (Part D)
+    profit: number; // مجمل الربح = revenue − cost (Part D)
+  }[]; // الأكثر ربحية (ربح حقيقي = إيراد − تكلفة)
+
+  // ---- Part D: الربح الحقيقي والمصروفات ----
+  cogs: number; // إجمالي تكلفة البضاعة المباعة في الفترة
+  grossProfit: number; // مجمل الربح = rangeSales − cogs
+  expensesTotal: number; // إجمالي المصروفات في الفترة
+  netProfit: number; // صافي الربح = grossProfit − expensesTotal
+  expensesByCategory: { category: ExpenseCategoryValue; total: number }[];
   newProducts: {
     id: string;
     name: string;
@@ -781,4 +792,163 @@ export interface ReportsData {
     branch: BranchValue;
     quantity: number;
   }[];
+}
+
+// ====================================================
+//  العمليات اليومية (Parts A–D)
+// ====================================================
+
+// ---- Part A: إقفال الصندوق ----
+export interface ShiftCloseDTO {
+  id: string;
+  branch: BranchValue;
+  cashierName: string | null;
+  openingCash: number;
+  expectedCash: number;
+  countedCash: number | null;
+  difference: number;
+  notes: string | null;
+  openedAt: string;
+  closedAt: string | null;
+}
+
+// ملخّص الشيفت (تقرير X/Z) — يُحسب من فواتير ومرتجعات نافذة الشيفت
+export interface ShiftReport {
+  totalSales: number; // إجمالي مبيعات الشيفت (صافي بعد الخصم)
+  invoicesCount: number; // عدد الفواتير
+  cashSales: number; // مبيعات كاش
+  cardSales: number; // مبيعات فيزا
+  transferSales: number; // مبيعات تحويل
+  cashRefunds: number; // نقد خارج (مرتجعات كاش − فروق استبدال محصّلة)
+  openingCash: number;
+  expectedCash: number; // opening + cashSales − cashRefunds
+}
+
+export interface ShiftCloseInput {
+  branch: BranchValue;
+  cashierName: string | null;
+  openingCash: number;
+}
+
+export interface ShiftFinalizeInput {
+  countedCash: number;
+  notes: string | null;
+}
+
+// استجابة تفصيل الشيفت (للعرض/الطباعة)
+export interface ShiftDetailResponse {
+  shift: ShiftCloseDTO;
+  report: ShiftReport;
+}
+
+export interface ShiftListResponse {
+  shifts: ShiftCloseDTO[];
+  openShift: ShiftCloseDTO | null; // الشيفت المفتوح حالياً (للفرع المطلوب إن حُدِّد)
+  total: number;
+  summary: {
+    count: number;
+    totalDifference: number; // مجموع الفروقات
+    overCount: number; // شيفتات بزيادة
+    shortCount: number; // شيفتات بعجز
+  };
+}
+
+// ---- Part B: الموردون واستلام البضاعة ----
+export interface SupplierDTO {
+  id: string;
+  name: string;
+  phone: string | null;
+  notes: string | null;
+  createdAt: string;
+  receiptsCount?: number; // عدد عمليات الاستلام (اختياري في القوائم)
+}
+
+export interface SupplierInput {
+  name: string;
+  phone: string | null;
+  notes: string | null;
+}
+
+export interface StockReceiptItemInput {
+  variantId: string;
+  quantity: number;
+  unitCost: number;
+}
+
+export interface StockReceiptInput {
+  supplierId: string;
+  branch: BranchValue;
+  invoiceNumber: string | null;
+  notes: string | null;
+  createdBy: string | null;
+  items: StockReceiptItemInput[];
+}
+
+export interface StockReceiptItemDTO {
+  id: string;
+  variantId: string;
+  productName: string;
+  brand: string;
+  size: string;
+  color: string | null;
+  quantity: number;
+  unitCost: number;
+  lineTotal: number;
+}
+
+export interface StockReceiptDTO {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  branch: BranchValue;
+  invoiceNumber: string | null;
+  totalCost: number;
+  notes: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  itemsCount: number;
+  quantity: number; // إجمالي الكميات
+  items: StockReceiptItemDTO[];
+}
+
+export interface StockReceiptsListResponse {
+  receipts: StockReceiptDTO[];
+  total: number;
+  summary: {
+    count: number;
+    totalCost: number;
+    totalQuantity: number;
+  };
+}
+
+// ---- Part C: المصروفات ----
+export interface ExpenseDTO {
+  id: string;
+  branch: BranchValue;
+  category: ExpenseCategoryValue;
+  amount: number;
+  description: string | null;
+  date: string;
+  createdBy: string | null;
+  createdAt: string;
+}
+
+export interface ExpenseInput {
+  branch: BranchValue;
+  category: ExpenseCategoryValue;
+  amount: number;
+  description: string | null;
+  date: string | null; // ISO؛ null ⇒ الآن
+  createdBy: string | null;
+}
+
+export interface ExpensesListResponse {
+  expenses: ExpenseDTO[];
+  total: number;
+  summary: {
+    count: number;
+    totalAmount: number;
+    byCategory: { category: ExpenseCategoryValue; total: number }[];
+    byBranch: { branch: BranchValue; total: number }[];
+  };
 }

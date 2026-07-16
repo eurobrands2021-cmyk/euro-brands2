@@ -156,6 +156,24 @@ export const CURRENCY = "ج.م";
 export const LOW_STOCK_THRESHOLD = 3; // عتبة تحذير قلة المخزون
 
 // ----------------------------------------------------
+//  فئات المصروفات (Part C) — قيم نصية (لا enum) على نمط الجداول اللاحقة
+// ----------------------------------------------------
+export const EXPENSE_CATEGORIES = [
+  "rent",
+  "utilities",
+  "salaries",
+  "other",
+] as const;
+export type ExpenseCategoryValue = (typeof EXPENSE_CATEGORIES)[number];
+
+export const EXPENSE_CATEGORY_LABELS: Record<ExpenseCategoryValue, string> = {
+  rent: "إيجار",
+  utilities: "مرافق (كهرباء/مياه/إنترنت)",
+  salaries: "رواتب",
+  other: "أخرى",
+};
+
+// ----------------------------------------------------
 //  أسباب التلف/العيب (الديفو)
 // ----------------------------------------------------
 export const DEFECT_REASONS = [

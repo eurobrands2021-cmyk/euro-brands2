@@ -392,15 +392,25 @@ function sectionHtml(key: string, data: DashboardStats, n: number): string {
       return (
         sectionTitle(title, n) +
         barTable(
-          ["المنتج", "البراند", "الكمية المباعة", "الإيراد المحقّق"],
+          ["المنتج", "البراند", "الكمية", "الإيراد", "التكلفة", "مجمل الربح"],
           data.topProfit.map((p) => [
             p.name,
             p.brand,
             num(p.qty),
             money(p.revenue),
+            money(p.cost),
+            money(p.profit),
           ]),
-          data.topProfit.map((p) => p.revenue)
+          data.topProfit.map((p) => p.profit)
         )
+      );
+    case "netProfit":
+      return cards(
+        summaryCard("إيراد الفترة", money(data.rangeSales), C.accent) +
+          summaryCard("تكلفة البضاعة", money(data.cogs), C.amber) +
+          summaryCard("مجمل الربح", money(data.grossProfit), C.green) +
+          summaryCard("المصروفات", money(data.expensesTotal), C.amber) +
+          summaryCard("صافي الربح", money(data.netProfit), C.green)
       );
     case "damaged":
       return (

@@ -36,6 +36,7 @@ export const INVENTORY_SECTIONS: ReportSectionMeta[] = [
   { key: "stockByCategory", label: "المخزون حسب الفئة" },
   { key: "stockByBrand", label: "المخزون حسب البراند" },
   { key: "slowMoving", label: "المنتجات الأبطأ حركة" },
+  { key: "netProfit", label: "صافي الربح (الإيراد − التكلفة − المصروفات)" },
   { key: "topProfit", label: "المنتجات الأكثر ربحية" },
   { key: "damaged", label: "تقرير الديفو (التالف/المعيب)" },
   { key: "transfers", label: "تحويلات المخزون بين الفرعين" },

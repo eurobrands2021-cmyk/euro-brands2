@@ -29,6 +29,7 @@ import {
   Sparkles,
   Building2,
   CreditCard,
+  Coins,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { format } from "date-fns";
@@ -43,7 +44,11 @@ import { ChartSkeleton } from "@/components/ui/skeleton";
 import type { DashboardStats } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { formatCurrency, formatNumber } from "@/lib/format";
-import { BRANCH_LABELS, CATEGORY_LABELS } from "@/lib/constants";
+import {
+  BRANCH_LABELS,
+  CATEGORY_LABELS,
+  EXPENSE_CATEGORY_LABELS,
+} from "@/lib/constants";
 import {
   SALES_SECTIONS,
   INVENTORY_SECTIONS,
@@ -807,20 +812,69 @@ function renderSection(key: string, data: DashboardStats): React.ReactNode {
           tone="success"
         >
           <p className="mb-3 text-xs text-muted">
-            مُقدّرة بحسب الإيراد المحقّق من المبيعات في الفترة
+            الربح الحقيقي = الإيراد − تكلفة البضاعة المباعة (حسب تكلفة الصنف)
           </p>
           {data.topProfit.length === 0 ? (
             <EmptyBlock />
           ) : (
             <SimpleTable
-              headers={["المنتج", "البراند", "الكمية المباعة", "الإيراد"]}
+              headers={[
+                "المنتج",
+                "البراند",
+                "الكمية",
+                "الإيراد",
+                "التكلفة",
+                "مجمل الربح",
+              ]}
               rows={data.topProfit.map((p) => [
                 p.name,
                 p.brand,
                 formatNumber(p.qty),
                 formatCurrency(p.revenue),
+                formatCurrency(p.cost),
+                formatCurrency(p.profit),
               ])}
             />
+          )}
+        </SectionCard>
+      );
+    case "netProfit":
+      return (
+        <SectionCard title="صافي الربح" icon={<Coins />} tone="success">
+          <p className="mb-3 text-xs text-muted">
+            صافي الربح = مجمل الربح (الإيراد − تكلفة البضاعة) − المصروفات
+          </p>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <ProfitTile label="إيراد الفترة" value={data.rangeSales} />
+            <ProfitTile label="تكلفة البضاعة المباعة" value={data.cogs} negative />
+            <ProfitTile
+              label="مجمل الربح"
+              value={data.grossProfit}
+              strong
+            />
+            <ProfitTile label="المصروفات" value={data.expensesTotal} negative />
+            <ProfitTile
+              label="صافي الربح"
+              value={data.netProfit}
+              strong
+              highlight
+            />
+          </div>
+          {data.expensesByCategory.some((c) => c.total > 0) && (
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-medium text-muted">
+                تفصيل المصروفات:
+              </p>
+              <SimpleTable
+                headers={["الفئة", "القيمة"]}
+                rows={data.expensesByCategory
+                  .filter((c) => c.total > 0)
+                  .map((c) => [
+                    EXPENSE_CATEGORY_LABELS[c.category],
+                    formatCurrency(c.total),
+                  ])}
+              />
+            </div>
           )}
         </SectionCard>
       );
@@ -994,6 +1048,42 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function EmptyBlock({ text = "لا توجد بيانات في هذه الفترة" }: { text?: string }) {
   return <p className="py-4 text-center text-sm text-muted">{text}</p>;
+}
+
+// بطاقة رقم في قسم صافي الربح (Part D)
+function ProfitTile({
+  label,
+  value,
+  negative,
+  strong,
+  highlight,
+}: {
+  label: string;
+  value: number;
+  negative?: boolean;
+  strong?: boolean;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "rounded-[var(--radius-md)] border p-3",
+        highlight && "border-accent bg-accent-soft"
+      )}
+    >
+      <p className="text-xs text-muted">{label}</p>
+      <p
+        className={cn(
+          "mt-1 nums",
+          strong ? "text-lg font-extrabold" : "font-bold",
+          highlight ? "text-accent" : negative ? "text-danger" : "text-text"
+        )}
+      >
+        {negative && value > 0 ? "− " : ""}
+        {formatCurrency(value)}
+      </p>
+    </div>
+  );
 }
 
 function DeliveryStats({

@@ -10,8 +10,10 @@ import {
   TRANSFER_METHODS,
   RETURN_TYPES,
   REFUND_METHODS,
+  EXPENSE_CATEGORIES,
   type ReturnTypeValue,
   type RefundMethodValue,
+  type ExpenseCategoryValue,
   type BranchValue,
   type CategoryValue,
   type DefectReasonValue,
@@ -22,7 +24,8 @@ import {
   type PaymentMethodValue,
   type TransferMethodValue,
 } from "./constants";
-import { isCompleteEgyPhone, digitsOnly } from "./input-validators";
+import { isCompleteEgyPhone, digitsOnly, sanitizeNumber } from "./input-validators";
+import { round2 } from "./sale-utils";
 import type {
   ActivityLogInput,
   BrandInput,
@@ -37,6 +40,12 @@ import type {
   ReturnItemInput,
   SaleInput,
   VariantInput,
+  SupplierInput,
+  StockReceiptInput,
+  StockReceiptItemInput,
+  ExpenseInput,
+  ShiftCloseInput,
+  ShiftFinalizeInput,
 } from "./types";
 
 export class ValidationError extends Error {}
@@ -550,4 +559,114 @@ export function parseDeliveryStatus(body: any): DeliveryStatusValue {
   if (!DELIVERY_STATUSES.includes(status as DeliveryStatusValue))
     throw new ValidationError("الحالة غير صحيحة");
   return status as DeliveryStatusValue;
+}
+
+// ----------------------------------------------------
+//  العمليات اليومية (Parts A–C)
+// ----------------------------------------------------
+
+// قيمة نقدية غير سالبة (تتحمّل الأرقام العربية والفواصل)
+function parseMoney(v: unknown, field = "القيمة"): number {
+  const cleaned = sanitizeNumber(String(v ?? ""), { decimal: true });
+  const n = Number(cleaned);
+  if (!Number.isFinite(n) || n < 0)
+    throw new ValidationError(`${field} غير صحيحة`);
+  return round2(n);
+}
+
+// Part A: بدء الشيفت
+export function parseShiftCloseInput(body: any): ShiftCloseInput {
+  const branch = asString(body?.branch);
+  if (!BRANCHES.includes(branch as BranchValue))
+    throw new ValidationError("الفرع غير صحيح");
+  return {
+    branch: branch as BranchValue,
+    cashierName: asString(body?.cashierName) || null,
+    openingCash: parseMoney(body?.openingCash, "عهدة البداية"),
+  };
+}
+
+// Part A: إقفال الشيفت (إدخال المعدود)
+export function parseShiftFinalizeInput(body: any): ShiftFinalizeInput {
+  return {
+    countedCash: parseMoney(body?.countedCash, "النقد المعدود"),
+    notes: asString(body?.notes) || null,
+  };
+}
+
+// Part B: المورد
+export function parseSupplierInput(body: any): SupplierInput {
+  const name = asString(body?.name);
+  if (!name) throw new ValidationError("اسم المورد مطلوب");
+  return {
+    name,
+    phone: asString(body?.phone) || null,
+    notes: asString(body?.notes) || null,
+  };
+}
+
+// Part B: استلام بضاعة
+export function parseStockReceiptInput(body: any): StockReceiptInput {
+  const supplierId = asString(body?.supplierId);
+  if (!supplierId) throw new ValidationError("يجب اختيار المورد");
+
+  const branch = asString(body?.branch);
+  if (!BRANCHES.includes(branch as BranchValue))
+    throw new ValidationError("الفرع غير صحيح");
+
+  const rawItems = Array.isArray(body?.items) ? body.items : [];
+  if (rawItems.length === 0)
+    throw new ValidationError("أضف صنفاً واحداً على الأقل للاستلام");
+
+  const items: StockReceiptItemInput[] = rawItems.map((it: any) => {
+    const variantId = asString(it?.variantId);
+    if (!variantId) throw new ValidationError("صنف غير صالح في الاستلام");
+    const quantity = parseQuantity(it?.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0)
+      throw new ValidationError("كمية الاستلام غير صحيحة");
+    const unitCost = parseMoney(it?.unitCost, "تكلفة الوحدة");
+    return { variantId, quantity, unitCost };
+  });
+
+  return {
+    supplierId,
+    branch: branch as BranchValue,
+    invoiceNumber: asString(body?.invoiceNumber) || null,
+    notes: asString(body?.notes) || null,
+    createdBy: asString(body?.createdBy) || null,
+    items,
+  };
+}
+
+// Part C: مصروف
+export function parseExpenseInput(body: any): ExpenseInput {
+  const branch = asString(body?.branch);
+  if (!BRANCHES.includes(branch as BranchValue))
+    throw new ValidationError("الفرع غير صحيح");
+
+  const category = asString(body?.category);
+  if (!EXPENSE_CATEGORIES.includes(category as ExpenseCategoryValue))
+    throw new ValidationError("فئة المصروف غير صحيحة");
+
+  const amount = parseMoney(body?.amount, "قيمة المصروف");
+  if (amount <= 0) throw new ValidationError("قيمة المصروف يجب أن تكون أكبر من صفر");
+
+  // تاريخ اختياري — نتحقّق أنه صالح إن وُجد
+  let date: string | null = null;
+  const rawDate = asString(body?.date);
+  if (rawDate) {
+    const d = new Date(rawDate);
+    if (Number.isNaN(d.getTime()))
+      throw new ValidationError("تاريخ المصروف غير صحيح");
+    date = d.toISOString();
+  }
+
+  return {
+    branch: branch as BranchValue,
+    category: category as ExpenseCategoryValue,
+    amount,
+    description: asString(body?.description) || null,
+    date,
+    createdBy: asString(body?.createdBy) || null,
+  };
 }

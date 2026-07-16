@@ -21,6 +21,9 @@ import {
   RotateCcw,
   MoreHorizontal,
   ChevronDown,
+  Wallet,
+  Truck as TruckIcon,
+  Coins,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { apiGet } from "@/lib/client";
@@ -72,7 +75,20 @@ const MAIN_ITEMS: NavItem[] = [
 
 // روابط أقل استخداماً — مجمّعة داخل قائمة «المزيد»
 const MORE_ITEMS: NavItem[] = [
+  {
+    href: "/shifts",
+    label: "إقفال الصندوق",
+    icon: Coins,
+    roles: ["ADMIN", "CASHIER"],
+  },
   { href: "/returns", label: "المرتجعات", icon: RotateCcw, roles: ["ADMIN"] },
+  {
+    href: "/suppliers",
+    label: "الموردون والاستلام",
+    icon: TruckIcon,
+    roles: ["ADMIN"],
+  },
+  { href: "/expenses", label: "المصروفات", icon: Wallet, roles: ["ADMIN"] },
   { href: "/defects", label: "الديفو (التالف)", icon: AlertTriangle, roles: ["ADMIN"] },
   { href: "/customers", label: "العملاء", icon: Users, roles: ["ADMIN"] },
   { href: "/customers/vip", label: "كبار العملاء", icon: Crown, roles: ["ADMIN"] },

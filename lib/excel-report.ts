@@ -175,8 +175,30 @@ function sectionRows(key: string, data: DashboardStats): Row[] {
       ];
     case "topProfit":
       return [
-        ...head(["المنتج", "البراند", "الكمية المباعة", "الإيراد المحقّق"]),
-        ...data.topProfit.map((p) => [p.name, p.brand, p.qty, p.revenue]),
+        ...head([
+          "المنتج",
+          "البراند",
+          "الكمية",
+          "الإيراد",
+          "التكلفة",
+          "مجمل الربح",
+        ]),
+        ...data.topProfit.map((p) => [
+          p.name,
+          p.brand,
+          p.qty,
+          p.revenue,
+          p.cost,
+          p.profit,
+        ]),
+      ];
+    case "netProfit":
+      return [
+        ["إيراد الفترة", data.rangeSales],
+        ["تكلفة البضاعة المباعة", data.cogs],
+        ["مجمل الربح", data.grossProfit],
+        ["المصروفات", data.expensesTotal],
+        ["صافي الربح", data.netProfit],
       ];
     case "damaged":
       return [
