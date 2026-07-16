@@ -12,6 +12,8 @@ import {
   Ban,
   Lock,
   LockOpen,
+  RotateCcw,
+  Repeat,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { useFetch } from "@/lib/use-fetch";
@@ -24,6 +26,7 @@ import { InvoiceDocument } from "@/components/invoice-document";
 import { InvoiceTemplatePicker } from "@/components/invoice-template-picker";
 import { PrintInvoiceModal } from "@/components/print-invoice-modal";
 import { InvoicePrintSurface } from "@/components/invoice-print-surface";
+import { ReturnModal } from "@/components/return-modal";
 import { useSettings } from "@/components/settings-provider";
 import { useInvoiceBranding } from "@/lib/use-invoice-branding";
 import { usePrintSettings } from "@/lib/use-print-settings";
@@ -35,20 +38,28 @@ import {
   saveInvoiceTemplate,
   type InvoiceTemplate,
 } from "@/lib/invoice-templates";
-import { formatDateTime } from "@/lib/format";
-import type { SaleDTO } from "@/lib/types";
+import { formatCurrency, formatDateTime } from "@/lib/format";
+import {
+  RETURN_TYPE_LABELS,
+  REFUND_METHOD_LABELS,
+} from "@/lib/constants";
+import type { SaleDTO, ReturnsListResponse } from "@/lib/types";
 
 export default function SaleDetailPage() {
   const params = useParams<{ id: string }>();
   const { data, loading, error, refetch, setData } = useFetch<SaleDTO>(
     `/api/sales/${params.id}`
   );
+  const { data: returnsData, refetch: refetchReturns } =
+    useFetch<ReturnsListResponse>(`/api/returns?saleId=${params.id}`);
+  const returns = returnsData?.returns ?? [];
   const { settings } = useSettings();
   const branding = useInvoiceBranding();
   const { settings: printSettings } = usePrintSettings();
 
   const [template, setTemplate] = useState<InvoiceTemplate>("classic");
   const [printOpen, setPrintOpen] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [unlockOpen, setUnlockOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [unlocking, setUnlocking] = useState(false);
@@ -159,6 +170,16 @@ export default function SaleDetailPage() {
               فتح القفل
             </button>
           )}
+          {!cancelled && (
+            <button
+              onClick={() => setReturnOpen(true)}
+              className="btn btn-secondary h-9 text-sm"
+              title="إرجاع أو استبدال أصناف من هذه الفاتورة"
+            >
+              <RotateCcw className="h-4 w-4" />
+              إرجاع / استبدال
+            </button>
+          )}
           <button
             onClick={() => requestPrint(printSettings.size, printSettings.fontSize)}
             className="btn btn-secondary h-9 text-sm"
@@ -221,6 +242,92 @@ export default function SaleDetailPage() {
           branding={branding}
         />
       </div>
+
+      {/* سجل المرتجعات/الاستبدال على هذه الفاتورة */}
+      {returns.length > 0 && (
+        <Card className="no-print mt-4 p-4">
+          <div className="mb-3 flex items-center gap-2">
+            <RotateCcw className="h-4 w-4 text-accent" />
+            <h2 className="text-sm font-bold text-text">
+              سجل الإرجاع والاستبدال
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {returns.map((r) => (
+              <div
+                key={r.id}
+                className="rounded-[var(--radius-md)] border p-3 text-sm"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span
+                    className={`badge ${
+                      r.type === "EXCHANGE"
+                        ? "bg-accent-soft text-accent"
+                        : "bg-[rgba(59,154,110,0.14)] text-success"
+                    }`}
+                  >
+                    {r.type === "EXCHANGE" ? (
+                      <Repeat className="ml-1 h-3.5 w-3.5" />
+                    ) : (
+                      <RotateCcw className="ml-1 h-3.5 w-3.5" />
+                    )}
+                    {RETURN_TYPE_LABELS[r.type]}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span className="nums">{formatDateTime(r.createdAt)}</span>
+                    {r.createdBy ? ` · ${r.createdBy}` : ""}
+                  </span>
+                </div>
+                <ul className="mt-2 space-y-1 text-xs text-muted">
+                  {r.items.map((it) => (
+                    <li key={it.id} className="nums">
+                      • {it.productName} — مقاس {it.size}
+                      {it.color ? ` / ${it.color}` : ""} × {it.quantity}
+                      {it.exchangeSize
+                        ? ` ← بديل: مقاس ${it.exchangeSize}${it.exchangeColor ? ` / ${it.exchangeColor}` : ""}`
+                        : ""}
+                    </li>
+                  ))}
+                </ul>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t pt-2 text-xs">
+                  {r.refundMethod && (
+                    <span className="text-muted">
+                      الاسترداد: {REFUND_METHOD_LABELS[r.refundMethod]}
+                    </span>
+                  )}
+                  <span className="font-bold nums">
+                    {r.type === "RETURN" ? (
+                      <span className="text-success">
+                        استرداد {formatCurrency(r.refundTotal)}
+                      </span>
+                    ) : r.exchangeDifference >= 0 ? (
+                      <span className="text-warning">
+                        فرق للدفع {formatCurrency(r.exchangeDifference)}
+                      </span>
+                    ) : (
+                      <span className="text-success">
+                        يُرد {formatCurrency(Math.abs(r.exchangeDifference))}
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      <ReturnModal
+        sale={data}
+        returns={returns}
+        open={returnOpen}
+        onClose={() => setReturnOpen(false)}
+        onDone={() => {
+          refetch();
+          refetchReturns();
+        }}
+      />
 
       <PrintInvoiceModal
         sale={data}

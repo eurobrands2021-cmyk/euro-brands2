@@ -10,6 +10,7 @@ export const ACTIVITY_ACTIONS = {
   LOGIN: "تسجيل دخول",
   CREATE_SALE: "إنشاء فاتورة",
   CANCEL_SALE: "إلغاء فاتورة",
+  RETURN_SALE: "إرجاع/استبدال",
   CREATE_PRODUCT: "إضافة منتج",
   UPDATE_PRODUCT: "تعديل منتج",
   DELETE_PRODUCT: "حذف منتج",

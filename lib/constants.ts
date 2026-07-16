@@ -43,6 +43,25 @@ export const TRANSFER_METHOD_LABELS: Record<TransferMethodValue, string> = {
   INSTAPAY: "انستا باي",
 };
 
+// نوع عملية المرتجع
+export const RETURN_TYPES = ["RETURN", "EXCHANGE"] as const;
+export type ReturnTypeValue = (typeof RETURN_TYPES)[number];
+
+export const RETURN_TYPE_LABELS: Record<ReturnTypeValue, string> = {
+  RETURN: "إرجاع",
+  EXCHANGE: "استبدال",
+};
+
+// طريقة رد المبلغ (ملاحظة فقط — لا محفظة/رصيد فعلي)
+export const REFUND_METHODS = ["CASH", "CARD", "STORE_CREDIT"] as const;
+export type RefundMethodValue = (typeof REFUND_METHODS)[number];
+
+export const REFUND_METHOD_LABELS: Record<RefundMethodValue, string> = {
+  CASH: "نقداً",
+  CARD: "بطاقة",
+  STORE_CREDIT: "رصيد للمحل (ملاحظة)",
+};
+
 export const SALE_STATUSES = ["COMPLETED", "CANCELLED"] as const;
 export type SaleStatusValue = (typeof SALE_STATUSES)[number];
 

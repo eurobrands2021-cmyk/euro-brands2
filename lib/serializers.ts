@@ -6,10 +6,18 @@ import type {
   Product,
   ProductType,
   ProductVariant,
+  Return,
+  ReturnItem,
   Sale,
   SaleItem,
 } from "@prisma/client";
-import type { BranchValue, CategoryValue, DiscountTypeValue } from "./constants";
+import type {
+  BranchValue,
+  CategoryValue,
+  DiscountTypeValue,
+  RefundMethodValue,
+  ReturnTypeValue,
+} from "./constants";
 import type {
   AccessRequestDTO,
   AccessRequestStatus,
@@ -18,6 +26,7 @@ import type {
   CustomerDTO,
   ProductDTO,
   ProductTypeDTO,
+  ReturnDTO,
   SaleDTO,
   VariantDTO,
 } from "./types";
@@ -171,5 +180,45 @@ export function toSaleDTO(s: SaleWithItems): SaleDTO {
       sku: it.variant.sku ?? null,
     })),
     itemsCount: s.items.reduce((sum, it) => sum + it.quantity, 0),
+  };
+}
+
+type ReturnItemWithRefs = ReturnItem & {
+  variant: ProductVariant & { product: { name: string; brand: string } };
+  exchangeVariant: { size: string; color: string | null; price: number } | null;
+};
+type ReturnWithRefs = Return & {
+  sale: { saleNumber: number };
+  items: ReturnItemWithRefs[];
+};
+
+export function toReturnDTO(r: ReturnWithRefs): ReturnDTO {
+  return {
+    id: r.id,
+    saleId: r.saleId,
+    saleNumber: r.sale.saleNumber,
+    branch: r.branch as BranchValue,
+    type: r.type as ReturnTypeValue,
+    reason: r.reason ?? null,
+    refundMethod: (r.refundMethod as RefundMethodValue | null) ?? null,
+    refundTotal: r.refundTotal,
+    exchangeDifference: r.exchangeDifference,
+    createdBy: r.createdBy ?? null,
+    createdAt: r.createdAt.toISOString(),
+    items: r.items.map((it) => ({
+      id: it.id,
+      saleItemId: it.saleItemId,
+      variantId: it.variantId,
+      productName: it.variant.product.name,
+      brand: it.variant.product.brand,
+      size: it.variant.size,
+      color: it.variant.color ?? null,
+      quantity: it.quantity,
+      refundAmount: it.refundAmount,
+      exchangeVariantId: it.exchangeVariantId ?? null,
+      exchangeSize: it.exchangeVariant?.size ?? null,
+      exchangeColor: it.exchangeVariant?.color ?? null,
+      exchangeUnitPrice: it.exchangeVariant?.price ?? null,
+    })),
   };
 }

@@ -141,6 +141,9 @@ model ProductVariant {
 
   saleItems SaleItem[]
 
+  returnItems         ReturnItem[] @relation("ReturnedVariant") // أُرجِع هذا الصنف
+  exchangeReturnItems ReturnItem[] @relation("ExchangeVariant") // اُستُبدِل إلى هذا الصنف
+
   @@unique([productId, size, branch, color])
   @@index([productId])
   @@index([branch])
@@ -184,7 +187,8 @@ model Sale {
   trackingNumber   String? // رقم تتبع شركة الشحن (Bosta)
   deliveryStatus   DeliveryStatus?
 
-  items SaleItem[]
+  items   SaleItem[]
+  returns Return[] // عمليات الإرجاع/الاستبدال على هذه الفاتورة
 
   archivedAt DateTime? // وقت الأرشفة (حذف مؤجّل بعد 72 ساعة) — إدارة البيانات
 
@@ -217,6 +221,8 @@ model SaleItem {
   note             String? // ملاحظة على الصنف (اختيارية)
   itemDiscount     Float  @default(0) // قيمة خصم الصنف (نسبة أو مبلغ حسب النوع)
   itemDiscountType String @default("FIXED") // نوع خصم الصنف: 'PERCENTAGE' أو 'FIXED'
+
+  returnItems ReturnItem[] // بنود الإرجاع المرتبطة بهذا البند
 
   @@index([saleId])
   @@index([productId])
@@ -326,4 +332,56 @@ model DamagedItem {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// ----------------------------------------------------
+//  المرتجعات والاستبدال (Returns & Exchanges)
+//  إرجاع/استبدال أصناف من فاتورة قائمة — جزئي (بند واحد أو أكثر).
+//  عند التأكيد: تعود كمية المُرتجَع للمخزون، وتُخصَم كمية البديل (للاستبدال).
+//  type/refundMethod كنصوص (كباقي الجداول اللاحقة) لتفادي إنشاء أنواع enum.
+// ----------------------------------------------------
+model Return {
+  id     String @id @default(cuid())
+  saleId String
+  sale   Sale   @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  branch Branch // فرع تنفيذ العملية (نفس فرع الفاتورة)
+  type   String @default("RETURN") // 'RETURN' | 'EXCHANGE'
+  reason String? // سبب الإرجاع/الاستبدال (اختياري)
+
+  refundMethod       String? // ملاحظة فقط: cash / card / store_credit (لا محفظة)
+  refundTotal        Float   @default(0) // إجمالي المبلغ المُعاد للعميل
+  exchangeDifference Float   @default(0) // فرق السعر (+ يدفع العميل / − يُرد له)
+
+  createdBy String? // اسم منفّذ العملية
+  createdAt DateTime @default(now())
+
+  items ReturnItem[]
+
+  @@index([saleId])
+  @@index([createdAt])
+  @@index([branch])
+  @@index([type])
+}
+
+model ReturnItem {
+  id       String @id @default(cuid())
+  returnId String
+  return   Return @relation(fields: [returnId], references: [id], onDelete: Cascade)
+
+  saleItemId String // البند الأصلي في الفاتورة
+  saleItem   SaleItem @relation(fields: [saleItemId], references: [id], onDelete: Restrict)
+
+  variantId String // الصنف المُرتجَع (يعود للمخزون)
+  variant   ProductVariant @relation("ReturnedVariant", fields: [variantId], references: [id], onDelete: Restrict)
+
+  quantity     Int
+  refundAmount Float @default(0) // قيمة هذا البند المُرتجَع
+
+  exchangeVariantId String? // الصنف البديل (للاستبدال — يُخصَم من المخزون)
+  exchangeVariant   ProductVariant? @relation("ExchangeVariant", fields: [exchangeVariantId], references: [id], onDelete: Restrict)
+
+  @@index([returnId])
+  @@index([saleItemId])
+  @@index([variantId])
 }

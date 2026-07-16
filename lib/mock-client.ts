@@ -48,6 +48,8 @@ import {
   mockSaveSettings,
   mockCreateDamaged,
   mockDefectReport,
+  mockCreateReturn,
+  mockListReturns,
   mockUnlockSale,
 } from "./mock-store";
 import {
@@ -63,6 +65,7 @@ import {
   parseImportRows,
   parseProductInput,
   parseProductTypeInput,
+  parseReturnInput,
   parseSaleInput,
 } from "./validate";
 import { mergeSettings } from "./settings";
@@ -350,6 +353,16 @@ export async function mockApi<T>(
   if (path === "/api/damaged") {
     if (method === "GET") return mockDefectReport(sp) as T;
     if (method === "POST") return mockCreateDamaged(parseDamagedInput(body)) as T;
+  }
+
+  // /api/returns — المرتجعات والاستبدال
+  if (path === "/api/returns") {
+    if (method === "GET") return mockListReturns(sp) as T;
+    if (method === "POST") {
+      const res = mockCreateReturn(parseReturnInput(body));
+      if (!res.ok) throw new Error(res.error);
+      return res.data as T;
+    }
   }
 
   throw new Error(`وضع المعاينة: مسار غير مدعوم (${method} ${path})`);

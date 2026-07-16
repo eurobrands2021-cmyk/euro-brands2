@@ -9,6 +9,8 @@ import type {
   PaymentMethodValue,
   TransferMethodValue,
   SaleStatusValue,
+  ReturnTypeValue,
+  RefundMethodValue,
 } from "./constants";
 
 // الأنواع المشتركة بين الواجهة والـ API (نسخة قابلة للتسلسل JSON)
@@ -171,6 +173,67 @@ export interface DeliveryInput {
   deliveryAddress: string;
   addressNotes?: string | null;
   trackingNumber?: string | null;
+}
+
+// ---- المرتجعات والاستبدال ----
+
+// مُدخلات إنشاء مرتجع/استبدال (من الواجهة إلى /api/returns)
+export interface ReturnItemInput {
+  saleItemId: string;
+  quantity: number;
+  exchangeVariantId?: string | null; // مطلوب لكل بند عند نوع EXCHANGE
+}
+
+export interface ReturnInput {
+  saleId: string;
+  type: ReturnTypeValue;
+  reason?: string | null;
+  refundMethod?: RefundMethodValue | null;
+  createdBy?: string | null;
+  items: ReturnItemInput[];
+}
+
+export interface ReturnItemDTO {
+  id: string;
+  saleItemId: string;
+  variantId: string;
+  productName: string;
+  brand: string;
+  size: string;
+  color: string | null;
+  quantity: number;
+  refundAmount: number;
+  // بيانات الصنف البديل (للاستبدال)
+  exchangeVariantId: string | null;
+  exchangeSize: string | null;
+  exchangeColor: string | null;
+  exchangeUnitPrice: number | null;
+}
+
+export interface ReturnDTO {
+  id: string;
+  saleId: string;
+  saleNumber: number;
+  branch: BranchValue;
+  type: ReturnTypeValue;
+  reason: string | null;
+  refundMethod: RefundMethodValue | null;
+  refundTotal: number;
+  exchangeDifference: number; // + يدفع العميل / − يُرد له
+  createdBy: string | null;
+  createdAt: string;
+  items: ReturnItemDTO[];
+}
+
+export interface ReturnsListResponse {
+  returns: ReturnDTO[];
+  total: number;
+  summary: {
+    count: number;
+    returnCount: number;
+    exchangeCount: number;
+    refundTotal: number;
+  };
 }
 
 // ملخّص إجماليات سجل الفواتير — يُحسب على مستوى الخادم فوق كامل المجموعة

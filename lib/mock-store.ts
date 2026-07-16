@@ -61,12 +61,16 @@ import type {
   ProductTypeDTO,
   ProductTypeInput,
   ReportsData,
+  ReturnDTO,
+  ReturnInput,
+  ReturnsListResponse,
   SaleDTO,
   SaleInput,
   SalesListResponse,
   VariantDTO,
   VipCustomerDTO,
 } from "./types";
+import type { ReturnTypeValue, RefundMethodValue } from "./constants";
 import { buildVariantSku, uniquifySku } from "./sku";
 
 // "وضع المعاينة": يعمل تلقائياً عند غياب DATABASE_URL، أو يُفرض عبر MOCK_DATA=1
@@ -187,6 +191,29 @@ interface MDamaged {
   createdAt: Date;
 }
 
+// المرتجعات/الاستبدال داخل المتجر التجريبي
+interface MReturnItem {
+  id: string;
+  saleItemId: string;
+  variantId: string;
+  quantity: number;
+  refundAmount: number;
+  exchangeVariantId: string | null;
+}
+interface MReturn {
+  id: string;
+  saleId: string;
+  branch: BranchValue;
+  type: ReturnTypeValue;
+  reason: string | null;
+  refundMethod: RefundMethodValue | null;
+  refundTotal: number;
+  exchangeDifference: number;
+  createdBy: string | null;
+  createdAt: Date;
+  items: MReturnItem[];
+}
+
 interface MBrand {
   id: string;
   name: string;
@@ -215,6 +242,7 @@ interface Store {
   customers: MCustomer[];
   accessRequests: MAccessRequest[];
   damaged: MDamaged[];
+  returns: MReturn[];
   settings: Record<string, string>;
   seq: number;
 }
@@ -246,6 +274,7 @@ function buildStore(): Store {
     customers: [],
     accessRequests: [],
     damaged: [],
+    returns: [],
     settings: {},
     seq: 0,
   };
@@ -3147,6 +3176,193 @@ export function mockDefectReport(
   }
 
   return report;
+}
+
+// ----------------------------------------------------
+//  المرتجعات والاستبدال (وضع المعاينة)
+// ----------------------------------------------------
+function shapeReturn(r: MReturn): ReturnDTO {
+  const sale = store.sales.find((s) => s.id === r.saleId);
+  return {
+    id: r.id,
+    saleId: r.saleId,
+    saleNumber: sale?.saleNumber ?? 0,
+    branch: r.branch,
+    type: r.type,
+    reason: r.reason,
+    refundMethod: r.refundMethod,
+    refundTotal: r.refundTotal,
+    exchangeDifference: r.exchangeDifference,
+    createdBy: r.createdBy,
+    createdAt: r.createdAt.toISOString(),
+    items: r.items.map((it) => {
+      const ref = findVariant(it.variantId);
+      const ex = it.exchangeVariantId
+        ? findVariant(it.exchangeVariantId)
+        : null;
+      return {
+        id: it.id,
+        saleItemId: it.saleItemId,
+        variantId: it.variantId,
+        productName: ref?.product.name ?? "—",
+        brand: ref?.product.brand ?? "",
+        size: ref?.variant.size ?? "—",
+        color: ref?.variant.color ?? null,
+        quantity: it.quantity,
+        refundAmount: it.refundAmount,
+        exchangeVariantId: it.exchangeVariantId,
+        exchangeSize: ex?.variant.size ?? null,
+        exchangeColor: ex?.variant.color ?? null,
+        exchangeUnitPrice: ex?.variant.price ?? null,
+      };
+    }),
+  };
+}
+
+export function mockCreateReturn(
+  input: ReturnInput
+):
+  | { ok: true; data: ReturnDTO }
+  | { ok: false; status: number; error: string } {
+  const sale = store.sales.find((s) => s.id === input.saleId);
+  if (!sale) return { ok: false, status: 404, error: "الفاتورة غير موجودة" };
+  if (sale.status === "CANCELLED")
+    return { ok: false, status: 409, error: "لا يمكن إرجاع فاتورة ملغية" };
+
+  const itemById = new Map(sale.items.map((it) => [it.id, it]));
+  const returnedBefore = new Map<string, number>();
+  for (const r of store.returns) {
+    if (r.saleId !== sale.id) continue;
+    for (const it of r.items)
+      returnedBefore.set(
+        it.saleItemId,
+        (returnedBefore.get(it.saleItemId) ?? 0) + it.quantity
+      );
+  }
+
+  const ratio = sale.totalAmount > 0 ? sale.finalAmount / sale.totalAmount : 1;
+  let returnedValue = 0;
+  let replacementValue = 0;
+  const items: MReturnItem[] = [];
+
+  for (const line of input.items) {
+    const saleItem = itemById.get(line.saleItemId);
+    if (!saleItem)
+      return { ok: false, status: 422, error: "بند غير موجود في هذه الفاتورة" };
+
+    const already = returnedBefore.get(saleItem.id) ?? 0;
+    if (already + line.quantity > saleItem.quantity)
+      return {
+        ok: false,
+        status: 422,
+        error: `الكمية المطلوب إرجاعها تتجاوز المتاح (المتبقي: ${saleItem.quantity - already})`,
+      };
+
+    const refundAmount = round2(
+      (saleItem.subtotal / saleItem.quantity) * ratio * line.quantity
+    );
+    returnedValue = round2(returnedValue + refundAmount);
+
+    const ref = findVariant(saleItem.variantId);
+    if (ref) ref.variant.quantity += line.quantity;
+
+    if (input.type === "EXCHANGE") {
+      const ex = line.exchangeVariantId
+        ? findVariant(line.exchangeVariantId)
+        : null;
+      if (!ex)
+        return { ok: false, status: 422, error: "الصنف البديل غير موجود" };
+      if (ex.variant.quantity < line.quantity)
+        return {
+          ok: false,
+          status: 422,
+          error: `الكمية غير كافية من الصنف البديل "${ex.product.name}" مقاس ${ex.variant.size} (المتاح: ${ex.variant.quantity})`,
+        };
+      ex.variant.quantity -= line.quantity;
+      replacementValue = round2(
+        replacementValue + ex.variant.price * line.quantity
+      );
+    }
+
+    items.push({
+      id: nextId("ri"),
+      saleItemId: saleItem.id,
+      variantId: saleItem.variantId,
+      quantity: line.quantity,
+      refundAmount,
+      exchangeVariantId:
+        input.type === "EXCHANGE" ? line.exchangeVariantId ?? null : null,
+    });
+  }
+
+  const exchangeDifference =
+    input.type === "EXCHANGE" ? round2(replacementValue - returnedValue) : 0;
+  const refundTotal = input.type === "RETURN" ? returnedValue : 0;
+
+  const rec: MReturn = {
+    id: nextId("ret"),
+    saleId: sale.id,
+    branch: sale.branch,
+    type: input.type,
+    reason: input.reason ?? null,
+    refundMethod: input.refundMethod ?? null,
+    refundTotal,
+    exchangeDifference,
+    createdBy: input.createdBy ?? null,
+    createdAt: new Date(),
+    items,
+  };
+  store.returns.unshift(rec);
+
+  if (sale.customerPhone) {
+    const cust = store.customers.find((c) => c.phone === sale.customerPhone);
+    if (cust) {
+      const delta = input.type === "RETURN" ? -refundTotal : exchangeDifference;
+      cust.totalSpent = round2(cust.totalSpent + delta);
+      cust.updatedAt = new Date();
+    }
+  }
+
+  store.activityLogs.unshift({
+    id: nextId("a"),
+    userName: input.createdBy || "النظام",
+    userRole: "ADMIN",
+    action: "إرجاع/استبدال",
+    details: `${input.type === "RETURN" ? "إرجاع" : "استبدال"} — فاتورة #${sale.saleNumber}`,
+    createdAt: new Date(),
+  });
+
+  return { ok: true, data: shapeReturn(rec) };
+}
+
+export function mockListReturns(sp: URLSearchParams): ReturnsListResponse {
+  const branch = sp.get("branch") as BranchValue | null;
+  const from = sp.get("from") ? new Date(sp.get("from")!) : null;
+  const to = sp.get("to") ? new Date(sp.get("to")!) : null;
+  const type = sp.get("type");
+  const saleId = sp.get("saleId");
+
+  let list = [...store.returns];
+  if (branch) list = list.filter((r) => r.branch === branch);
+  if (saleId) list = list.filter((r) => r.saleId === saleId);
+  if (type === "RETURN" || type === "EXCHANGE")
+    list = list.filter((r) => r.type === type);
+  if (from) list = list.filter((r) => r.createdAt >= from);
+  if (to) list = list.filter((r) => r.createdAt <= to);
+
+  list.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const returns = list.map(shapeReturn);
+  const summary = returns.reduce(
+    (acc, r) => {
+      acc.count += 1;
+      if (r.type === "EXCHANGE") acc.exchangeCount += 1;
+      else acc.returnCount += 1;
+      acc.refundTotal = round2(acc.refundTotal + r.refundTotal);
+      return acc;
+    },
+    { count: 0, returnCount: 0, exchangeCount: 0, refundTotal: 0 }
+  );
+  return { returns, total: returns.length, summary };
 }
 
 export function mockUnlockSale(

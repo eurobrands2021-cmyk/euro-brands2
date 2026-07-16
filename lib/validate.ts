@@ -8,6 +8,10 @@ import {
   ORDER_SOURCES,
   PAYMENT_METHODS,
   TRANSFER_METHODS,
+  RETURN_TYPES,
+  REFUND_METHODS,
+  type ReturnTypeValue,
+  type RefundMethodValue,
   type BranchValue,
   type CategoryValue,
   type DefectReasonValue,
@@ -29,6 +33,8 @@ import type {
   ImportRow,
   ProductInput,
   ProductTypeInput,
+  ReturnInput,
+  ReturnItemInput,
   SaleInput,
   VariantInput,
 } from "./types";
@@ -490,6 +496,51 @@ export function parseDamagedInput(body: any): DamagedInput {
     unitCost,
     photoUrl,
     createdBy: asString(body?.createdBy) || null,
+  };
+}
+
+// التحقّق من مُدخلات المرتجع/الاستبدال قبل تنفيذها في معاملة قاعدة البيانات
+export function parseReturnInput(body: any): ReturnInput {
+  const saleId = asString(body?.saleId);
+  if (!saleId) throw new ValidationError("الفاتورة غير محددة");
+
+  const type = asString(body?.type);
+  if (!RETURN_TYPES.includes(type as ReturnTypeValue))
+    throw new ValidationError("نوع العملية غير صحيح");
+
+  const refundMethodRaw = asString(body?.refundMethod);
+  const refundMethod =
+    refundMethodRaw &&
+    REFUND_METHODS.includes(refundMethodRaw as RefundMethodValue)
+      ? (refundMethodRaw as RefundMethodValue)
+      : null;
+
+  const rawItems = Array.isArray(body?.items) ? body.items : [];
+  if (rawItems.length === 0)
+    throw new ValidationError("اختر صنفاً واحداً على الأقل للإرجاع");
+
+  const items: ReturnItemInput[] = rawItems.map((it: any) => {
+    const saleItemId = asString(it?.saleItemId);
+    if (!saleItemId) throw new ValidationError("بند غير صالح في الطلب");
+
+    const quantity = parseQuantity(it?.quantity);
+    if (!Number.isInteger(quantity) || quantity <= 0)
+      throw new ValidationError("كمية الإرجاع غير صحيحة");
+
+    const exchangeVariantId = asString(it?.exchangeVariantId) || null;
+    if (type === "EXCHANGE" && !exchangeVariantId)
+      throw new ValidationError("اختر الصنف البديل لكل بند في الاستبدال");
+
+    return { saleItemId, quantity, exchangeVariantId };
+  });
+
+  return {
+    saleId,
+    type: type as ReturnTypeValue,
+    reason: asString(body?.reason) || null,
+    refundMethod,
+    createdBy: asString(body?.createdBy) || null,
+    items,
   };
 }
 

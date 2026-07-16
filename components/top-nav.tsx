@@ -18,6 +18,7 @@ import {
   Users,
   Crown,
   AlertTriangle,
+  RotateCcw,
   MoreHorizontal,
   ChevronDown,
 } from "lucide-react";
@@ -71,6 +72,7 @@ const MAIN_ITEMS: NavItem[] = [
 
 // روابط أقل استخداماً — مجمّعة داخل قائمة «المزيد»
 const MORE_ITEMS: NavItem[] = [
+  { href: "/returns", label: "المرتجعات", icon: RotateCcw, roles: ["ADMIN"] },
   { href: "/defects", label: "الديفو (التالف)", icon: AlertTriangle, roles: ["ADMIN"] },
   { href: "/customers", label: "العملاء", icon: Users, roles: ["ADMIN"] },
   { href: "/customers/vip", label: "كبار العملاء", icon: Crown, roles: ["ADMIN"] },
