@@ -10,7 +10,8 @@ export type DataTypeKey =
   | "customers"
   | "defects"
   | "activity"
-  | "transfers";
+  | "transfers"
+  | "returns";
 
 export const DATA_TYPE_KEYS: DataTypeKey[] = [
   "sales",
@@ -19,6 +20,7 @@ export const DATA_TYPE_KEYS: DataTypeKey[] = [
   "defects",
   "activity",
   "transfers",
+  "returns",
 ];
 
 export const DATA_TYPE_LABELS: Record<DataTypeKey, string> = {
@@ -28,6 +30,7 @@ export const DATA_TYPE_LABELS: Record<DataTypeKey, string> = {
   defects: "الديفو",
   activity: "سجل النشاط",
   transfers: "التحويلات",
+  returns: "المرتجعات والاستبدال",
 };
 
 // الأنواع التي يوجد بها عمود archivedAt (أرشفة/حذف مؤجّل).

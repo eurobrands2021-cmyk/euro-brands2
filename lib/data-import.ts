@@ -434,5 +434,14 @@ export async function importByType(
       return importDefects(rows);
     case "transfers":
       return importTransfers(rows);
+    case "returns":
+      // المرتجعات تُصدَّر للأرشفة/السجلّات فقط؛ لا تُعاد استيرادها لأنها مرتبطة
+      // بمعرّفات فواتير/أصناف قد تتغيّر عند الاستيراد. نتخطّاها بأمان.
+      return {
+        type: "returns",
+        created: 0,
+        updated: 0,
+        skipped: rows.length,
+      };
   }
 }

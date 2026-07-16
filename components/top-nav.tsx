@@ -31,7 +31,7 @@ import {
   type Role,
   type Session,
 } from "@/lib/auth";
-import type { LowStockResponse } from "@/lib/types";
+import type { LowStockResponse, ReturnsListResponse } from "@/lib/types";
 import { Logo } from "./logo";
 import { ThemeToggle } from "./theme-toggle";
 import { NotificationsBell } from "./notifications-bell";
@@ -95,6 +95,7 @@ export function TopNav() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [lowStock, setLowStock] = useState(0);
+  const [returnsToday, setReturnsToday] = useState(0);
   const [session, setSession] = useState<Session | null>(null);
   const moreRef = useRef<HTMLDivElement>(null);
 
@@ -106,6 +107,29 @@ export function TopNav() {
     apiGet<LowStockResponse>("/api/low-stock")
       .then((r) => setLowStock(r.count))
       .catch(() => {});
+  }, [pathname]);
+
+  // عدّاد مرتجعات اليوم على رابط «المرتجعات» — يُحدَّث كل 60 ثانية.
+  // نُعيد حساب بداية اليوم عند كل طلب حتى يُصفَّر العدّاد تلقائياً بعد منتصف الليل.
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      apiGet<ReturnsListResponse>(
+        `/api/returns?from=${encodeURIComponent(start.toISOString())}`
+      )
+        .then((r) => {
+          if (alive) setReturnsToday(r.summary?.count ?? r.total ?? 0);
+        })
+        .catch(() => {});
+    };
+    load();
+    const id = setInterval(load, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
   }, [pathname]);
 
   // أغلق قائمة «المزيد» عند التنقّل أو النقر خارجها
@@ -181,6 +205,12 @@ export function TopNav() {
                 >
                   <MoreHorizontal className="h-4 w-4 shrink-0" />
                   <span className="hidden lg:inline">المزيد</span>
+                  {returnsToday > 0 && !moreOpen && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-accent"
+                      aria-hidden
+                    />
+                  )}
                   <ChevronDown
                     className={cn(
                       "h-3.5 w-3.5 transition-transform",
@@ -209,6 +239,11 @@ export function TopNav() {
                         >
                           <item.icon className="h-4 w-4 shrink-0" />
                           {item.label}
+                          {item.href === "/returns" && returnsToday > 0 && (
+                            <span className="mr-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-white nums">
+                              {returnsToday}
+                            </span>
+                          )}
                         </Link>
                       );
                     })}
@@ -276,6 +311,7 @@ export function TopNav() {
               item={item}
               pathname={pathname}
               lowStock={lowStock}
+              returnsToday={returnsToday}
               onClick={() => setMobileOpen(false)}
             />
           ))}
@@ -292,6 +328,7 @@ export function TopNav() {
                   item={item}
                   pathname={pathname}
                   lowStock={lowStock}
+                  returnsToday={returnsToday}
                   onClick={() => setMobileOpen(false)}
                 />
               ))}
@@ -317,11 +354,13 @@ function MobileLink({
   item,
   pathname,
   lowStock,
+  returnsToday,
   onClick,
 }: {
   item: NavItem;
   pathname: string;
   lowStock: number;
+  returnsToday: number;
   onClick: () => void;
 }) {
   const active = isActive(pathname, item.href);
@@ -341,6 +380,11 @@ function MobileLink({
       {item.href === "/dashboard" && lowStock > 0 && (
         <span className="mr-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold text-white nums">
           {lowStock}
+        </span>
+      )}
+      {item.href === "/returns" && returnsToday > 0 && (
+        <span className="mr-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-accent px-1 text-[11px] font-bold text-white nums">
+          {returnsToday}
         </span>
       )}
     </Link>

@@ -10,12 +10,16 @@ import {
   SALE_STATUS_LABELS,
   CATEGORY_LABELS,
   DEFECT_REASON_LABELS,
+  RETURN_TYPE_LABELS,
+  REFUND_METHOD_LABELS,
   type BranchValue,
   type CategoryValue,
   type PaymentMethodValue,
   type TransferMethodValue,
   type SaleStatusValue,
   type DefectReasonValue,
+  type ReturnTypeValue,
+  type RefundMethodValue,
 } from "./constants";
 import {
   ARCHIVE_RETENTION_MS,
@@ -135,6 +139,9 @@ export async function countByType(
           break;
         case "transfers":
           result[k] = await prisma.stockTransfer.count({ where });
+          break;
+        case "returns":
+          result[k] = await prisma.return.count({ where }).catch(() => 0);
           break;
       }
     })
@@ -424,6 +431,78 @@ export async function collectExport(
     });
   }
 
+  if (wanted.has("returns")) {
+    const returns = await prisma.return
+      .findMany({
+        where,
+        orderBy: { createdAt: "desc" },
+        include: {
+          sale: { select: { saleNumber: true } },
+          items: {
+            include: {
+              variant: {
+                include: { product: { select: { name: true, brand: true } } },
+              },
+              exchangeVariant: { select: { size: true, color: true } },
+            },
+          },
+        },
+      })
+      .catch(() => []);
+    // صف واحد لكل بند مرتجع (أوضح للتصدير من تجميع البنود في خلية واحدة)
+    const rows: (string | number)[][] = [];
+    for (const r of returns) {
+      for (const it of r.items) {
+        rows.push([
+          r.sale?.saleNumber ?? "",
+          RETURN_TYPE_LABELS[r.type as ReturnTypeValue] ?? r.type,
+          BRANCH_LABELS[r.branch as BranchValue],
+          it.variant?.product?.name ?? "",
+          it.variant?.product?.brand ?? "",
+          it.variant?.size ?? "",
+          it.variant?.color ?? "",
+          it.quantity,
+          it.refundAmount,
+          it.exchangeVariant
+            ? `مقاس ${it.exchangeVariant.size}${it.exchangeVariant.color ? ` / ${it.exchangeVariant.color}` : ""}`
+            : "",
+          r.refundMethod
+            ? REFUND_METHOD_LABELS[r.refundMethod as RefundMethodValue] ??
+              r.refundMethod
+            : "",
+          r.refundTotal,
+          r.exchangeDifference,
+          r.reason ?? "",
+          r.createdBy ?? "",
+          fmtDate(r.createdAt),
+        ]);
+      }
+    }
+    sheets.push({
+      type: "returns",
+      label: DATA_TYPE_LABELS.returns,
+      columns: [
+        "رقم الفاتورة",
+        "النوع",
+        "الفرع",
+        "المنتج",
+        "البراند",
+        "المقاس",
+        "اللون",
+        "الكمية",
+        "قيمة الإرجاع",
+        "الصنف البديل",
+        "طريقة الاسترداد",
+        "إجمالي المُسترَد",
+        "فرق الاستبدال",
+        "السبب",
+        "المنفّذ",
+        "التاريخ",
+      ],
+      rows,
+    });
+  }
+
   return sheets;
 }
 
@@ -523,6 +602,9 @@ export async function deleteTypes(
         counts.transfers = (
           await prisma.stockTransfer.deleteMany({ where })
         ).count;
+        break;
+      case "returns":
+        counts.returns = (await prisma.return.deleteMany({ where })).count;
         break;
     }
   }
