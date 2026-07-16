@@ -110,9 +110,19 @@ export interface LowStockResponse {
   items: LowStockItem[];
 }
 
+// النقدية اليومية لفرع/إجمالي: مبيعات، مرتجعات، وصافي بعد الاسترداد
+export interface DailyCash {
+  sales: number; // إجمالي المبيعات (finalAmount غير الملغية)
+  count: number; // عدد الفواتير
+  refunds: number; // النقد المُعاد للعملاء (مرتجعات + فروق استبدال سالبة)
+  exchangeUpcharge: number; // فرق استبدال حُصّل (نقد داخل)
+  netCash: number; // sales − refunds + exchangeUpcharge
+}
+
 export interface HomeStats {
-  today: { sales: number; count: number };
-  yesterday: { sales: number; count: number };
+  today: DailyCash;
+  yesterday: DailyCash;
+  byBranch: { branch: BranchValue; today: DailyCash }[];
 }
 
 export interface SaleItemDTO {
@@ -518,6 +528,8 @@ export interface DashboardStats {
   yesterdaySales: number;
   yesterdaySalesCount: number;
   todayChangePct: number; // النسبة المئوية للتغيّر مقارنة بالأمس
+  refundsToday: number; // النقد المُعاد اليوم (مرتجعات + فروق استبدال)
+  netCashToday: number; // صافي نقدية اليوم = todaySales − refundsToday (+ فرق مُحصَّل)
   rangeSales: number;
   rangeSalesCount: number;
   avgInvoice: number;
@@ -525,7 +537,13 @@ export interface DashboardStats {
   remainingTotal: number; // إجمالي الرصيد المتبقي عند العملاء (كل الوقت)
 
   // القسم 2 — رسوم بيانية
-  branchComparison: { branch: BranchValue; total: number; count: number }[];
+  branchComparison: {
+    branch: BranchValue;
+    total: number;
+    count: number;
+    refunds: number; // مرتجعات الفرع خلال الفترة
+    netCash: number; // صافي نقدية الفرع = total − refunds (+ فرق مُحصَّل)
+  }[];
   weekComparison: {
     thisWeek: { date: string; total: number }[]; // 7 أيام تنتهي باليوم
     lastWeek: { date: string; total: number }[]; // 7 أيام تسبق الأسبوع الحالي

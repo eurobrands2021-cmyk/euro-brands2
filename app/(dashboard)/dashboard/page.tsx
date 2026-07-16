@@ -418,11 +418,19 @@ function renderSection(key: string, data: DashboardStats): React.ReactNode {
             <>
               <BranchBarChart data={data.branchComparison} />
               <SimpleTable
-                headers={["الفرع", "عدد الفواتير", "الإجمالي"]}
+                headers={[
+                  "الفرع",
+                  "عدد الفواتير",
+                  "الإجمالي",
+                  "المرتجعات",
+                  "الصافي",
+                ]}
                 rows={data.branchComparison.map((b) => [
                   BRANCH_LABELS[b.branch],
                   formatNumber(b.count),
                   formatCurrency(b.total),
+                  b.refunds > 0 ? `− ${formatCurrency(b.refunds)}` : "—",
+                  formatCurrency(b.netCash),
                 ])}
               />
             </>

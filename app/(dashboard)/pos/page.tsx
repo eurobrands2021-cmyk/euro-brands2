@@ -27,6 +27,7 @@ import { apiGet, apiPost } from "@/lib/client";
 import { getSession } from "@/lib/auth";
 import { logActivity, ACTIVITY_ACTIONS } from "@/lib/activity";
 import { BarcodeScanner } from "@/components/barcode-scanner";
+import { PosTodaySummary } from "@/components/pos-today-summary";
 import { ReceiptModal } from "@/components/receipt-modal";
 import { QuickAddProductModal } from "@/components/quick-add-product-modal";
 import { Modal } from "@/components/ui/modal";
@@ -832,6 +833,9 @@ function PosRegister({
           </button>
         </div>
       </div>
+
+      {/* ملخّص نقدية اليوم للفرع الحالي (مبيعات − مرتجعات) */}
+      <PosTodaySummary branch={branch} />
 
       <div className="flex flex-col gap-4 md:flex-row">
         {/* البحث والنتائج */}

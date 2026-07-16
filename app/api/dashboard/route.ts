@@ -10,6 +10,13 @@ import { prisma } from "@/lib/prisma";
 import { ok, handleServerError, CACHE_LISTING } from "@/lib/api";
 import { cached } from "@/lib/cache";
 import { round2 } from "@/lib/sale-utils";
+import {
+  groupReturnCashByBranch,
+  sumReturnCash,
+  computeNetCash,
+  emptyCashRefunds,
+  type ReturnCashRow,
+} from "@/lib/returns-cash";
 import { fetchLowStockVariants } from "@/lib/low-stock-query";
 import {
   BRANCHES,
@@ -99,6 +106,8 @@ export async function GET(req: Request) {
       newCustomersCount,
       damagedRows,
       transferRows,
+      todayReturnsRows,
+      rangeReturnsRows,
     ] = await Promise.all([
       // كل فواتير الفترة المختارة
       prisma.sale.findMany({
@@ -210,6 +219,30 @@ export async function GET(req: Request) {
           include: { items: { select: { quantity: true } } },
           orderBy: { createdAt: "desc" },
           take: 200,
+        })
+        .catch(() => []),
+      // مرتجعات اليوم (للنقدية اليومية) — استعلام دفاعي (الجدول قد لا يكون مفعّلاً)
+      prisma.return
+        .findMany({
+          where: { createdAt: { gte: todayStart, lte: todayEnd } },
+          select: {
+            branch: true,
+            type: true,
+            refundTotal: true,
+            exchangeDifference: true,
+          },
+        })
+        .catch(() => []),
+      // مرتجعات الفترة (لصافي نقدية كل فرع) — استعلام دفاعي
+      prisma.return
+        .findMany({
+          where: { createdAt: { gte: from, lte: to } },
+          select: {
+            branch: true,
+            type: true,
+            refundTotal: true,
+            exchangeDifference: true,
+          },
         })
         .catch(() => []),
     ]);
@@ -393,6 +426,15 @@ export async function GET(req: Request) {
     // اليوم vs الأمس
     const todaySales = round2(todayAgg._sum.finalAmount ?? 0);
     const yesterdaySales = round2(yesterdayAgg._sum.finalAmount ?? 0);
+
+    // الأثر النقدي للمرتجعات: اليوم (إجمالي) + الفترة موزّعة على الفروع
+    const todayRefundCash = sumReturnCash(todayReturnsRows as ReturnCashRow[]);
+    const refundsToday = todayRefundCash.refunds;
+    const netCashToday = computeNetCash(todaySales, todayRefundCash);
+    const rangeRefundByBranch = groupReturnCashByBranch(
+      rangeReturnsRows as ReturnCashRow[]
+    );
+
     const todayChangePct =
       yesterdaySales > 0
         ? round2(((todaySales - yesterdaySales) / yesterdaySales) * 100)
@@ -522,6 +564,8 @@ export async function GET(req: Request) {
       yesterdaySales,
       yesterdaySalesCount: yesterdayAgg._count,
       todayChangePct,
+      refundsToday,
+      netCashToday,
       rangeSales: round2(rangeTotal),
       rangeSalesCount: rangeSales.length,
       avgInvoice: rangeSales.length
@@ -530,11 +574,17 @@ export async function GET(req: Request) {
       topDay,
       remainingTotal: round2(remainingAgg._sum.remainingAmount ?? 0),
 
-      branchComparison: [...branchMap.entries()].map(([branch, v]) => ({
-        branch,
-        total: round2(v.total),
-        count: v.count,
-      })),
+      branchComparison: [...branchMap.entries()].map(([branch, v]) => {
+        const rc = rangeRefundByBranch.get(branch) ?? emptyCashRefunds();
+        const total = round2(v.total);
+        return {
+          branch,
+          total,
+          count: v.count,
+          refunds: rc.refunds,
+          netCash: computeNetCash(total, rc),
+        };
+      }),
       weekComparison: {
         thisWeek: [...thisWeekBuckets.entries()].map(([date, total]) => ({
           date,

@@ -72,6 +72,14 @@ import type {
 } from "./types";
 import type { ReturnTypeValue, RefundMethodValue } from "./constants";
 import { buildVariantSku, uniquifySku } from "./sku";
+import {
+  sumReturnCash,
+  computeNetCash,
+  groupReturnCashByBranch,
+  emptyCashRefunds,
+  type ReturnCashRow,
+} from "./returns-cash";
+import type { DailyCash, HomeStats } from "./types";
 
 // "وضع المعاينة": يعمل تلقائياً عند غياب DATABASE_URL، أو يُفرض عبر MOCK_DATA=1
 export const MOCK_MODE =
@@ -1171,28 +1179,53 @@ export function mockNormalizedData(): {
   return { sales, products };
 }
 
-export function mockHomeStats(): {
-  today: { sales: number; count: number };
-  yesterday: { sales: number; count: number };
-} {
+export function mockHomeStats(): HomeStats {
   const now = new Date();
-  const agg = (from: Date, to: Date) => {
+  const returnsIn = (from: Date, to: Date): ReturnCashRow[] =>
+    store.returns
+      .filter((r) => r.createdAt >= from && r.createdAt <= to)
+      .map((r) => ({
+        branch: r.branch,
+        type: r.type,
+        refundTotal: r.refundTotal,
+        exchangeDifference: r.exchangeDifference,
+      }));
+
+  const daily = (from: Date, to: Date, branch?: BranchValue): DailyCash => {
     let sales = 0;
     let count = 0;
     for (const s of store.sales)
       if (
         s.status !== "CANCELLED" &&
         s.createdAt >= from &&
-        s.createdAt <= to
+        s.createdAt <= to &&
+        (!branch || s.branch === branch)
       ) {
         sales += s.finalAmount;
         count++;
       }
-    return { sales: round2(sales), count };
+    const rows = returnsIn(from, to).filter((r) => !branch || r.branch === branch);
+    const rc = sumReturnCash(rows);
+    const s = round2(sales);
+    return {
+      sales: s,
+      count,
+      refunds: rc.refunds,
+      exchangeUpcharge: rc.exchangeUpcharge,
+      netCash: computeNetCash(s, rc),
+    };
   };
+
+  const tFrom = startOfDay(now);
+  const tTo = endOfDay(now);
+
   return {
-    today: agg(startOfDay(now), endOfDay(now)),
-    yesterday: agg(startOfDay(subDays(now, 1)), endOfDay(subDays(now, 1))),
+    today: daily(tFrom, tTo),
+    yesterday: daily(startOfDay(subDays(now, 1)), endOfDay(subDays(now, 1))),
+    byBranch: BRANCHES.map((branch) => ({
+      branch,
+      today: daily(tFrom, tTo, branch),
+    })),
   };
 }
 
@@ -2672,6 +2705,21 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
         ? 100
         : 0;
 
+  // الأثر النقدي للمرتجعات (اليوم + الفترة موزّعة على الفروع)
+  const returnRows = (f: Date, t: Date): ReturnCashRow[] =>
+    store.returns
+      .filter((r) => r.createdAt >= f && r.createdAt <= t)
+      .map((r) => ({
+        branch: r.branch,
+        type: r.type,
+        refundTotal: r.refundTotal,
+        exchangeDifference: r.exchangeDifference,
+      }));
+  const todayRefundCash = sumReturnCash(returnRows(todayStart, todayEnd));
+  const refundsToday = todayRefundCash.refunds;
+  const netCashToday = computeNetCash(todaySales, todayRefundCash);
+  const rangeRefundByBranch = groupReturnCashByBranch(returnRows(from, to));
+
   // إجمالي الرصيد المتبقي (كل الوقت)
   const remainingTotal = round2(
     store.sales
@@ -2785,17 +2833,25 @@ export function mockDashboard(sp: URLSearchParams): DashboardStats {
     yesterdaySales,
     yesterdaySalesCount: yList.length,
     todayChangePct,
+    refundsToday,
+    netCashToday,
     rangeSales: round2(rangeTotal),
     rangeSalesCount: inRange.length,
     avgInvoice: inRange.length ? round2(rangeTotal / inRange.length) : 0,
     topDay,
     remainingTotal,
 
-    branchComparison: [...branchMap.entries()].map(([branch, v]) => ({
-      branch,
-      total: round2(v.total),
-      count: v.count,
-    })),
+    branchComparison: [...branchMap.entries()].map(([branch, v]) => {
+      const rc = rangeRefundByBranch.get(branch) ?? emptyCashRefunds();
+      const total = round2(v.total);
+      return {
+        branch,
+        total,
+        count: v.count,
+        refunds: rc.refunds,
+        netCash: computeNetCash(total, rc),
+      };
+    }),
     weekComparison: {
       thisWeek: [...thisWeekBuckets.entries()].map(([date, total]) => ({
         date,
