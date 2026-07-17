@@ -331,9 +331,21 @@ model DamagedItem {
   detail    String? // تفاصيل إضافية/سبب حر (خاصة عند «أخرى»)
   unitCost  Float    @default(0) // تكلفة/سعر الوحدة لحظة التسجيل (لحساب الخسارة)
   photoUrl  String? // صورة اختيارية للعيب
+
+  // الحالة (التصرّف) وأثرها على المخزون — أحد قيم DEFECT_CONDITIONS:
+  //   TOTAL_LOSS        = تالف بالكامل: يُخصَم من المخزون، خسارة صافية (الافتراضي)
+  //   SELL_AT_DISCOUNT  = يُباع بخصم: يبقى في المخزون بسعر مخفّض (discountPrice)
+  //   RETURN_TO_SUPPLIER= يُرجع للمورد: يُخصَم من المخزون ويُربَط بمورد (supplierId)
+  condition     String  @default("TOTAL_LOSS")
+  discountPrice Float? // سعر البيع بخصم (عند SELL_AT_DISCOUNT فقط)
+  supplierId    String? // المورد (عند RETURN_TO_SUPPLIER فقط)
+  supplier      Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+  @@index([condition])
+  @@index([supplierId])
 }
 
 // ----------------------------------------------------
@@ -421,7 +433,8 @@ model Supplier {
   notes     String?
   createdAt DateTime @default(now())
 
-  receipts StockReceipt[]
+  receipts     StockReceipt[]
+  damagedItems DamagedItem[] // مرتجعات التلف المرتبطة بهذا المورد (يُرجع للمورد)
 
   @@index([name])
 }

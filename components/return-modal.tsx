@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RotateCcw, Repeat } from "lucide-react";
 import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
+import { NumberInput } from "@/components/ui/inputs";
 import { apiGet, apiPost } from "@/lib/client";
 import { getSession } from "@/lib/auth";
 import { cn } from "@/lib/cn";
@@ -251,17 +252,14 @@ export function ReturnModal({
                     {formatNumber(it.quantity)}
                   </p>
                 </div>
-                <input
-                  type="number"
-                  min={0}
+                <NumberInput
                   max={remaining}
-                  inputMode="numeric"
                   disabled={disabled}
-                  value={qty || ""}
-                  onChange={(e) => {
+                  value={qty ? String(qty) : ""}
+                  onChange={(v) => {
                     const n = Math.max(
                       0,
-                      Math.min(remaining, Math.floor(Number(e.target.value) || 0))
+                      Math.min(remaining, Math.floor(Number(v) || 0))
                     );
                     setQty(it.id, n);
                   }}

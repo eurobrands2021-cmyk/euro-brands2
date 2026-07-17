@@ -209,6 +209,30 @@ export const DEFECT_REASON_LABELS: Record<DefectReasonValue, string> = {
   OTHER: "أخرى",
 };
 
+// حالة التصرّف في الصنف التالف (الديفو) — تحدّد أثره على المخزون:
+//   TOTAL_LOSS        = تالف بالكامل → يُخصَم من المخزون كخسارة صافية (الافتراضي)
+//   SELL_AT_DISCOUNT  = يُباع بخصم → يبقى في المخزون بسعر مخفّض (لا يُخصَم)
+//   RETURN_TO_SUPPLIER= يُرجع للمورد → يُخصَم من المخزون ويُربَط بمورد (ليس خسارة)
+export const DEFECT_CONDITIONS = [
+  "TOTAL_LOSS",
+  "SELL_AT_DISCOUNT",
+  "RETURN_TO_SUPPLIER",
+] as const;
+export type DefectConditionValue = (typeof DEFECT_CONDITIONS)[number];
+
+export const DEFECT_CONDITION_LABELS: Record<DefectConditionValue, string> = {
+  TOTAL_LOSS: "تالف بالكامل",
+  SELL_AT_DISCOUNT: "يُباع بخصم",
+  RETURN_TO_SUPPLIER: "يُرجع للمورد",
+};
+
+// شرح مختصر لكل حالة (يظهر أسفل المُنتقي في نموذج تسجيل التلف)
+export const DEFECT_CONDITION_HINTS: Record<DefectConditionValue, string> = {
+  TOTAL_LOSS: "يُخصَم من المخزون ويُحتسَب خسارة كاملة.",
+  SELL_AT_DISCOUNT: "يبقى في المخزون ويُباع بسعر مخفّض — لا يُخصَم ولا يُحتسَب خسارة.",
+  RETURN_TO_SUPPLIER: "يُخصَم من المخزون ويُسجَّل مرتجعاً للمورد — لا يُحتسَب خسارة.",
+};
+
 // قائمة ألوان شائعة للاختيار السريع (قائمة منسدلة في نافذة الإضافة السريعة)
 export const COMMON_COLORS = [
   "أسود",

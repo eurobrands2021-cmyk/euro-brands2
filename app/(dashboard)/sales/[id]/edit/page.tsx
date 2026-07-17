@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { ProductFilterBar } from "@/components/product-filter-bar";
 import { PageLoader, Spinner } from "@/components/ui/spinner";
+import { NumberInput } from "@/components/ui/inputs";
 import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
 import {
   BRANCHES,
@@ -619,12 +620,10 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
                     </span>
                   )}
 
-                  <input
-                    type="number"
-                    min={1}
+                  <NumberInput
                     className="input h-9 w-20 text-center nums"
-                    value={it.quantity}
-                    onChange={(e) => setQty(i, Number(e.target.value))}
+                    value={String(it.quantity)}
+                    onChange={(v) => setQty(i, Number(v) || 1)}
                   />
                   <span
                     className={
@@ -704,13 +703,12 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
             </div>
             <div>
               <label className="label">قيمة الخصم</label>
-              <input
-                type="number"
+              <NumberInput
+                decimal
                 className="input nums"
                 value={discountValue}
-                onChange={(e) => setDiscountValue(e.target.value)}
+                onChange={setDiscountValue}
                 disabled={!discountType}
-                min={0}
               />
             </div>
           </div>
@@ -752,12 +750,11 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
             )}
           </div>
           <label className="label mt-3">المبلغ المدفوع (اتركه فارغاً = مدفوع بالكامل)</label>
-          <input
-            type="number"
+          <NumberInput
+            decimal
             className="input nums"
             value={paidAmount}
-            onChange={(e) => setPaidAmount(e.target.value)}
-            min={0}
+            onChange={setPaidAmount}
             placeholder={String(finalAmount)}
           />
           <label className="label mt-3">ملاحظات الفاتورة</label>

@@ -126,21 +126,25 @@ export default function ExpensesPage() {
                 </select>
               </div>
               <div className="min-w-[130px]">
-                <label className="label">من</label>
+                <label className="label">من تاريخ</label>
                 <input
                   type="date"
-                  className="input"
+                  className="input nums"
                   value={from}
+                  max={to || undefined}
                   onChange={(e) => setFrom(e.target.value)}
+                  aria-label="من تاريخ"
                 />
               </div>
               <div className="min-w-[130px]">
-                <label className="label">إلى</label>
+                <label className="label">إلى تاريخ</label>
                 <input
                   type="date"
-                  className="input"
+                  className="input nums"
                   value={to}
+                  min={from || undefined}
                   onChange={(e) => setTo(e.target.value)}
+                  aria-label="إلى تاريخ"
                 />
               </div>
               {hasFilter && (

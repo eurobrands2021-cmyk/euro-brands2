@@ -2,6 +2,7 @@ import type {
   BranchValue,
   CategoryValue,
   DefectReasonValue,
+  DefectConditionValue,
   DeliveryMethodValue,
   DeliveryStatusValue,
   DiscountTypeValue,
@@ -29,6 +30,9 @@ export interface VariantDTO {
   cost: number; // تكلفة الوحدة (متوسط مرجّح) — Part D
   sku: string | null;
   skuManual: boolean;
+  // سعر البيع بخصم عند وجود تسجيل «يُباع بخصم» فعّال لهذا الصنف (الديفو).
+  // يُملأ فقط في مسارات نقطة البيع (withDamaged=1) — null = لا خصم تالف.
+  discountPrice?: number | null;
 }
 
 export interface ProductDTO {
@@ -433,30 +437,51 @@ export interface DamagedItemDTO {
   reasonCode: DefectReasonValue; // كود السبب (عمود reason في قاعدة البيانات)
   detail: string | null; // تفاصيل/سبب حر (عمود detail)
   unitCost: number;
-  loss: number; // الكمية × تكلفة الوحدة
+  loss: number; // الكمية × تكلفة الوحدة (قيمة اسمية — الخسارة الحقيقية للحالة «تالف بالكامل» فقط)
   photoUrl: string | null; // صورة العيب (عمود photoUrl)
+  // الحالة (التصرّف) وحقولها المرتبطة
+  condition: DefectConditionValue; // TOTAL_LOSS | SELL_AT_DISCOUNT | RETURN_TO_SUPPLIER
+  discountPrice: number | null; // سعر البيع بخصم (عند «يُباع بخصم»)
+  supplierId: string | null; // المورد (عند «يُرجع للمورد»)
+  supplierName: string | null; // اسم المورد للعرض
   createdAt: string;
 }
 
-// مدخلات تسجيل تلف — يخصم الكمية من المخزون داخل معاملة
+// مدخلات تسجيل تلف — أثره على المخزون يعتمد على الحالة (condition)
 export interface DamagedInput {
-  variantId: string; // الصنف المُتلف (يُخصَم منه)
+  variantId: string; // الصنف المُتلف
   quantity: number;
   reasonCode: DefectReasonValue; // يُخزَّن في عمود reason
   detail?: string | null; // تفاصيل إضافية (مطلوبة عند «أخرى») — عمود detail
   photoUrl?: string | null; // عمود photoUrl
   unitCost?: number | null; // تكلفة الوحدة (تُشتق من سعر الصنف إن غابت)
+  condition: DefectConditionValue; // الحالة (التصرّف) — تحدّد الخصم من المخزون
+  discountPrice?: number | null; // سعر البيع بخصم (مطلوب عند «يُباع بخصم»)
+  supplierId?: string | null; // المورد (مطلوب عند «يُرجع للمورد»)
   createdBy?: string | null; // اسم من سجّل التلف (لسجل التدقيق فقط، لا يُخزَّن في الجدول)
 }
 
-// تقرير الديفو: القائمة + الملخّص (إجمالي الخسارة + السبب الأكثر تكراراً)
+// تفصيل الديفو حسب الحالة (التصرّف)
+export interface DefectConditionStat {
+  condition: DefectConditionValue;
+  count: number; // عدد السجلات
+  quantity: number; // إجمالي القطع
+  value: number; // القيمة المالية للحالة (خسارة/قيمة بيع بخصم/قيمة مرتجعة)
+}
+
+// تقرير الديفو: القائمة + الملخّص (إجمالي الخسارة + السبب الأكثر تكراراً + تفصيل الحالات)
 export interface DefectReport {
   items: DamagedItemDTO[];
-  totalLoss: number; // إجمالي الخسارة بالجنيه (Σ الكمية × التكلفة)
-  totalQuantity: number; // إجمالي عدد القطع التالفة
+  totalLoss: number; // الخسارة الحقيقية (حالة «تالف بالكامل» فقط)
+  totalQuantity: number; // إجمالي عدد القطع المسجّلة (كل الحالات)
   topReason: DefectReasonValue | null; // السبب الأكثر تكراراً
   topReasonCount: number;
   reasonBreakdown: { reason: DefectReasonValue; count: number; loss: number }[];
+  // تفصيل حسب الحالة + قيم كل حالة
+  conditionBreakdown: DefectConditionStat[];
+  trueLoss: number; // خسارة صافية (تالف بالكامل) — نفس totalLoss
+  recoveredValue: number; // قيمة البيع بخصم المتوقّعة (Σ سعر الخصم × الكمية)
+  supplierReturnValue: number; // قيمة المرتجع للمورد (Σ التكلفة × الكمية)
 }
 
 // تقرير الديفو المرقّم: نفس الملخّص فوق كامل النطاق، مع صفحة واحدة من العناصر.

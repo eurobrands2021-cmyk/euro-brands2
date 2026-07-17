@@ -2,6 +2,7 @@ import {
   BRANCHES,
   CATEGORIES,
   DEFECT_REASONS,
+  DEFECT_CONDITIONS,
   DELIVERY_METHODS,
   DELIVERY_STATUSES,
   DISCOUNT_TYPES,
@@ -17,6 +18,7 @@ import {
   type BranchValue,
   type CategoryValue,
   type DefectReasonValue,
+  type DefectConditionValue,
   type DeliveryMethodValue,
   type DeliveryStatusValue,
   type DiscountTypeValue,
@@ -497,6 +499,28 @@ export function parseDamagedInput(body: any): DamagedInput {
 
   const photoUrl = asString(body?.photoUrl) || null;
 
+  // الحالة (التصرّف) — افتراضياً «تالف بالكامل» للتوافق مع السجلات/الطلبات القديمة
+  const conditionRaw = asString(body?.condition) || "TOTAL_LOSS";
+  if (!DEFECT_CONDITIONS.includes(conditionRaw as DefectConditionValue))
+    throw new ValidationError("حالة التصرّف غير صحيحة");
+  const condition = conditionRaw as DefectConditionValue;
+
+  // حقول مرتبطة بالحالة: سعر الخصم (يُباع بخصم) / المورد (يُرجع للمورد)
+  let discountPrice: number | null = null;
+  let supplierId: string | null = null;
+
+  if (condition === "SELL_AT_DISCOUNT") {
+    if (body?.discountPrice == null || body?.discountPrice === "")
+      throw new ValidationError("أدخل سعر البيع بخصم");
+    const dp = Number(body.discountPrice);
+    if (!Number.isFinite(dp) || dp <= 0)
+      throw new ValidationError("سعر البيع بخصم غير صحيح");
+    discountPrice = round2(dp);
+  } else if (condition === "RETURN_TO_SUPPLIER") {
+    supplierId = asString(body?.supplierId) || null;
+    if (!supplierId) throw new ValidationError("اختر المورد المُرجَع إليه");
+  }
+
   return {
     variantId,
     quantity, // عدد صحيح موجب مضمون
@@ -504,6 +528,9 @@ export function parseDamagedInput(body: any): DamagedInput {
     detail,
     unitCost,
     photoUrl,
+    condition,
+    discountPrice,
+    supplierId,
     createdBy: asString(body?.createdBy) || null,
   };
 }

@@ -118,7 +118,9 @@ export default function ReturnsPage() {
               type="date"
               className="input nums"
               value={from}
+              max={to || undefined}
               onChange={(e) => setFrom(e.target.value)}
+              aria-label="من تاريخ"
             />
           </div>
           <div>
@@ -127,7 +129,9 @@ export default function ReturnsPage() {
               type="date"
               className="input nums"
               value={to}
+              min={from || undefined}
               onChange={(e) => setTo(e.target.value)}
+              aria-label="إلى تاريخ"
             />
           </div>
         </div>

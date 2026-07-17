@@ -334,11 +334,11 @@ function PosRegister({
   const url = browseByBrand
     ? `/api/products?branch=${branch}&brand=${encodeURIComponent(filterBrand)}${
         filterCategory !== "ALL" ? `&category=${filterCategory}` : ""
-      }&limit=100`
+      }&limit=100&withDamaged=1`
     : canSearch
       ? `/api/products?branch=${branch}&search=${encodeURIComponent(
           normalizedSearch
-        )}&limit=50`
+        )}&limit=50&withDamaged=1`
       : null;
   const { data, loading, error, refetch } = useFetch<ProductDTO[]>(url);
   const results = data ?? [];
@@ -401,7 +401,8 @@ function PosRegister({
           size: variant.size,
           color: variant.color ?? null,
           sku: variant.sku ?? null,
-          unitPrice: variant.price,
+          // صنف مُعلَّم «يُباع بخصم» (الديفو) يُضاف بسعره المخفّض تلقائياً
+          unitPrice: variant.discountPrice ?? variant.price,
           available: variant.quantity,
           quantity: 1,
           note: "",
@@ -528,7 +529,7 @@ function PosRegister({
     const code = extractSkuFromScan(rawCode);
     try {
       const results = await apiGet<ProductDTO[]>(
-        `/api/products?branch=${branch}&search=${encodeURIComponent(code)}`
+        `/api/products?branch=${branch}&search=${encodeURIComponent(code)}&withDamaged=1`
       );
       const matches = results.flatMap((p) =>
         p.variants.map((v) => ({ product: p, variant: v }))
@@ -906,6 +907,9 @@ function PosRegister({
                               {p.name}
                             </p>
                             {p.isDraft && <DraftTag />}
+                            {p.variants.some((v) => v.discountPrice != null) && (
+                              <DamagedDiscountTag />
+                            )}
                           </div>
                           <p className="text-xs text-muted">{p.brand}</p>
                         </div>
@@ -918,11 +922,18 @@ function PosRegister({
                                 e.preventDefault();
                                 addVariant(p, v);
                               }}
+                              title={
+                                v.discountPrice != null
+                                  ? `تالف/خصم — ${formatCurrency(v.discountPrice)}`
+                                  : undefined
+                              }
                               className={cn(
                                 "rounded border px-1.5 py-0.5 text-[11px] nums",
                                 v.quantity <= 0
                                   ? "text-muted line-through opacity-50"
-                                  : "hover:border-accent hover:text-accent"
+                                  : v.discountPrice != null
+                                    ? "border-danger/40 text-danger hover:bg-[rgba(217,83,79,0.08)]"
+                                    : "hover:border-accent hover:text-accent"
                               )}
                             >
                               {v.size}
@@ -1815,6 +1826,15 @@ function DraftTag() {
   );
 }
 
+// شارة «تالف/خصم» — صنف مُعلَّم في الديفو كـ«يُباع بخصم» (سعر مخفّض).
+function DamagedDiscountTag() {
+  return (
+    <span className="shrink-0 rounded bg-[rgba(217,83,79,0.14)] px-1.5 py-0.5 text-[10px] font-bold text-danger">
+      تالف/خصم
+    </span>
+  );
+}
+
 function SearchResult({
   product,
   cart,
@@ -1883,27 +1903,44 @@ function SearchResult({
           {availableVariants.map((v) => {
             const inCart = cart.find((c) => c.variantId === v.id)?.quantity ?? 0;
             const maxed = inCart >= v.quantity;
+            const damaged = v.discountPrice != null;
             return (
               <button
                 key={v.id}
                 disabled={maxed}
                 onClick={() => onAdd(product, v)}
-                title={maxed ? "أضفت كل الكمية المتاحة" : `المتاح: ${v.quantity}`}
+                title={
+                  damaged
+                    ? `تالف/خصم — يُباع بـ ${formatCurrency(v.discountPrice!)} (المتاح: ${v.quantity})`
+                    : maxed
+                      ? "أضفت كل الكمية المتاحة"
+                      : `المتاح: ${v.quantity}`
+                }
                 className={cn(
-                  "inline-flex min-h-[44px] min-w-[3.5rem] items-center justify-center rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                  "inline-flex min-h-[44px] min-w-[3.5rem] flex-col items-center justify-center rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors",
                   maxed
                     ? "cursor-not-allowed text-muted opacity-50"
-                    : "hover:border-accent hover:bg-accent-soft hover:text-accent active:bg-accent-soft",
+                    : damaged
+                      ? "border-danger/40 hover:bg-[rgba(217,83,79,0.08)]"
+                      : "hover:border-accent hover:bg-accent-soft hover:text-accent active:bg-accent-soft",
                   inCart > 0 && "border-accent bg-accent-soft text-accent"
                 )}
               >
-                <span className="nums">
-                  {v.size}
-                  {v.color ? ` / ${v.color}` : ""}
+                <span className="flex items-center gap-1">
+                  <span className="nums">
+                    {v.size}
+                    {v.color ? ` / ${v.color}` : ""}
+                  </span>
+                  <span className="text-xs text-muted nums">({v.quantity})</span>
                 </span>
-                <span className="mr-1 text-xs text-muted nums">
-                  ({v.quantity})
-                </span>
+                {damaged && (
+                  <span className="mt-0.5 flex items-center gap-1">
+                    <DamagedDiscountTag />
+                    <span className="text-[11px] font-bold text-danger nums">
+                      {formatCurrency(v.discountPrice!)}
+                    </span>
+                  </span>
+                )}
               </button>
             );
           })}

@@ -34,4 +34,14 @@ export const INIT_SQL = "-- CreateEnum\nCREATE TYPE \"Category\" AS ENUM ('CLOTH
   // المفاتيح الأجنبية (تُشغَّل مرّة؛ يتجاهلها التكرار بخطأ 42710)
   "ALTER TABLE \"StockReceipt\" ADD CONSTRAINT \"StockReceipt_supplierId_fkey\" FOREIGN KEY (\"supplierId\") REFERENCES \"Supplier\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;\n\n" +
   "ALTER TABLE \"StockReceiptItem\" ADD CONSTRAINT \"StockReceiptItem_receiptId_fkey\" FOREIGN KEY (\"receiptId\") REFERENCES \"StockReceipt\"(\"id\") ON DELETE CASCADE ON UPDATE CASCADE;\n\n" +
-  "ALTER TABLE \"StockReceiptItem\" ADD CONSTRAINT \"StockReceiptItem_variantId_fkey\" FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;\n\n";
+  "ALTER TABLE \"StockReceiptItem\" ADD CONSTRAINT \"StockReceiptItem_variantId_fkey\" FOREIGN KEY (\"variantId\") REFERENCES \"ProductVariant\"(\"id\") ON DELETE RESTRICT ON UPDATE CASCADE;\n\n" +
+  // ----------------------------------------------------
+  //  الديفو — نظام الحالة (التصرّف): تالف بالكامل / يُباع بخصم / يُرجع للمورد
+  //  أعمدة جديدة على جدول DamagedItem القائم + ربط اختياري بالمورد.
+  // ----------------------------------------------------
+  "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"condition\" TEXT NOT NULL DEFAULT 'TOTAL_LOSS';\n\n" +
+  "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"discountPrice\" DOUBLE PRECISION;\n\n" +
+  "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"supplierId\" TEXT;\n\n" +
+  "CREATE INDEX IF NOT EXISTS \"DamagedItem_condition_idx\" ON \"DamagedItem\"(\"condition\");\n\n" +
+  "CREATE INDEX IF NOT EXISTS \"DamagedItem_supplierId_idx\" ON \"DamagedItem\"(\"supplierId\");\n\n" +
+  "ALTER TABLE \"DamagedItem\" ADD CONSTRAINT \"DamagedItem_supplierId_fkey\" FOREIGN KEY (\"supplierId\") REFERENCES \"Supplier\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;\n\n";

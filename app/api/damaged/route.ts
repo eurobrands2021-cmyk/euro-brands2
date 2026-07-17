@@ -15,8 +15,11 @@ import type {
 } from "@/lib/types";
 import {
   DEFECT_REASONS,
+  DEFECT_CONDITIONS,
+  DEFECT_CONDITION_LABELS,
   type BranchValue,
   type DefectReasonValue,
+  type DefectConditionValue,
 } from "@/lib/constants";
 
 // عمود reason في قاعدة البيانات يحمل كود السبب؛ نتحقق أنه ضمن القائمة
@@ -25,6 +28,13 @@ function toReasonCode(dbReason: string | null): DefectReasonValue {
   return dbReason && DEFECT_REASONS.includes(dbReason as DefectReasonValue)
     ? (dbReason as DefectReasonValue)
     : "OTHER";
+}
+
+// حالة التصرّف — السجلات القديمة بلا عمود condition تُعتبر «تالف بالكامل».
+function toCondition(dbValue: string | null | undefined): DefectConditionValue {
+  return dbValue && DEFECT_CONDITIONS.includes(dbValue as DefectConditionValue)
+    ? (dbValue as DefectConditionValue)
+    : "TOTAL_LOSS";
 }
 
 export const dynamic = "force-dynamic";
@@ -58,7 +68,12 @@ export async function GET(req: Request) {
     const variantIds = [
       ...new Set(rows.map((r) => r.variantId).filter((v): v is string => !!v)),
     ];
-    const [products, variants] = await Promise.all([
+    const supplierIds = [
+      ...new Set(
+        rows.map((r) => r.supplierId).filter((s): s is string => !!s)
+      ),
+    ];
+    const [products, variants, suppliers] = await Promise.all([
       prisma.product.findMany({
         where: { id: { in: productIds } },
         select: { id: true, name: true, brand: true },
@@ -67,9 +82,16 @@ export async function GET(req: Request) {
         where: { id: { in: variantIds } },
         select: { id: true, size: true, color: true },
       }),
+      supplierIds.length
+        ? prisma.supplier.findMany({
+            where: { id: { in: supplierIds } },
+            select: { id: true, name: true },
+          })
+        : Promise.resolve([]),
     ]);
     const pmap = new Map(products.map((p) => [p.id, p]));
     const vmap = new Map(variants.map((v) => [v.id, v]));
+    const smap = new Map(suppliers.map((s) => [s.id, s.name]));
 
     const items: DamagedItemDTO[] = rows.map((r) => {
       const p = pmap.get(r.productId);
@@ -91,6 +113,10 @@ export async function GET(req: Request) {
         unitCost: r.unitCost,
         loss: round2(r.unitCost * r.quantity),
         photoUrl: r.photoUrl,
+        condition: toCondition(r.condition),
+        discountPrice: r.discountPrice ?? null,
+        supplierId: r.supplierId ?? null,
+        supplierName: r.supplierId ? smap.get(r.supplierId) ?? null : null,
         createdAt: r.createdAt.toISOString(),
       };
     });
@@ -134,6 +160,10 @@ export async function POST(req: Request) {
 
     if (MOCK_MODE) return ok(mockCreateDamaged(input), 201);
 
+    // الحالات التي تُخصَم من المخزون: تالف بالكامل + يُرجع للمورد.
+    // «يُباع بخصم» يبقى في المخزون (يُعلَّم فقط بسعر مخفّض).
+    const deductsStock = input.condition !== "SELL_AT_DISCOUNT";
+
     const result = await prisma.$transaction(async (tx) => {
       const variant = await tx.productVariant.findUnique({
         where: { id: input.variantId },
@@ -141,10 +171,24 @@ export async function POST(req: Request) {
       });
       if (!variant)
         throw new ValidationError("الصنف غير موجود في المخزون");
+      // في كل الحالات لا يجوز تسجيل كمية تفوق المتاح.
       if (variant.quantity < input.quantity)
         throw new ValidationError(
           `الكمية غير كافية من "${variant.product.name}" مقاس ${variant.size} (المتاح: ${variant.quantity})`
         );
+
+      // عند «يُرجع للمورد» نتحقق من وجود المورد
+      let supplierName: string | null = null;
+      if (input.condition === "RETURN_TO_SUPPLIER") {
+        const supplier = input.supplierId
+          ? await tx.supplier.findUnique({
+              where: { id: input.supplierId },
+              select: { name: true },
+            })
+          : null;
+        if (!supplier) throw new ValidationError("المورد المختار غير موجود");
+        supplierName = supplier.name;
+      }
 
       // تكلفة الوحدة: القيمة المُدخلة أو سعر الصنف كقيمة افتراضية (لحساب الخسارة)
       const unitCost =
@@ -152,16 +196,18 @@ export async function POST(req: Request) {
           ? input.unitCost
           : variant.price;
 
-      // 1) خصم الكمية من مخزون الفرع — تحديث شرطي ذري يمنع الرصيد السالب
-      // عند تسجيل تلف متزامن يتجاوز طلبان الفحص المبدئي معاً.
-      const dec = await tx.productVariant.updateMany({
-        where: { id: variant.id, quantity: { gte: input.quantity } },
-        data: { quantity: { decrement: input.quantity } },
-      });
-      if (dec.count === 0)
-        throw new ValidationError(
-          `الكمية غير كافية من "${variant.product.name}" مقاس ${variant.size} (المتاح: ${variant.quantity})`
-        );
+      // 1) خصم الكمية من مخزون الفرع (فقط للحالات التي تُخصَم) — تحديث شرطي
+      // ذري يمنع الرصيد السالب عند التسجيل المتزامن.
+      if (deductsStock) {
+        const dec = await tx.productVariant.updateMany({
+          where: { id: variant.id, quantity: { gte: input.quantity } },
+          data: { quantity: { decrement: input.quantity } },
+        });
+        if (dec.count === 0)
+          throw new ValidationError(
+            `الكمية غير كافية من "${variant.product.name}" مقاس ${variant.size} (المتاح: ${variant.quantity})`
+          );
+      }
 
       // 2) تسجيل التلف — كود السبب في عمود reason، والنص الحر في detail
       const damaged = await tx.damagedItem.create({
@@ -174,24 +220,41 @@ export async function POST(req: Request) {
           detail: input.detail,
           unitCost,
           photoUrl: input.photoUrl,
+          condition: input.condition,
+          discountPrice:
+            input.condition === "SELL_AT_DISCOUNT"
+              ? input.discountPrice ?? null
+              : null,
+          supplierId:
+            input.condition === "RETURN_TO_SUPPLIER"
+              ? input.supplierId ?? null
+              : null,
         },
       });
 
-      // 3) قيد في سجل النشاط (سجل تدقيق)
-      const loss = round2(unitCost * input.quantity);
+      // 3) قيد في سجل النشاط (سجل تدقيق) — صياغة حسب الحالة
+      const condLabel = DEFECT_CONDITION_LABELS[input.condition];
+      let effect: string;
+      if (input.condition === "SELL_AT_DISCOUNT") {
+        effect = `يُباع بخصم بسعر ${input.discountPrice} ج.م (بقي في المخزون)`;
+      } else if (input.condition === "RETURN_TO_SUPPLIER") {
+        effect = `مرتجع للمورد ${supplierName} — خُصم من المخزون`;
+      } else {
+        effect = `خسارة ${round2(unitCost * input.quantity)} ج.م`;
+      }
       await tx.activityLog.create({
         data: {
           userName: input.createdBy || "النظام",
           userRole: "ADMIN",
           action: "تسجيل تلف (ديفو)",
-          details: `${variant.product.name} مقاس ${variant.size} — كمية ${input.quantity} — خسارة ${loss} ج.م`,
+          details: `${variant.product.name} مقاس ${variant.size} — كمية ${input.quantity} — ${condLabel} — ${effect}`,
         },
       });
 
-      return { damaged, variant };
+      return { damaged, variant, supplierName };
     });
 
-    const { damaged, variant } = result;
+    const { damaged, variant, supplierName } = result;
     const dto: DamagedItemDTO = {
       id: damaged.id,
       productId: damaged.productId,
@@ -207,6 +270,10 @@ export async function POST(req: Request) {
       unitCost: damaged.unitCost,
       loss: round2(damaged.unitCost * damaged.quantity),
       photoUrl: damaged.photoUrl,
+      condition: toCondition(damaged.condition),
+      discountPrice: damaged.discountPrice ?? null,
+      supplierId: damaged.supplierId ?? null,
+      supplierName,
       createdAt: damaged.createdAt.toISOString(),
     };
     return ok(dto, 201);

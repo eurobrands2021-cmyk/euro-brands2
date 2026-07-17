@@ -13,6 +13,38 @@ import {
   type StatusQueryFilters,
 } from "@/lib/product-status-query";
 import { foldSql, likePattern } from "@/lib/sql-search";
+import type { ProductDTO } from "@/lib/types";
+
+// إثراء أصناف نقطة البيع بسعر البيع بخصم عند وجود تسجيل «يُباع بخصم» فعّال
+// (الديفو). يُملأ discountPrice على الصنف كي تعرض نقطة البيع شارة «تالف/خصم»
+// وتبيع بالسعر المخفّض. دفاعي: يتجاهل غياب عمود condition على القواعد القديمة.
+async function attachDamagedDiscounts(products: ProductDTO[]): Promise<void> {
+  const variantIds = products.flatMap((p) => p.variants.map((v) => v.id));
+  if (variantIds.length === 0) return;
+  try {
+    const rows = await prisma.damagedItem.findMany({
+      where: { variantId: { in: variantIds }, condition: "SELL_AT_DISCOUNT" },
+      select: { variantId: true, discountPrice: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const map = new Map<string, number>();
+    for (const r of rows) {
+      // الأحدث لكل صنف (rows تنازلياً بالتاريخ)
+      if (r.variantId && r.discountPrice != null && !map.has(r.variantId)) {
+        map.set(r.variantId, r.discountPrice);
+      }
+    }
+    if (map.size === 0) return;
+    for (const p of products) {
+      for (const v of p.variants) {
+        const dp = map.get(v.id);
+        if (dp != null) v.discountPrice = dp;
+      }
+    }
+  } catch {
+    /* دفاعي: عمود condition/discountPrice قد لا يكون مفعّلاً بعد */
+  }
+}
 
 // نافذة احتساب «الأكثر مبيعاً» — 90 يوماً متجدّدة (بدلاً من كامل التاريخ).
 const BESTSELLER_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
@@ -61,6 +93,8 @@ export async function GET(req: Request) {
       ? idsParam.split(",").map((s) => s.trim()).filter(Boolean)
       : null;
     const withSales = searchParams.get("withSales") === "1";
+    // إثراء بأسعار البيع بخصم (الديفو) — تطلبه نقطة البيع فقط لتفادي الحمل الزائد.
+    const withDamaged = searchParams.get("withDamaged") === "1";
     const sort = searchParams.get("sort");
     const bestselling = sort === "bestselling";
     const mostSold = sort === "mostSold";
@@ -189,11 +223,14 @@ export async function GET(req: Request) {
         withCounts ? prisma.product.count({ where }) : Promise.resolve(0),
       ]);
 
+      const pagedItems = rows.map((p) =>
+        toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
+      );
+      if (withDamaged) await attachDamagedDiscounts(pagedItems);
+
       return ok(
         {
-          items: rows.map((p) =>
-            toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
-          ),
+          items: pagedItems,
           total,
           page,
           perPage,
@@ -289,6 +326,7 @@ export async function GET(req: Request) {
         .map((p) =>
           toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
         );
+      if (withDamaged) await attachDamagedDiscounts(items);
       return ok(
         { items, total, page, perPage, ...(counts ? { counts } : {}) },
         200,
@@ -296,13 +334,11 @@ export async function GET(req: Request) {
       );
     }
 
-    return ok(
-      output.map((p) =>
-        toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
-      ),
-      200,
-      CACHE_NONE
+    const arrayItems = output.map((p) =>
+      toProductDTO(p, soldMap ? soldMap.get(p.id) ?? 0 : undefined)
     );
+    if (withDamaged) await attachDamagedDiscounts(arrayItems);
+    return ok(arrayItems, 200, CACHE_NONE);
   } catch (error) {
     return handleServerError(error);
   }

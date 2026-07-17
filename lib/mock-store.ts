@@ -13,11 +13,13 @@ import {
   BRANCHES,
   DEFAULT_PRODUCT_TYPES,
   DEFECT_REASONS,
+  DEFECT_CONDITIONS,
   LOW_STOCK_THRESHOLD,
   RENAMED_PRODUCT_TYPES,
   type BranchValue,
   type CategoryValue,
   type DefectReasonValue,
+  type DefectConditionValue,
   type DeliveryMethodValue,
   type DeliveryStatusValue,
   type DiscountTypeValue,
@@ -213,6 +215,9 @@ interface MDamaged {
   detail: string | null; // نص حر
   unitCost: number;
   photoUrl: string | null;
+  condition: DefectConditionValue; // الحالة (التصرّف)
+  discountPrice: number | null; // سعر البيع بخصم
+  supplierId: string | null; // المورد (يُرجع للمورد)
   createdAt: Date;
 }
 
@@ -1075,6 +1080,7 @@ export function mockListProducts(
     ? new Set(idsParam.split(",").map((s) => s.trim()).filter(Boolean))
     : null;
   const withSales = sp.get("withSales") === "1";
+  const withDamaged = sp.get("withDamaged") === "1";
   const sort = sp.get("sort");
   const bestselling = sort === "bestselling";
   const mostSold = sort === "mostSold";
@@ -1175,9 +1181,30 @@ export function mockListProducts(
 
   if (limit) ordered = ordered.slice(0, limit);
 
+  // خريطة سعر البيع بخصم لكل صنف (الأحدث) عند طلب نقطة البيع withDamaged=1
+  const discountMap = withDamaged ? new Map<string, number>() : null;
+  if (discountMap) {
+    for (const d of store.damaged) {
+      if (
+        d.condition === "SELL_AT_DISCOUNT" &&
+        d.variantId &&
+        d.discountPrice != null &&
+        !discountMap.has(d.variantId)
+      ) {
+        discountMap.set(d.variantId, d.discountPrice);
+      }
+    }
+  }
+
   const shape = (p: MProduct) => {
     const dto = shapeProduct(p, hasVariantFilter ? matchVariant : undefined);
     if (soldMap) dto.soldCount = soldMap.get(p.id) ?? 0;
+    if (discountMap) {
+      for (const v of dto.variants) {
+        const dp = discountMap.get(v.id);
+        if (dp != null) v.discountPrice = dp;
+      }
+    }
     return dto;
   };
 
@@ -3293,6 +3320,12 @@ function shapeDamaged(d: MDamaged): DamagedItemDTO {
   const reasonCode = DEFECT_REASONS.includes(d.reason as DefectReasonValue)
     ? (d.reason as DefectReasonValue)
     : "OTHER";
+  const condition = DEFECT_CONDITIONS.includes(d.condition)
+    ? d.condition
+    : "TOTAL_LOSS";
+  const supplierName = d.supplierId
+    ? store.suppliers.find((s) => s.id === d.supplierId)?.name ?? null
+    : null;
   return {
     id: d.id,
     productId: d.productId,
@@ -3308,6 +3341,10 @@ function shapeDamaged(d: MDamaged): DamagedItemDTO {
     unitCost: d.unitCost,
     loss: round2(d.unitCost * d.quantity),
     photoUrl: d.photoUrl,
+    condition,
+    discountPrice: d.discountPrice ?? null,
+    supplierId: d.supplierId ?? null,
+    supplierName,
     createdAt: d.createdAt.toISOString(),
   };
 }
@@ -3321,8 +3358,18 @@ export function mockCreateDamaged(input: DamagedInput): DamagedItemDTO {
       `الكمية غير كافية من "${ref.product.name}" مقاس ${ref.variant.size} (المتاح: ${ref.variant.quantity})`
     );
 
-  // خصم المخزون
-  ref.variant.quantity -= input.quantity;
+  const condition = input.condition ?? "TOTAL_LOSS";
+  if (condition === "RETURN_TO_SUPPLIER") {
+    const supplier = input.supplierId
+      ? store.suppliers.find((s) => s.id === input.supplierId)
+      : null;
+    if (!supplier) throw new ValidationError("المورد المختار غير موجود");
+  }
+
+  // «يُباع بخصم» يبقى في المخزون؛ باقي الحالات تُخصَم.
+  if (condition !== "SELL_AT_DISCOUNT") {
+    ref.variant.quantity -= input.quantity;
+  }
 
   const unitCost =
     input.unitCost != null && input.unitCost >= 0
@@ -3339,6 +3386,11 @@ export function mockCreateDamaged(input: DamagedInput): DamagedItemDTO {
     detail: input.detail ?? null,
     unitCost,
     photoUrl: input.photoUrl ?? null,
+    condition,
+    discountPrice:
+      condition === "SELL_AT_DISCOUNT" ? input.discountPrice ?? null : null,
+    supplierId:
+      condition === "RETURN_TO_SUPPLIER" ? input.supplierId ?? null : null,
     createdAt: new Date(),
   };
   store.damaged.unshift(row);

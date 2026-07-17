@@ -15,6 +15,7 @@ import { useFetch } from "@/lib/use-fetch";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { Skeleton } from "@/components/ui/skeleton";
+import { NumberInput } from "@/components/ui/inputs";
 import { BRANCH_LABELS } from "@/lib/constants";
 import type { HomeStats } from "@/lib/types";
 
@@ -101,14 +102,11 @@ function DailyGoalCard({
             <label className="label" htmlFor="goal-input">
               هدف مبيعات اليوم (ج.م)
             </label>
-            <input
+            <NumberInput
               id="goal-input"
-              type="number"
-              inputMode="numeric"
-              min={0}
               autoFocus
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={setDraft}
               onKeyDown={(e) => {
                 if (e.key === "Enter") save();
                 if (e.key === "Escape") setEditing(false);

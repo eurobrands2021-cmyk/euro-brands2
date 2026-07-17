@@ -23,20 +23,26 @@ import {
 } from "@/components/ui/history-toolbar";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card, StatCard } from "@/components/ui/card";
-import { PageLoader } from "@/components/ui/spinner";
+import { PageLoader, Spinner } from "@/components/ui/spinner";
 import { RowsSkeleton } from "@/components/ui/skeleton";
 import { EmptyState } from "@/components/ui/empty-state";
-import { NumberInput } from "@/components/ui/inputs";
+import { NumberInput, TextOnlyInput } from "@/components/ui/inputs";
 import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
+import { cn } from "@/lib/cn";
 import {
   BRANCH_LABELS,
   DEFECT_REASONS,
   DEFECT_REASON_LABELS,
+  DEFECT_CONDITIONS,
+  DEFECT_CONDITION_LABELS,
+  DEFECT_CONDITION_HINTS,
   type DefectReasonValue,
+  type DefectConditionValue,
 } from "@/lib/constants";
 import type {
   DefectReportPage,
   ProductDTO,
+  SupplierDTO,
   VariantDTO,
 } from "@/lib/types";
 
@@ -53,7 +59,7 @@ export default function DefectsPage() {
     <div>
       <PageHeader
         title="الديفو — المنتجات التالفة"
-        description="تسجيل التلف يخصم الكمية من المخزون تلقائياً ويُدوَّن في سجل التدقيق"
+        description="سجّل التلف واختر الحالة: تالف بالكامل (خسارة) · يُباع بخصم (يبقى بالمخزون) · يُرجع للمورد"
       />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -106,6 +112,48 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // الحالة (التصرّف) وحقولها المرتبطة
+  const [condition, setCondition] = useState<DefectConditionValue>("TOTAL_LOSS");
+  const [discountPrice, setDiscountPrice] = useState("");
+  const [supplierId, setSupplierId] = useState("");
+
+  // الموردون (لحالة «يُرجع للمورد») + إضافة مورد جديد مباشرةً
+  const { data: suppliersData, refetch: refetchSuppliers } =
+    useFetch<{ suppliers: SupplierDTO[] }>("/api/suppliers");
+  const suppliers = suppliersData?.suppliers ?? [];
+  const [addingSupplier, setAddingSupplier] = useState(false);
+  const [newSupplier, setNewSupplier] = useState("");
+  const [savingSupplier, setSavingSupplier] = useState(false);
+
+  function onSupplierSelect(value: string) {
+    if (value === "__add_supplier__") {
+      setAddingSupplier(true);
+      setSupplierId("");
+    } else {
+      setSupplierId(value);
+    }
+  }
+
+  async function saveNewSupplier() {
+    const trimmed = newSupplier.trim();
+    if (!trimmed) return toast.error("اسم المورد مطلوب");
+    setSavingSupplier(true);
+    try {
+      const created = await apiPost<SupplierDTO>("/api/suppliers", {
+        name: trimmed,
+      });
+      await refetchSuppliers();
+      setSupplierId(created.id);
+      setAddingSupplier(false);
+      setNewSupplier("");
+      toast.success("تمت إضافة المورد");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "تعذّر إضافة المورد");
+    } finally {
+      setSavingSupplier(false);
+    }
+  }
+
   // بحث عند الطلب (بوابة حرفين + limit) بدل تحميل الكتالوج كاملاً — نفس نمط
   // بحث نقطة البيع. لا نجلب إلا عند الكتابة.
   useEffect(() => {
@@ -142,6 +190,11 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
     setReason("");
     setCost("");
     setPhoto(null);
+    setCondition("TOTAL_LOSS");
+    setDiscountPrice("");
+    setSupplierId("");
+    setAddingSupplier(false);
+    setNewSupplier("");
   }
 
   async function handlePhoto(e: React.ChangeEvent<HTMLInputElement>) {
@@ -180,6 +233,24 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
       return;
     }
 
+    // تحقّق حقول الحالة
+    let discountNum: number | null = null;
+    if (condition === "SELL_AT_DISCOUNT") {
+      discountNum = Number(discountPrice);
+      if (!Number.isFinite(discountNum) || discountNum <= 0) {
+        toast.error("أدخل سعر البيع بخصم");
+        return;
+      }
+      if (variant && discountNum >= variant.price) {
+        toast.error("سعر الخصم يجب أن يكون أقل من سعر الصنف الأصلي");
+        return;
+      }
+    }
+    if (condition === "RETURN_TO_SUPPLIER" && !supplierId) {
+      toast.error("اختر المورد المُرجَع إليه");
+      return;
+    }
+
     setSaving(true);
     try {
       await apiPost("/api/damaged", {
@@ -189,13 +260,22 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
         detail: reason.trim() || null,
         unitCost: cost.trim() === "" ? null : Number(cost),
         photoUrl: photo,
+        condition,
+        discountPrice: condition === "SELL_AT_DISCOUNT" ? discountNum : null,
+        supplierId: condition === "RETURN_TO_SUPPLIER" ? supplierId : null,
         createdBy: getSession()?.name ?? null,
       });
       void logActivity(
         "تسجيل تلف (ديفو)",
-        `${product?.name} — كمية ${qty}`
+        `${product?.name} — كمية ${qty} — ${DEFECT_CONDITION_LABELS[condition]}`
       );
-      toast.success("تم تسجيل التلف وخصمه من المخزون");
+      toast.success(
+        condition === "SELL_AT_DISCOUNT"
+          ? "تم التسجيل — الصنف يبقى في المخزون بسعر مخفّض"
+          : condition === "RETURN_TO_SUPPLIER"
+            ? "تم تسجيل المرتجع للمورد وخصمه من المخزون"
+            : "تم تسجيل التلف وخصمه من المخزون"
+      );
       reset();
       onRecorded();
     } catch (err) {
@@ -361,6 +441,108 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
             </div>
           )}
 
+          {/* الحالة (التصرّف) — تحدّد أثر التسجيل على المخزون */}
+          <div>
+            <label className="label">الحالة (التصرّف)</label>
+            <select
+              className="input"
+              value={condition}
+              onChange={(e) =>
+                setCondition(e.target.value as DefectConditionValue)
+              }
+            >
+              {DEFECT_CONDITIONS.map((c) => (
+                <option key={c} value={c}>
+                  {DEFECT_CONDITION_LABELS[c]}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted">
+              {DEFECT_CONDITION_HINTS[condition]}
+            </p>
+          </div>
+
+          {/* سعر البيع بخصم (عند «يُباع بخصم») */}
+          {condition === "SELL_AT_DISCOUNT" && (
+            <div>
+              <label className="label">
+                سعر البيع بخصم <span className="text-danger">*</span>
+              </label>
+              <NumberInput
+                decimal
+                className="input nums"
+                value={discountPrice}
+                onChange={setDiscountPrice}
+                placeholder={variant ? `أقل من ${variant.price}` : "السعر المخفّض"}
+              />
+              {variant && (
+                <p className="mt-1 text-xs text-muted nums">
+                  السعر الأصلي: {formatCurrency(variant.price)} — يظهر الصنف في
+                  نقطة البيع بشارة «تالف/خصم».
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* المورد (عند «يُرجع للمورد») */}
+          {condition === "RETURN_TO_SUPPLIER" && (
+            <div>
+              <label className="label">
+                المورد <span className="text-danger">*</span>
+              </label>
+              <select
+                className="input"
+                value={addingSupplier ? "__add_supplier__" : supplierId}
+                onChange={(e) => onSupplierSelect(e.target.value)}
+              >
+                <option value="">اختر المورد</option>
+                {suppliers.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+                <option value="__add_supplier__">+ إضافة مورد جديد</option>
+              </select>
+              {addingSupplier && (
+                <div className="mt-2 flex gap-2">
+                  <TextOnlyInput
+                    autoFocus
+                    className="input"
+                    value={newSupplier}
+                    onChange={setNewSupplier}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        saveNewSupplier();
+                      }
+                    }}
+                    placeholder="اسم المورد الجديد"
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-primary flex-shrink-0"
+                    onClick={saveNewSupplier}
+                    disabled={savingSupplier}
+                  >
+                    {savingSupplier && <Spinner className="h-4 w-4" />}
+                    حفظ
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-secondary flex-shrink-0"
+                    onClick={() => {
+                      setAddingSupplier(false);
+                      setNewSupplier("");
+                    }}
+                    disabled={savingSupplier}
+                  >
+                    إلغاء
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* صورة اختيارية */}
           <div>
             <label className="label">صورة العيب (اختياري)</label>
@@ -395,26 +577,67 @@ function RecordDefectCard({ onRecorded }: { onRecorded: () => void }) {
             )}
           </div>
 
-          {/* ملخّص الخسارة المتوقعة */}
+          {/* ملخّص القيمة المتوقعة حسب الحالة */}
           {variant && Number(quantity) > 0 && (
-            <div className="rounded-lg bg-[rgba(217,83,79,0.1)] p-3 text-sm">
-              <span className="text-muted">الخسارة المتوقعة: </span>
-              <span className="font-bold text-danger nums">
-                {formatCurrency(
-                  (cost.trim() === "" ? variant.price : Number(cost) || 0) *
-                    Number(quantity)
-                )}
-              </span>
+            <div
+              className={cn(
+                "rounded-lg p-3 text-sm",
+                condition === "SELL_AT_DISCOUNT"
+                  ? "bg-[rgba(59,154,110,0.1)]"
+                  : "bg-[rgba(217,83,79,0.1)]"
+              )}
+            >
+              {condition === "SELL_AT_DISCOUNT" ? (
+                <>
+                  <span className="text-muted">قيمة البيع بخصم المتوقّعة: </span>
+                  <span className="font-bold text-success nums">
+                    {formatCurrency(
+                      (Number(discountPrice) || 0) * Number(quantity)
+                    )}
+                  </span>
+                  <span className="mr-1 text-xs text-muted">
+                    (لا يُخصَم من المخزون)
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-muted">
+                    {condition === "RETURN_TO_SUPPLIER"
+                      ? "قيمة المرتجع للمورد: "
+                      : "الخسارة المتوقعة: "}
+                  </span>
+                  <span className="font-bold text-danger nums">
+                    {formatCurrency(
+                      (cost.trim() === "" ? variant.price : Number(cost) || 0) *
+                        Number(quantity)
+                    )}
+                  </span>
+                  {condition === "RETURN_TO_SUPPLIER" && (
+                    <span className="mr-1 text-xs text-muted">
+                      (لا يُحتسَب خسارة)
+                    </span>
+                  )}
+                </>
+              )}
             </div>
           )}
 
           <button
             onClick={submit}
             disabled={saving}
-            className="btn btn-danger w-full"
+            className={cn(
+              "btn w-full",
+              condition === "SELL_AT_DISCOUNT" ? "btn-primary" : "btn-danger"
+            )}
           >
             <Trash2 className="h-4 w-4" />
-            {saving ? "جارٍ التسجيل…" : "تسجيل التلف وخصم المخزون"}
+            {saving
+              ? "جارٍ التسجيل…"
+              : condition === "SELL_AT_DISCOUNT"
+                ? "تسجيل — يبقى بسعر مخفّض"
+                : condition === "RETURN_TO_SUPPLIER"
+                  ? "تسجيل مرتجع للمورد وخصم المخزون"
+                  : "تسجيل التلف وخصم المخزون"}
           </button>
         </div>
       )}
@@ -450,31 +673,85 @@ function DefectReportView({
     ? DEFECT_REASON_LABELS[report.topReason]
     : "—";
 
+  // عدّاد كل حالة (للعرض في بطاقة التفصيل)
+  const condStat = (c: DefectConditionValue) =>
+    report.conditionBreakdown.find((x) => x.condition === c) ?? {
+      condition: c,
+      count: 0,
+      quantity: 0,
+      value: 0,
+    };
+  const totalLossStat = condStat("TOTAL_LOSS");
+  const discountStat = condStat("SELL_AT_DISCOUNT");
+  const supplierStat = condStat("RETURN_TO_SUPPLIER");
+
   return (
     <div className="space-y-6">
-      {/* ملخّص */}
+      {/* ملخّص — القيم مفصولة حسب الحالة */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <StatCard
-          title="إجمالي الخسارة"
-          value={formatCurrency(report.totalLoss)}
-          subtitle={`${formatNumber(report.totalQuantity)} قطعة تالفة`}
+          title="الخسارة الحقيقية"
+          value={formatCurrency(report.trueLoss)}
+          subtitle={`تالف بالكامل · ${formatNumber(totalLossStat.quantity)} قطعة`}
           icon={<TrendingDown className="h-5 w-5" />}
           tone="warning"
         />
         <StatCard
-          title="السبب الأكثر تكراراً"
-          value={<span className="text-lg">{topLabel}</span>}
-          subtitle={`${formatNumber(report.topReasonCount)} سجل`}
-          icon={<AlertTriangle className="h-5 w-5" />}
-          tone="accent"
+          title="قيمة البيع بخصم"
+          value={formatCurrency(report.recoveredValue)}
+          subtitle={`${formatNumber(discountStat.quantity)} قطعة تُباع بخصم`}
+          icon={<PackageX className="h-5 w-5" />}
+          tone="success"
         />
         <StatCard
-          title="عدد السجلات"
-          value={formatNumber(report.total)}
+          title="مرتجع للمورد"
+          value={formatCurrency(report.supplierReturnValue)}
+          subtitle={`${formatNumber(supplierStat.quantity)} قطعة مرتجعة`}
           icon={<ClipboardList className="h-5 w-5" />}
-          tone="none"
+          tone="accent"
         />
       </div>
+
+      {/* توزيع حسب الحالة (التصرّف) */}
+      <Card className="p-5">
+        <h3 className="mb-3 text-sm font-bold text-text">
+          توزيع حسب الحالة (التصرّف)
+        </h3>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          {DEFECT_CONDITIONS.map((c) => {
+            const s = condStat(c);
+            const valueLabel =
+              c === "TOTAL_LOSS"
+                ? "خسارة"
+                : c === "SELL_AT_DISCOUNT"
+                  ? "قيمة البيع"
+                  : "قيمة المرتجع";
+            return (
+              <div
+                key={c}
+                className="rounded-lg border bg-[var(--surface-2)]/40 p-3"
+              >
+                <p className="text-xs font-bold text-text">
+                  {DEFECT_CONDITION_LABELS[c]}
+                </p>
+                <p className="mt-1 text-lg font-bold text-text nums">
+                  {formatNumber(s.count)}{" "}
+                  <span className="text-xs font-normal text-muted">سجل</span>
+                </p>
+                <p className="text-xs text-muted nums">
+                  {formatNumber(s.quantity)} قطعة · {valueLabel}{" "}
+                  {formatCurrency(s.value)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-xs text-muted">
+          السبب الأكثر تكراراً: <span className="font-medium text-text">{topLabel}</span>{" "}
+          ({formatNumber(report.topReasonCount)}) · إجمالي السجلات{" "}
+          {formatNumber(report.total)}
+        </p>
+      </Card>
 
       {/* توزيع الأسباب */}
       <Card className="p-5">
@@ -536,20 +813,59 @@ function DefectReportView({
                   {it.brand} · {BRANCH_LABELS[it.branch]} ·{" "}
                   {formatDateTime(it.createdAt)}
                 </p>
+                {it.condition === "RETURN_TO_SUPPLIER" && it.supplierName && (
+                  <p className="mt-0.5 text-xs text-muted">
+                    المورد: {it.supplierName}
+                  </p>
+                )}
                 {it.detail && (
                   <p className="mt-0.5 text-xs text-muted">{it.detail}</p>
                 )}
               </div>
-              <div className="shrink-0 text-left">
-                <span className="badge bg-accent-soft text-accent">
-                  {DEFECT_REASON_LABELS[it.reasonCode]}
-                </span>
-                <p className="mt-1 text-xs text-danger nums">
-                  {formatNumber(it.quantity)} × {formatCurrency(it.unitCost)}
-                </p>
-                <p className="text-xs font-bold text-danger nums">
-                  = {formatCurrency(it.loss)}
-                </p>
+              <div className="shrink-0 space-y-1 text-left">
+                <div className="flex flex-wrap justify-end gap-1">
+                  <span
+                    className={cn(
+                      "badge",
+                      it.condition === "SELL_AT_DISCOUNT"
+                        ? "bg-[rgba(59,154,110,0.14)] text-success"
+                        : it.condition === "RETURN_TO_SUPPLIER"
+                          ? "bg-accent-soft text-accent"
+                          : "bg-[rgba(217,83,79,0.12)] text-danger"
+                    )}
+                  >
+                    {DEFECT_CONDITION_LABELS[it.condition]}
+                  </span>
+                  <span className="badge bg-[var(--surface-2)] text-muted">
+                    {DEFECT_REASON_LABELS[it.reasonCode]}
+                  </span>
+                </div>
+                {it.condition === "SELL_AT_DISCOUNT" ? (
+                  <>
+                    <p className="text-xs text-muted nums">
+                      {formatNumber(it.quantity)} × {formatCurrency(it.discountPrice ?? 0)}
+                    </p>
+                    <p className="text-xs font-bold text-success nums">
+                      = {formatCurrency((it.discountPrice ?? 0) * it.quantity)}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-muted nums">
+                      {formatNumber(it.quantity)} × {formatCurrency(it.unitCost)}
+                    </p>
+                    <p
+                      className={cn(
+                        "text-xs font-bold nums",
+                        it.condition === "RETURN_TO_SUPPLIER"
+                          ? "text-accent"
+                          : "text-danger"
+                      )}
+                    >
+                      = {formatCurrency(it.loss)}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           ))}
