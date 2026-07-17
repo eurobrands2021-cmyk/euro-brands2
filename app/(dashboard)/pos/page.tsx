@@ -51,6 +51,7 @@ import {
 } from "@/components/offline-provider";
 import { cn } from "@/lib/cn";
 import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
+import { blendedLineNet } from "@/lib/damage-discount";
 import {
   formatCurrency,
   formatDateTime,
@@ -98,6 +99,10 @@ interface CartItem {
   note: string; // ملاحظة على الصنف (فارغة افتراضياً)
   itemDiscount: string; // قيمة خصم الصنف كنص إدخال (فارغة = بدون)
   itemDiscountType: DiscountTypeValue; // نوع خصم الصنف: FIXED / PERCENTAGE
+  // البيع بخصم (الديفو): سعر الخصم وعدد الوحدات المتاحة به لهذا الصنف.
+  // الخادم هو المرجع في التسعير؛ هذه للعرض فقط (لقطة عند الإضافة).
+  discountPrice: number | null;
+  discountQty: number;
 }
 
 interface HeldInvoice {
@@ -401,13 +406,15 @@ function PosRegister({
           size: variant.size,
           color: variant.color ?? null,
           sku: variant.sku ?? null,
-          // صنف مُعلَّم «يُباع بخصم» (الديفو) يُضاف بسعره المخفّض تلقائياً
-          unitPrice: variant.discountPrice ?? variant.price,
+          // السعر الأساسي؛ الوحدات المخفّضة (الديفو) تُسعَّر بسعر الخصم ضمن التقسيم
+          unitPrice: variant.price,
           available: variant.quantity,
           quantity: 1,
           note: "",
           itemDiscount: "",
           itemDiscountType: "FIXED",
+          discountPrice: variant.discountPrice ?? null,
+          discountQty: variant.discountQty ?? 0,
         },
       ];
     });
@@ -582,12 +589,14 @@ function PosRegister({
       cart.reduce(
         (s, i) =>
           s +
-          calcItemNet(
-            i.unitPrice,
-            i.quantity,
-            Number(i.itemDiscount) || 0,
-            i.itemDiscountType
-          ).net,
+          blendedLineNet({
+            fullPrice: i.unitPrice,
+            quantity: i.quantity,
+            discountPrice: i.discountPrice,
+            discountQty: i.discountQty,
+            itemDiscount: Number(i.itemDiscount) || 0,
+            itemDiscountType: i.itemDiscountType,
+          }).net,
         0
       ),
     [cart]
@@ -1619,27 +1628,51 @@ function CartRow({
     (Number(item.itemDiscount) || 0) > 0
   );
 
-  const { gross, discountAmount, net } = calcItemNet(
+  // بند مُعلَّم «يُباع بخصم» (الديفو): الوحدات المخفّضة تُسعَّر بسعر الخصم أولاً،
+  // ويُخفى خصم الصنف اليدوي لتفادي الازدواج (الخادم هو المرجع في التسعير).
+  const isDamaged = item.discountPrice != null && item.discountQty > 0;
+  const manual = calcItemNet(
     item.unitPrice,
     item.quantity,
     Number(item.itemDiscount) || 0,
     item.itemDiscountType
   );
-  const hasDiscount = discountAmount > 0;
+  const blended = blendedLineNet({
+    fullPrice: item.unitPrice,
+    quantity: item.quantity,
+    discountPrice: item.discountPrice,
+    discountQty: item.discountQty,
+    itemDiscount: Number(item.itemDiscount) || 0,
+    itemDiscountType: item.itemDiscountType,
+  });
+  const gross = manual.gross; // السعر الكامل × الكمية
+  const net = isDamaged ? blended.net : manual.net;
+  const discountAmount = manual.discountAmount;
+  const hasDiscount = !isDamaged && discountAmount > 0;
+  const showStrike = net < gross;
 
   return (
     <div className="rounded-lg border bg-bg p-2.5">
       {/* الاسم + حذف */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-text">
+          <p className="flex items-center gap-1.5 truncate text-sm font-medium text-text">
             {item.productName}
+            {isDamaged && <DamagedDiscountTag />}
           </p>
           <p className="text-xs text-muted">
             مقاس {item.size}
             {item.color ? ` / ${item.color}` : ""} ·{" "}
             {formatCurrency(item.unitPrice)}
           </p>
+          {isDamaged && (
+            <p className="text-[11px] text-danger nums">
+              {blended.discountedUnits} بسعر {formatCurrency(item.discountPrice!)}
+              {blended.normalUnits > 0
+                ? ` · ${blended.normalUnits} بالسعر العادي`
+                : ""}
+            </p>
+          )}
         </div>
         <button
           onClick={() => onRemove(item.variantId)}
@@ -1676,12 +1709,17 @@ function CartRow({
           </button>
         </div>
         <div className="text-left leading-tight">
-          {hasDiscount && (
+          {showStrike && (
             <span className="block text-[11px] text-muted line-through nums">
               {formatCurrency(gross)}
             </span>
           )}
-          <span className="text-sm font-bold text-text nums">
+          <span
+            className={cn(
+              "text-sm font-bold nums",
+              isDamaged ? "text-danger" : "text-text"
+            )}
+          >
             {formatCurrency(net)}
           </span>
         </div>
@@ -1704,21 +1742,24 @@ function CartRow({
           <StickyNote className="h-3.5 w-3.5" />
           ملاحظة
         </button>
-        <button
-          type="button"
-          onClick={() => setDiscountOpen((o) => !o)}
-          aria-pressed={discountOpen}
-          className={cn(
-            "flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
-            discountOpen || hasDiscount
-              ? "border-accent bg-accent-soft text-accent"
-              : "text-muted hover:text-text"
-          )}
-          title="خصم على الصنف"
-        >
-          <Percent className="h-3.5 w-3.5" />
-          خصم
-        </button>
+        {/* خصم الصنف اليدوي يُخفى على بنود «تالف/خصم» (التسعير من الديفو) */}
+        {!isDamaged && (
+          <button
+            type="button"
+            onClick={() => setDiscountOpen((o) => !o)}
+            aria-pressed={discountOpen}
+            className={cn(
+              "flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+              discountOpen || hasDiscount
+                ? "border-accent bg-accent-soft text-accent"
+                : "text-muted hover:text-text"
+            )}
+            title="خصم على الصنف"
+          >
+            <Percent className="h-3.5 w-3.5" />
+            خصم
+          </button>
+        )}
       </div>
 
       {/* حقل الملاحظة (مطويّ افتراضياً) */}
@@ -1911,7 +1952,7 @@ function SearchResult({
                 onClick={() => onAdd(product, v)}
                 title={
                   damaged
-                    ? `تالف/خصم — يُباع بـ ${formatCurrency(v.discountPrice!)} (المتاح: ${v.quantity})`
+                    ? `تالف/خصم — ${v.discountQty ?? 0} قطعة بسعر ${formatCurrency(v.discountPrice!)}، الباقي بالسعر العادي (المتاح: ${v.quantity})`
                     : maxed
                       ? "أضفت كل الكمية المتاحة"
                       : `المتاح: ${v.quantity}`
@@ -1937,7 +1978,7 @@ function SearchResult({
                   <span className="mt-0.5 flex items-center gap-1">
                     <DamagedDiscountTag />
                     <span className="text-[11px] font-bold text-danger nums">
-                      {formatCurrency(v.discountPrice!)}
+                      {v.discountQty ?? 0}×{formatCurrency(v.discountPrice!)}
                     </span>
                   </span>
                 )}

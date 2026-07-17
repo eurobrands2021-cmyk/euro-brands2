@@ -10,7 +10,8 @@ import { prisma } from "@/lib/prisma";
 import { ok, fail, handleServerError, CACHE_NONE } from "@/lib/api";
 import { toSaleDTO } from "@/lib/serializers";
 import { parseSaleInput, ValidationError } from "@/lib/validate";
-import { calcDiscount, calcItemNet, round2 } from "@/lib/sale-utils";
+import { calcDiscount, round2 } from "@/lib/sale-utils";
+import { splitSaleLine, type DiscountRecordLite } from "@/lib/damage-discount";
 import type { DiscountTypeValue } from "@/lib/constants";
 import { MOCK_MODE, mockListSales, mockCreateSale } from "@/lib/mock-store";
 
@@ -193,6 +194,33 @@ export async function POST(req: Request) {
     const merged = mergeItems(input.items);
     const variantIds = [...merged.keys()];
 
+    // لقطة سجلات «يُباع بخصم» النشطة لكل صنف (الأقدم أولاً) — تُقرأ قبل المعاملة
+    // دفاعياً (قد لا تكون أعمدة الديفو مفعّلة بعد). تُستهلَك ذرياً داخل المعاملة.
+    const discountRecords = new Map<string, DiscountRecordLite[]>();
+    try {
+      const drows = await prisma.damagedItem.findMany({
+        where: { variantId: { in: variantIds }, condition: "SELL_AT_DISCOUNT" },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          variantId: true,
+          discountPrice: true,
+          discountRemaining: true,
+          quantity: true,
+        },
+      });
+      for (const r of drows) {
+        if (!r.variantId || r.discountPrice == null) continue;
+        const remaining = r.discountRemaining ?? r.quantity;
+        if (remaining <= 0) continue;
+        const list = discountRecords.get(r.variantId) ?? [];
+        list.push({ id: r.id, discountPrice: r.discountPrice, remaining });
+        discountRecords.set(r.variantId, list);
+      }
+    } catch {
+      /* دفاعي: أعمدة الديفو غير مفعّلة — تُباع كل الكميات بالسعر العادي */
+    }
+
     // محاولة الإنشاء مع إعادة المحاولة عند تعارض رقم الفاتورة (نادر)
     let attempts = 0;
     while (true) {
@@ -206,6 +234,8 @@ export async function POST(req: Request) {
 
           let totalAmount = 0;
           const itemsData = [];
+          // استهلاك دفتر البيع بخصم (يُطبَّق ذرياً بعد نجاح فحوص الكمية)
+          const consumption: { id: string; take: number }[] = [];
           for (const [variantId, m] of merged.entries()) {
             const v = vmap.get(variantId);
             if (!v)
@@ -219,24 +249,30 @@ export async function POST(req: Request) {
                 `الكمية غير كافية من "${v.product.name}" مقاس ${v.size} (المتاح: ${v.quantity})`
               );
 
-            // الصافي بعد خصم الصنف (يُحسب من السعر الموثوق في الخادم)
-            const { net } = calcItemNet(
-              v.price,
-              m.quantity,
-              m.itemDiscount,
-              m.itemDiscountType
-            );
-            totalAmount += net;
-            itemsData.push({
-              productId: v.productId,
-              variantId: v.id,
+            // تقسيم الكمية: الوحدات المخفّضة (الديفو) أولاً بسعرها، والباقي
+            // بالسعر الموثوق في الخادم. التسعير مرجعه الخادم لا الواجهة.
+            const { splits, consumption: cons } = splitSaleLine({
+              fullPrice: v.price,
               quantity: m.quantity,
-              unitPrice: v.price,
-              subtotal: net,
-              note: m.note,
               itemDiscount: m.itemDiscount,
               itemDiscountType: m.itemDiscountType,
+              note: m.note,
+              records: discountRecords.get(variantId) ?? [],
             });
+            for (const s of splits) {
+              totalAmount += s.subtotal;
+              itemsData.push({
+                productId: v.productId,
+                variantId: v.id,
+                quantity: s.quantity,
+                unitPrice: s.unitPrice,
+                subtotal: s.subtotal,
+                note: s.note,
+                itemDiscount: s.itemDiscount,
+                itemDiscountType: s.itemDiscountType,
+              });
+            }
+            consumption.push(...cons);
           }
 
           totalAmount = round2(totalAmount);
@@ -271,6 +307,16 @@ export async function POST(req: Request) {
                 `الكمية غير كافية من "${v?.product.name ?? "المنتج"}" مقاس ${v?.size ?? ""}`
               );
             }
+          }
+
+          // استهلاك دفتر البيع بخصم — خصم ذري مشروط يمنع النزول تحت الصفر عند
+          // التزامن (لو استُهلِك السجل من عملية أخرى، يُتجاهَل بأمان).
+          for (const c of consumption) {
+            if (c.take <= 0) continue;
+            await tx.damagedItem.updateMany({
+              where: { id: c.id, discountRemaining: { gte: c.take } },
+              data: { discountRemaining: { decrement: c.take } },
+            });
           }
 
           // رقم فاتورة تصاعدي عام

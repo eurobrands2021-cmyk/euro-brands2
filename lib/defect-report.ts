@@ -17,7 +17,8 @@ import { round2 } from "./sale-utils";
 export function buildDefectReport(items: DamagedItemDTO[]): DefectReport {
   let totalQuantity = 0;
   let trueLoss = 0; // خسارة صافية — حالة «تالف بالكامل» فقط
-  let recoveredValue = 0; // قيمة البيع بخصم (سعر الخصم × الكمية)
+  let recoveredValue = 0; // قيمة ما بيع فعلاً بخصم (سعر الخصم × الوحدات المُستهلَكة)
+  let pendingDiscountValue = 0; // قيمة المتبقّي للبيع بخصم
   let supplierReturnValue = 0; // قيمة المرتجع للمورد (التكلفة × الكمية)
 
   const reasonAgg = new Map<
@@ -44,8 +45,14 @@ export function buildDefectReport(items: DamagedItemDTO[]): DefectReport {
       value = it.loss;
       trueLoss += it.loss;
     } else if (it.condition === "SELL_AT_DISCOUNT") {
-      value = round2((it.discountPrice ?? 0) * it.quantity);
-      recoveredValue += value;
+      const price = it.discountPrice ?? 0;
+      // القيمة الإجمالية المُعلَّمة للبيع بخصم = السعر × الكمية.
+      value = round2(price * it.quantity);
+      // المتبقّي مقابل المُستهلَك (المباع فعلاً) — من دفتر الاستهلاك.
+      const remaining = it.discountRemaining ?? it.quantity;
+      const sold = Math.max(0, it.quantity - remaining);
+      recoveredValue += round2(price * sold);
+      pendingDiscountValue += round2(price * remaining);
     } else if (it.condition === "RETURN_TO_SUPPLIER") {
       value = it.loss;
       supplierReturnValue += value;
@@ -87,6 +94,7 @@ export function buildDefectReport(items: DamagedItemDTO[]): DefectReport {
     conditionBreakdown,
     trueLoss: round2(trueLoss),
     recoveredValue: round2(recoveredValue),
+    pendingDiscountValue: round2(pendingDiscountValue),
     supplierReturnValue: round2(supplierReturnValue),
   };
 }

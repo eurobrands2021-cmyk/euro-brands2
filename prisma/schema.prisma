@@ -338,6 +338,9 @@ model DamagedItem {
   //   RETURN_TO_SUPPLIER= يُرجع للمورد: يُخصَم من المخزون ويُربَط بمورد (supplierId)
   condition     String  @default("TOTAL_LOSS")
   discountPrice Float? // سعر البيع بخصم (عند SELL_AT_DISCOUNT فقط)
+  // عدد الوحدات المتبقية للبيع بخصم (يبدأ = quantity ويُستهلَك مع كل بيع).
+  // null للحالات الأخرى؛ 0 يعني نفد المخزون المخفّض فيختفي وسم «تالف/خصم».
+  discountRemaining Int?
   supplierId    String? // المورد (عند RETURN_TO_SUPPLIER فقط)
   supplier      Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
 

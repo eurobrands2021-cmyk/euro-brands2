@@ -115,6 +115,10 @@ export async function GET(req: Request) {
         photoUrl: r.photoUrl,
         condition: toCondition(r.condition),
         discountPrice: r.discountPrice ?? null,
+        discountRemaining:
+          r.condition === "SELL_AT_DISCOUNT"
+            ? r.discountRemaining ?? r.quantity
+            : null,
         supplierId: r.supplierId ?? null,
         supplierName: r.supplierId ? smap.get(r.supplierId) ?? null : null,
         createdAt: r.createdAt.toISOString(),
@@ -225,6 +229,9 @@ export async function POST(req: Request) {
             input.condition === "SELL_AT_DISCOUNT"
               ? input.discountPrice ?? null
               : null,
+          // دفتر الاستهلاك: كل الوحدات متاحة للبيع بخصم عند التسجيل
+          discountRemaining:
+            input.condition === "SELL_AT_DISCOUNT" ? input.quantity : null,
           supplierId:
             input.condition === "RETURN_TO_SUPPLIER"
               ? input.supplierId ?? null
@@ -272,6 +279,10 @@ export async function POST(req: Request) {
       photoUrl: damaged.photoUrl,
       condition: toCondition(damaged.condition),
       discountPrice: damaged.discountPrice ?? null,
+      discountRemaining:
+        damaged.condition === "SELL_AT_DISCOUNT"
+          ? damaged.discountRemaining ?? damaged.quantity
+          : null,
       supplierId: damaged.supplierId ?? null,
       supplierName,
       createdAt: damaged.createdAt.toISOString(),

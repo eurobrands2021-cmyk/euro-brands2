@@ -42,6 +42,9 @@ export const INIT_SQL = "-- CreateEnum\nCREATE TYPE \"Category\" AS ENUM ('CLOTH
   "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"condition\" TEXT NOT NULL DEFAULT 'TOTAL_LOSS';\n\n" +
   "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"discountPrice\" DOUBLE PRECISION;\n\n" +
   "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"supplierId\" TEXT;\n\n" +
+  // دفتر استهلاك البيع بخصم: كمية متبقية للبيع بخصم لكل سجل + تعبئة السجلات القائمة
+  "ALTER TABLE \"DamagedItem\" ADD COLUMN IF NOT EXISTS \"discountRemaining\" INTEGER;\n\n" +
+  "UPDATE \"DamagedItem\" SET \"discountRemaining\" = \"quantity\" WHERE \"condition\" = 'SELL_AT_DISCOUNT' AND \"discountRemaining\" IS NULL;\n\n" +
   "CREATE INDEX IF NOT EXISTS \"DamagedItem_condition_idx\" ON \"DamagedItem\"(\"condition\");\n\n" +
   "CREATE INDEX IF NOT EXISTS \"DamagedItem_supplierId_idx\" ON \"DamagedItem\"(\"supplierId\");\n\n" +
   "ALTER TABLE \"DamagedItem\" ADD CONSTRAINT \"DamagedItem_supplierId_fkey\" FOREIGN KEY (\"supplierId\") REFERENCES \"Supplier\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;\n\n";

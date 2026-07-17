@@ -697,9 +697,9 @@ function DefectReportView({
           tone="warning"
         />
         <StatCard
-          title="قيمة البيع بخصم"
+          title="مُسترَد (بيع بخصم)"
           value={formatCurrency(report.recoveredValue)}
-          subtitle={`${formatNumber(discountStat.quantity)} قطعة تُباع بخصم`}
+          subtitle={`متبقٍ للبيع ${formatCurrency(report.pendingDiscountValue)} · ${formatNumber(discountStat.quantity)} قطعة`}
           icon={<PackageX className="h-5 w-5" />}
           tone="success"
         />
@@ -847,6 +847,10 @@ function DefectReportView({
                     </p>
                     <p className="text-xs font-bold text-success nums">
                       = {formatCurrency((it.discountPrice ?? 0) * it.quantity)}
+                    </p>
+                    <p className="text-[11px] text-muted nums">
+                      متبقٍ للبيع:{" "}
+                      {formatNumber(it.discountRemaining ?? it.quantity)}
                     </p>
                   </>
                 ) : (

@@ -33,6 +33,9 @@ export interface VariantDTO {
   // سعر البيع بخصم عند وجود تسجيل «يُباع بخصم» فعّال لهذا الصنف (الديفو).
   // يُملأ فقط في مسارات نقطة البيع (withDamaged=1) — null = لا خصم تالف.
   discountPrice?: number | null;
+  // عدد الوحدات المتبقية للبيع بخصم لهذا الصنف (مجموع المتبقّي عبر السجلات).
+  // 0/غياب = لا وحدات مخفّضة. يحدّ عدد القطع التي تُباع بسعر الخصم في الفاتورة.
+  discountQty?: number | null;
 }
 
 export interface ProductDTO {
@@ -442,6 +445,7 @@ export interface DamagedItemDTO {
   // الحالة (التصرّف) وحقولها المرتبطة
   condition: DefectConditionValue; // TOTAL_LOSS | SELL_AT_DISCOUNT | RETURN_TO_SUPPLIER
   discountPrice: number | null; // سعر البيع بخصم (عند «يُباع بخصم»)
+  discountRemaining: number | null; // الوحدات المتبقية للبيع بخصم (null لغير هذه الحالة)
   supplierId: string | null; // المورد (عند «يُرجع للمورد»)
   supplierName: string | null; // اسم المورد للعرض
   createdAt: string;
@@ -480,7 +484,8 @@ export interface DefectReport {
   // تفصيل حسب الحالة + قيم كل حالة
   conditionBreakdown: DefectConditionStat[];
   trueLoss: number; // خسارة صافية (تالف بالكامل) — نفس totalLoss
-  recoveredValue: number; // قيمة البيع بخصم المتوقّعة (Σ سعر الخصم × الكمية)
+  recoveredValue: number; // قيمة ما بيع فعلاً بخصم (Σ سعر الخصم × الوحدات المُستهلَكة)
+  pendingDiscountValue: number; // قيمة الوحدات المتبقية للبيع بخصم (Σ سعر الخصم × المتبقّي)
   supplierReturnValue: number; // قيمة المرتجع للمورد (Σ التكلفة × الكمية)
 }
 

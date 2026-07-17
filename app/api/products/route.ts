@@ -22,27 +22,41 @@ async function attachDamagedDiscounts(products: ProductDTO[]): Promise<void> {
   const variantIds = products.flatMap((p) => p.variants.map((v) => v.id));
   if (variantIds.length === 0) return;
   try {
+    // السجلات النشطة (يُباع بخصم) مرتّبة الأقدم أولاً — الأقدم يُستهلَك أولاً،
+    // ومنه يؤخذ سعر الخصم المعروض في نقطة البيع.
     const rows = await prisma.damagedItem.findMany({
       where: { variantId: { in: variantIds }, condition: "SELL_AT_DISCOUNT" },
-      select: { variantId: true, discountPrice: true },
-      orderBy: { createdAt: "desc" },
+      select: {
+        variantId: true,
+        discountPrice: true,
+        discountRemaining: true,
+        quantity: true,
+      },
+      orderBy: { createdAt: "asc" },
     });
-    const map = new Map<string, number>();
+    // لكل صنف: مجموع المتبقّي + سعر أقدم سجل به متبقٍّ.
+    const agg = new Map<string, { qty: number; price: number | null }>();
     for (const r of rows) {
-      // الأحدث لكل صنف (rows تنازلياً بالتاريخ)
-      if (r.variantId && r.discountPrice != null && !map.has(r.variantId)) {
-        map.set(r.variantId, r.discountPrice);
-      }
+      if (!r.variantId || r.discountPrice == null) continue;
+      const remaining = r.discountRemaining ?? r.quantity;
+      if (remaining <= 0) continue;
+      const cur = agg.get(r.variantId) ?? { qty: 0, price: null };
+      cur.qty += remaining;
+      if (cur.price == null) cur.price = r.discountPrice; // أقدم سجل نشط
+      agg.set(r.variantId, cur);
     }
-    if (map.size === 0) return;
+    if (agg.size === 0) return;
     for (const p of products) {
       for (const v of p.variants) {
-        const dp = map.get(v.id);
-        if (dp != null) v.discountPrice = dp;
+        const a = agg.get(v.id);
+        if (a && a.qty > 0 && a.price != null) {
+          v.discountPrice = a.price;
+          v.discountQty = a.qty;
+        }
       }
     }
   } catch {
-    /* دفاعي: عمود condition/discountPrice قد لا يكون مفعّلاً بعد */
+    /* دفاعي: أعمدة الديفو قد لا تكون مفعّلة بعد */
   }
 }
 
