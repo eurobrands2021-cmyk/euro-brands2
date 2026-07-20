@@ -190,6 +190,21 @@ export async function POST(req: Request) {
 
     if (MOCK_MODE) return ok(mockCreateSale(input), 201);
 
+    // منع التكرار (idempotency): لو حملت الفاتورة مفتاح تفرّد سبق تسجيله
+    // (إعادة إرسال طابور عدم الاتصال أو تكرار الطلب بعد انقطاع الرد)، نُعيد
+    // الفاتورة الأصلية بدل إنشاء نسخة ثانية. القراءة دفاعية إن كان العمود غائباً.
+    if (input.clientRef) {
+      try {
+        const existing = await prisma.sale.findUnique({
+          where: { clientRef: input.clientRef },
+          include: saleInclude,
+        });
+        if (existing) return ok(toSaleDTO(existing), 200);
+      } catch {
+        /* عمود clientRef غير مفعّل بعد — نتابع الإنشاء العادي */
+      }
+    }
+
     // دمج الكميات المكررة لنفس المقاس (مع ملاحظة/خصم الصنف)
     const merged = mergeItems(input.items);
     const variantIds = [...merged.keys()];
@@ -370,6 +385,7 @@ export async function POST(req: Request) {
           return tx.sale.create({
             data: {
               saleNumber,
+              clientRef: input.clientRef ?? null,
               branch: input.branch as Branch,
               totalAmount,
               discountType: (input.discountType as DiscountType | null) ?? null,
@@ -404,14 +420,25 @@ export async function POST(req: Request) {
 
         return ok(toSaleDTO(sale), 201);
       } catch (err) {
-        // تعارض رقم الفاتورة — أعد المحاولة
         if (
           err instanceof Prisma.PrismaClientKnownRequestError &&
-          err.code === "P2002" &&
-          attempts < 4
+          err.code === "P2002"
         ) {
-          attempts++;
-          continue;
+          const target = (err.meta as { target?: string[] } | null)?.target;
+          // تعارض على مفتاح التفرّد: طلب متزامن سبقنا لإنشاء نفس الفاتورة —
+          // نُعيد النسخة الأصلية بدل إنشاء نسخة ثانية أو إظهار خطأ.
+          if (target?.includes("clientRef") && input.clientRef) {
+            const winner = await prisma.sale.findUnique({
+              where: { clientRef: input.clientRef },
+              include: saleInclude,
+            });
+            if (winner) return ok(toSaleDTO(winner), 200);
+          }
+          // تعارض رقم الفاتورة التصاعدي — أعد المحاولة
+          if (attempts < 4) {
+            attempts++;
+            continue;
+          }
         }
         throw err;
       }

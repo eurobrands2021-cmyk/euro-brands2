@@ -47,4 +47,16 @@ export const INIT_SQL = "-- CreateEnum\nCREATE TYPE \"Category\" AS ENUM ('CLOTH
   "UPDATE \"DamagedItem\" SET \"discountRemaining\" = \"quantity\" WHERE \"condition\" = 'SELL_AT_DISCOUNT' AND \"discountRemaining\" IS NULL;\n\n" +
   "CREATE INDEX IF NOT EXISTS \"DamagedItem_condition_idx\" ON \"DamagedItem\"(\"condition\");\n\n" +
   "CREATE INDEX IF NOT EXISTS \"DamagedItem_supplierId_idx\" ON \"DamagedItem\"(\"supplierId\");\n\n" +
-  "ALTER TABLE \"DamagedItem\" ADD CONSTRAINT \"DamagedItem_supplierId_fkey\" FOREIGN KEY (\"supplierId\") REFERENCES \"Supplier\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;\n\n";
+  "ALTER TABLE \"DamagedItem\" ADD CONSTRAINT \"DamagedItem_supplierId_fkey\" FOREIGN KEY (\"supplierId\") REFERENCES \"Supplier\"(\"id\") ON DELETE SET NULL ON UPDATE CASCADE;\n\n" +
+  // ----------------------------------------------------
+  //  منع تكرار الفاتورة (idempotency): مفتاح تفرّد من العميل + فهرس فريد.
+  //  NULL يُعامَل كقيمة مميزة في Postgres، فالفواتير القديمة/بلا مفتاح لا تتعارض.
+  // ----------------------------------------------------
+  "ALTER TABLE \"Sale\" ADD COLUMN IF NOT EXISTS \"clientRef\" TEXT;\n\n" +
+  "CREATE UNIQUE INDEX IF NOT EXISTS \"Sale_clientRef_key\" ON \"Sale\"(\"clientRef\");\n\n" +
+  // ----------------------------------------------------
+  //  شيفت واحد مفتوح لكل فرع: فهرس فريد جزئي يمنع فتح شيفتين متزامنين على مستوى
+  //  قاعدة البيانات (فحص التطبيق غير ذرّي). ملاحظة: يفشل إنشاؤه لو وُجدت شيفتات
+  //  مفتوحة مكررة مسبقاً — تُقفَل يدوياً أولاً ثم يُعاد تشغيل الترحيل.
+  // ----------------------------------------------------
+  "CREATE UNIQUE INDEX IF NOT EXISTS \"ShiftClose_one_open_per_branch\" ON \"ShiftClose\"(\"branch\") WHERE \"closedAt\" IS NULL;\n\n";

@@ -373,6 +373,7 @@ export interface SaleInput {
   cashierName?: string | null; // اسم الكاشير (من الجلسة)
   delivery?: DeliveryInput | null; // بيانات التوصيل (اختيارية)
   saveAsNewCustomer?: boolean; // احفظ رقم/اسم العميل كعميل جديد إن لم يكن مسجلاً
+  clientRef?: string | null; // مفتاح تفرّد من العميل لمنع تكرار الفاتورة (idempotency)
 }
 
 // العملاء

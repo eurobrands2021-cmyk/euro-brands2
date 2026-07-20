@@ -111,6 +111,13 @@ export async function POST(req: Request) {
     return ok(toShiftCloseDTO(created), 201);
   } catch (error) {
     if (error instanceof ValidationError) return fail(error.message, 422);
+    // سباق فتح شيفتين متزامنين: الفهرس الفريد الجزئي منع الثاني على مستوى
+    // القاعدة — نُعيد نفس رسالة فحص التطبيق بدل خطأ عام.
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === "P2002"
+    )
+      return fail("يوجد شيفت مفتوح بالفعل لهذا الفرع — أقفله أولاً", 409);
     return handleServerError(error);
   }
 }

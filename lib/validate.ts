@@ -312,6 +312,10 @@ export function parseSaleInput(body: any): SaleInput {
     delivery = parseDeliveryInput(body.delivery);
   }
 
+  // مفتاح التفرّد (idempotency) من العميل — نصّ قصير اختياري
+  const clientRefRaw = asString(body?.clientRef);
+  const clientRef = clientRefRaw ? clientRefRaw.slice(0, 80) : null;
+
   const customerName = asString(body?.customerName) || null;
   const customerPhone = asString(body?.customerPhone) || null;
   const saveAsNewCustomer = !!body?.saveAsNewCustomer;
@@ -338,6 +342,7 @@ export function parseSaleInput(body: any): SaleInput {
     cashierName: asString(body?.cashierName) || null,
     delivery,
     saveAsNewCustomer,
+    clientRef,
   };
 }
 

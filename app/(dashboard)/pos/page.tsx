@@ -731,6 +731,13 @@ function PosRegister({
     if (submitLock.current) return;
     submitLock.current = true;
 
+    // مفتاح تفرّد للفاتورة (idempotency): يمنع تكرارها لو أُعيد إرسال الطلب
+    // (مزامنة طابور عدم الاتصال أو انقطاع الرد بعد نجاح الخادم).
+    const clientRef =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `pos-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
     const payload = {
       branch,
       items: cart.map((i) => ({
@@ -755,6 +762,7 @@ function PosRegister({
           : null,
       changeAmount: cashCalcActive && changeDue > 0 ? changeDue : null,
       cashierName: getSession()?.name ?? null,
+      clientRef,
       saveAsNewCustomer: !customerLookup && customerNotFound && saveAsNewCustomer,
       delivery:
         deliveryOn && orderSource && deliveryMethod
@@ -780,7 +788,8 @@ function PosRegister({
       setSubmitting(true);
       try {
         await addPendingSale({
-          id: `pos-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          // نفس مفتاح التفرّد: إعادة المزامنة تحمل clientRef ذاته فيَمنع التكرار
+          id: clientRef,
           payload,
           branch,
           itemsCount,
