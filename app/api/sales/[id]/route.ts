@@ -82,6 +82,13 @@ export async function PUT(
         : "النظام";
     const editorRole = body?.editorRole === "CASHIER" ? "CASHIER" : "ADMIN";
 
+    // طابع آخر تحديث كما رآه المُحرِّر عند فتح الفاتورة (تفاؤلي) — لكشف
+    // تعديل متزامن من مستخدم آخر ومنع الكتابة فوقه بصمت.
+    const expectedUpdatedAt =
+      typeof body?.expectedUpdatedAt === "string" && body.expectedUpdatedAt
+        ? body.expectedUpdatedAt
+        : null;
+
     if (MOCK_MODE) {
       const res = mockUpdateSale(params.id, input);
       return res.ok ? ok(res.sale) : fail(res.error, res.status);
@@ -120,6 +127,18 @@ export async function PUT(
         return {
           ok: false as const,
           error: "لا يمكن تعديل فاتورة ملغية",
+          status: 409,
+        };
+      // تعارض تعديل متزامن: عُدِّلت الفاتورة من مستخدم آخر بعد أن فتحها هذا
+      // المُحرِّر — نرفض الحفظ بدل الكتابة فوق تعديل الآخر بصمت.
+      if (
+        expectedUpdatedAt &&
+        sale.updatedAt.getTime() !== new Date(expectedUpdatedAt).getTime()
+      )
+        return {
+          ok: false as const,
+          error:
+            "عُدِّلت هذه الفاتورة من مستخدم آخر أثناء فتحك لها — أعد تحميل الصفحة ثم طبّق تعديلك",
           status: 409,
         };
       // فاتورة مقفلة (تجاوزت مدة القفل ولم تُفتح يدوياً) — تُرفض

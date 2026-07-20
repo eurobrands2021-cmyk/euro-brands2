@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { RotateCcw, Repeat } from "lucide-react";
 import toast from "react-hot-toast";
 import { Modal } from "@/components/ui/modal";
@@ -50,6 +50,9 @@ export function ReturnModal({
     Record<string, VariantDTO[]>
   >({});
   const [busy, setBusy] = useState(false);
+  // قفل متزامن ضد النقر المزدوج — تعطيل الزر عبر الحالة غير فوري، فقد يُرسَل
+  // طلبان متتاليان يُسجّلان إرجاعاً/استرداداً مضاعفاً قبل إعادة التصيير.
+  const submitLock = useRef(false);
 
   // كمية مُرتجعة سابقاً لكل بند (من سجل المرتجعات) لتحديد المتبقي القابل للإرجاع
   const alreadyReturned = useMemo(() => {
@@ -153,6 +156,8 @@ export function ReturnModal({
       exchangeVariantId:
         type === "EXCHANGE" ? x.row.exchangeVariantId : undefined,
     }));
+    if (submitLock.current) return;
+    submitLock.current = true;
     setBusy(true);
     try {
       await apiPost<ReturnDTO>("/api/returns", {
@@ -170,6 +175,7 @@ export function ReturnModal({
       toast.error(e instanceof Error ? e.message : "تعذّر تنفيذ العملية");
     } finally {
       setBusy(false);
+      submitLock.current = false;
     }
   }
 

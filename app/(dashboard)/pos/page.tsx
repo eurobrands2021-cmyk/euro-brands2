@@ -237,6 +237,9 @@ function PosRegister({
   const [addressNotes, setAddressNotes] = useState("");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // قفل متزامن يمنع إنشاء فاتورتين عند النقر مزدوجاً بسرعة قبل أن يُعطّل React الزر
+  // (تعطيل الزر عبر الحالة غير فوري، بينما مرجع الـ ref يُقرأ/يُكتب فوراً).
+  const submitLock = useRef(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [receipt, setReceipt] = useState<SaleDTO | null>(null);
   const [held, setHeld] = useState<HeldInvoice[]>([]);
@@ -724,6 +727,10 @@ function PosRegister({
       if (!deliveryAddress.trim()) return toast.error("أدخل عنوان التوصيل");
     }
 
+    // قفل متزامن ضد النقر المزدوج السريع — يمنع إرسال طلبين قبل تعطيل الزر
+    if (submitLock.current) return;
+    submitLock.current = true;
+
     const payload = {
       branch,
       items: cart.map((i) => ({
@@ -789,6 +796,7 @@ function PosRegister({
         toast.error("تعذّر حفظ الفاتورة محلياً");
       } finally {
         setSubmitting(false);
+        submitLock.current = false;
       }
       return;
     }
@@ -810,6 +818,7 @@ function PosRegister({
       refetch();
     } finally {
       setSubmitting(false);
+      submitLock.current = false;
     }
   }
 

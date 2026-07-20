@@ -174,6 +174,7 @@ export function toSaleDTO(s: SaleWithItems): SaleDTO {
     trackingNumber: s.trackingNumber,
     deliveryStatus: (s.deliveryStatus as SaleDTO["deliveryStatus"]) ?? null,
     createdAt: s.createdAt.toISOString(),
+    updatedAt: s.updatedAt.toISOString(),
     unlockedAt: s.unlockedAt ? s.unlockedAt.toISOString() : null,
     unlockReason: s.unlockReason ?? null,
     items: s.items.map((it) => ({

@@ -259,11 +259,16 @@ export async function DELETE(
     await prisma.product.delete({ where: { id: params.id } });
     return ok({ success: true });
   } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === "P2025"
-    ) {
-      return fail("المنتج غير موجود", 404);
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === "P2025") return fail("المنتج غير موجود", 404);
+      // قيد مفتاح خارجي (P2003) أو فشل حذف سجلات مرتبطة مقيَّدة (P2014):
+      // للمنتج تاريخ مرتبط (استلام بضاعة/مرتجعات) يمنع الحذف — رسالة واضحة
+      // بدل خطأ عام مبهم.
+      if (error.code === "P2003" || error.code === "P2014")
+        return fail(
+          "لا يمكن حذف منتج مرتبط بسجلّات سابقة (استلام بضاعة أو مرتجعات). يمكنك تصفير كمياته بدلاً من ذلك.",
+          409
+        );
     }
     return handleServerError(error);
   }

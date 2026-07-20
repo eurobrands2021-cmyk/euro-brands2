@@ -401,6 +401,8 @@ function SaleEditor({ sale }: { sale: SaleDTO }) {
           : null,
         editorName: session?.name ?? null,
         editorRole: session?.role ?? null,
+        // طابع آخر تحديث كما حُمِّل — لكشف تعديل متزامن من مستخدم آخر
+        expectedUpdatedAt: sale.updatedAt ?? null,
       };
       await apiPut<SaleDTO>(`/api/sales/${sale.id}`, body);
       toast.success("تم حفظ تعديلات الفاتورة وتصحيح المخزون");

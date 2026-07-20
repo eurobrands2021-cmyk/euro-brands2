@@ -179,6 +179,7 @@ export interface SaleDTO {
   trackingNumber: string | null;
   deliveryStatus: DeliveryStatusValue | null;
   createdAt: string;
+  updatedAt?: string; // طابع آخر تحديث (يُستخدم لكشف تعارض التعديل المتزامن)
   lastEditedAt?: string | null; // آخر تعديل على الفاتورة (من سجل النشاط)
   unlockedAt: string | null; // وقت فتح القفل يدوياً (إن وُجد)
   unlockReason: string | null; // سبب فتح القفل
